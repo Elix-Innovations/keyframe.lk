@@ -1,4 +1,4 @@
-import type { AnimationId } from '../types';
+import type { AnimationId, AnimKey } from '../types';
 
 export interface AnimState {
   alpha: number;
@@ -19,6 +19,8 @@ export const BASE_DURATION: Record<AnimationId, number> = {
   none: 0, fade: 0.25, softRise: 0.35, slideUp: 0.3, slideDown: 0.3, glideLeft: 0.35, glideRight: 0.35,
   softZoom: 0.3, zoomIn: 0.25, pop: 0.28, springPop: 0.5, bounce: 0.55, floatIn: 0.45, typewriter: 0.35,
   focusIn: 0.4, slam: 0.32, drop: 0.5, stretch: 0.45, swing: 0.5, flipUp: 0.4, jolt: 0.4,
+  glitch: 0.5, flicker: 0.6, whip: 0.3, spinIn: 0.5, elastic: 0.6, wipe: 0.45, blurRise: 0.5,
+  blurSlide: 0.7, blurSlideL: 0.7, blurIn: 0.6, zoomThrough: 0.7, dimIn: 0.5, custom: 0,
 };
 
 export const ANIMATION_LABELS: Record<AnimationId, string> = {
@@ -26,6 +28,8 @@ export const ANIMATION_LABELS: Record<AnimationId, string> = {
   glideLeft: 'Glide Left', glideRight: 'Glide Right', softZoom: 'Soft Zoom', zoomIn: 'Zoom In', pop: 'Pop',
   springPop: 'Spring Pop', bounce: 'Bounce', floatIn: 'Float In', typewriter: 'Typewriter',
   focusIn: 'Focus In', slam: 'Slam', drop: 'Drop', stretch: 'Stretch', swing: 'Swing', flipUp: 'Flip Up', jolt: 'Jolt',
+  glitch: 'Glitch', flicker: 'Neon Flicker', whip: 'Whip', spinIn: 'Spin In', elastic: 'Elastic', wipe: 'Mask Wipe', blurRise: 'Blur Rise',
+  blurSlide: 'Blur Slide →', blurSlideL: 'Blur Slide ←', blurIn: 'Blur In', zoomThrough: 'Zoom Through', dimIn: 'Dim to Bright', custom: 'Imported keyframes',
 };
 
 const clamp01 = (x: number) => (x < 0 ? 0 : x > 1 ? 1 : x);
@@ -81,6 +85,33 @@ export function animate(id: AnimationId, elapsed: number, speed: number): AnimSt
     // Flips up from flat, like a card turning.
     case 'flipUp': return { ...IDENTITY, alpha: fadeIn, sy: Math.max(0.01, easeOutBack(p)), dy: (1 - e) * 0.2 };
     // Punches in with a decaying shake.
+    // Digital glitch: jumps sideways and flashes on and off before locking in.
+    case 'glitch': {
+      const k = Math.floor(p * 14), n = Math.sin(k * 91.7) * 0.5 + 0.5, hold = p > 0.78;
+      return hold ? { ...IDENTITY, alpha: 1 } : { ...IDENTITY, alpha: n > 0.28 ? 1 : 0.15, dx: (n - 0.5) * 0.28 * (1 - p), sx: 1 + (n - 0.5) * 0.4 * (1 - p), dy: Math.sin(k * 53.1) * 0.03 };
+    }
+    // Neon tube switching on: stutters, then stays lit.
+    case 'flicker': { const k = Math.floor(p * 18); const on = p > 0.7 || Math.sin(k * 12.9898) > -0.2 + p; return { ...IDENTITY, alpha: on ? 0.55 + 0.45 * e : 0.08 }; }
+    // Fast slide with blur and a skew-like stretch, then snaps.
+    case 'whip': return { ...IDENTITY, alpha: clamp01(p * 5), dx: -(1 - e) * 1.6, sx: 1 + (1 - e) * 0.7, blur: (1 - e) * 0.16 };
+    // Spins in from a turn while scaling up.
+    case 'spinIn': return { ...IDENTITY, alpha: fadeIn, rot: -(1 - easeOutBack(p)) * Math.PI * 1.5, scale: 0.2 + 0.8 * easeOutBack(p) };
+    // Overshoots and wobbles back like a rubber band.
+    case 'elastic': { const v = 1 - Math.exp(-7 * p) * Math.cos(16 * p); return { ...IDENTITY, alpha: clamp01(p * 6), scale: Math.max(0.01, v), rot: (1 - v) * 0.12 }; }
+    // Mask reveal: an eased left-to-right wipe with a soft edge of blur.
+    case 'wipe': return { ...IDENTITY, alpha: clamp01(p * 6), reveal: e, blur: (1 - e) * 0.05 };
+    // Rises from below out of a blur.
+    case 'blurRise': return { ...IDENTITY, alpha: e, dy: (1 - e) * 0.5, blur: (1 - e) * 0.2 };
+    // Slides in from one side out of a heavy blur (a neon title sweeping in).
+    case 'blurSlide': return { ...IDENTITY, alpha: clamp01(p * 3), dx: (1 - e) * 0.9, blur: (1 - e) * 0.32 };
+    case 'blurSlideL': return { ...IDENTITY, alpha: clamp01(p * 3), dx: -(1 - e) * 0.9, blur: (1 - e) * 0.32 };
+    // Resolves out of a blur while settling from slightly small.
+    case 'blurIn': return { ...IDENTITY, alpha: e, blur: (1 - e) * 0.3, scale: 0.94 + 0.06 * e };
+    // Flies through the lens: huge and blurred, then settles.
+    case 'zoomThrough': return { ...IDENTITY, alpha: clamp01(p * 3), scale: 1 + 1.6 * Math.pow(1 - e, 2), blur: (1 - e) * 0.3 };
+    // Lights up from a dim grey, the way words brighten as you read down an Apple page.
+    case 'dimIn': return { ...IDENTITY, alpha: 0.22 + 0.78 * e, blur: (1 - e) * 0.03 };
+    case 'custom': return IDENTITY; // needs its keyframes: see animateWith
     case 'jolt': { const d = Math.exp(-5 * p); return { ...IDENTITY, alpha: clamp01(p * 4), scale: 1 + 0.18 * d, rot: Math.sin(p * 28) * 0.07 * d, dx: Math.sin(p * 34) * 0.05 * d }; }
   }
 }
@@ -93,3 +124,32 @@ export function combine(a: AnimState, b: AnimState): AnimState {
     rot: a.rot + b.rot, sx: a.sx * b.sx, sy: a.sy * b.sy, blur: a.blur + b.blur,
   };
 }
+
+const KEY_EASE: Record<AnimKey['ease'], (x: number) => number> = {
+  linear: (x) => x, easeIn: (x) => x * x, easeOut: (x) => 1 - (1 - x) * (1 - x),
+  easeInOut: (x) => (x < 0.5 ? 2 * x * x : 1 - Math.pow(-2 * x + 2, 2) / 2), hold: () => 0,
+};
+
+/** Seconds a keyframed animation lasts at 1× speed. */
+export const keysDuration = (keys: AnimKey[]) => (keys.length ? Math.max(...keys.map((k) => k.t)) : 0);
+
+/** State of a keyframed animation `elapsed` seconds in: before the first key it holds the first, after the last it ends (IDENTITY). */
+export function sampleKeys(keys: AnimKey[], elapsed: number, speed: number): AnimState {
+  if (!keys.length) return IDENTITY;
+  const ks = [...keys].sort((a, b) => a.t - b.t);
+  const t = elapsed * Math.max(0.1, speed);
+  if (t >= ks[ks.length - 1].t) return IDENTITY;
+  let i = 0;
+  while (i < ks.length - 1 && ks[i + 1].t <= t) i++;
+  const a = ks[i], b = ks[Math.min(i + 1, ks.length - 1)];
+  const span = b.t - a.t, f = span > 0 && t > a.t ? KEY_EASE[a.ease]((t - a.t) / span) : 0;
+  const m = (x: number, y: number) => x + (y - x) * f;
+  return { alpha: m(a.alpha, b.alpha), dx: m(a.dx, b.dx), dy: m(a.dy, b.dy), scale: m(a.scale, b.scale), reveal: 1, rot: m(a.rot, b.rot), sx: m(a.sx, b.sx), sy: m(a.sy, b.sy), blur: m(a.blur, b.blur) };
+}
+
+/** `animate`, but 'custom' plays the given keyframes. */
+export const animateWith = (id: AnimationId, keys: AnimKey[] | undefined, elapsed: number, speed: number): AnimState =>
+  id === 'custom' ? sampleKeys(keys ?? [], elapsed, speed) : animate(id, elapsed, speed);
+
+/** Seconds an entrance (or the reversed exit) takes at 1× speed. */
+export const animDuration = (id: AnimationId, keys?: AnimKey[]) => (id === 'custom' ? keysDuration(keys ?? []) : BASE_DURATION[id]);

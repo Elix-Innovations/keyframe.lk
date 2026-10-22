@@ -14,7 +14,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { ColorInput, Empty, Row, Section, Segmented, Slider, Toggle } from '../controls';
 import { FontPicker } from '../FontPicker';
 import { FontImport } from '../FontImport';
+import { findTemplate } from '@/lib/templateApply';
 import { overlayOps } from '../OverlayLane';
+import { TemplateEditor } from './TemplateEditor';
+import { nanoid } from 'nanoid';
+import * as db from '@/lib/db';
 
 const num = (v: string, fallback: number) => { const n = parseFloat(v); return Number.isFinite(n) ? n : fallback; };
 
@@ -33,20 +37,28 @@ const loopOptions = (o: OverlayItem): PickerOption[] => LOOPS.map((l) => ({ id: 
 export function OverlayItemPanel() {
   const o = useEditor((s) => s.project!.overlays?.find((x) => x.id === s.selectedOverlayId) ?? null);
   const setOverlays = useEditor((s) => s.setOverlays);
+  const custom = useEditor((s) => s.customTemplates);
+  const setCustom = useEditor((s) => s.setCustomTemplates);
+  const notify = useEditor((s) => s.notify);
   const total = useEditor((s) => s.project!.duration);
   const [script, setScript] = useState<'sinhala' | 'english'>('sinhala');
-  const [tab, setTab] = useState<'edit' | 'layout' | 'motion' | 'timing'>('edit');
+  const [tab, setTab] = useState<'edit' | 'style' | 'layout' | 'motion' | 'timing'>('edit');
   if (!o) return <Section title="Overlay"><Empty icon={<Scissors />} title="Nothing selected">Select a text, sticker or image on the timeline or in the preview to change it.</Empty></Section>;
   const patch = (p: Partial<OverlayItem>, key?: string) => setOverlays((l) => l.map((x) => (x.id === o.id ? { ...x, ...p } : x)), key && `ovl-${key}-${o.id}`);
-  const text = o.kind === 'text';
+  const alignPicked = (pos: { x?: number; y?: number }) => {
+    const ids = new Set([o.id, ...useEditor.getState().extraOverlayIds]);
+    setOverlays((l) => l.map((x) => (ids.has(x.id) ? { ...x, ...pos } : x)));
+  };
+  const text = o.kind === 'text' && !o.tpl; // template layers take their look from the template
   return (
     <div>
       <div className="sticky top-0 z-10 border-b bg-sidebar px-3 py-2">
         <Segmented fill size="sm" value={tab} onChange={setTab}
-          options={[{ value: 'edit', label: text ? 'Text' : 'Edit' }, { value: 'layout', label: 'Layout' }, { value: 'motion', label: 'Motion' }, { value: 'timing', label: 'Timing' }]} />
+          options={[{ value: 'edit', label: text ? 'Text' : 'Edit' }, ...(o.tpl ? [{ value: 'style' as const, label: 'Style' }] : []), { value: 'layout', label: 'Layout' }, { value: 'motion', label: 'Motion' }, { value: 'timing', label: 'Timing' }]} />
       </div>
       {tab === 'edit' && <>
       <Section title={text ? 'Text' : o.kind === 'sticker' ? 'Sticker' : 'Image'}>
+        {o.tpl && <p className="text-[11px] text-muted-foreground">Text template layer. Edit the words below; size, position, rotation and timing work like any text. Use Timing → “Whole video” to cover the entire video.</p>}
         {o.kind !== 'image' && (
           <Textarea className="sinhala min-h-16 text-sm" value={o.text} placeholder={text ? 'Type your text' : 'Emoji or symbol'} onChange={(e) => patch({ text: e.target.value }, 'text')} />
         )}
@@ -90,8 +102,22 @@ export function OverlayItemPanel() {
         </Section>
       )}
       </>}
+      {tab === 'style' && o.tpl && <>
+      <Section title="Template" right={<Button size="xs" variant="secondary" onClick={async () => {
+        const t = { id: nanoid(10), name: `${findTemplate(o.tpl!.id)?.name ?? 'My style'} copy`, builtIn: false, style: o.tpl!.style, createdAt: Date.now(), sfx: findTemplate(o.tpl!.id)?.sfx ?? null };
+        await db.putTemplate(t); setCustom([t, ...custom]); notify(`Saved “${t.name}” to My templates.`, 'success');
+      }}>Save as template</Button>}>
+        <p className="text-[11px] text-muted-foreground">Everything about this layer's look is editable here. Changes only affect this layer.</p>
+      </Section>
+      <TemplateEditor style={o.tpl.style} onStyle={(style, key) => patch({ tpl: { ...o.tpl!, style }, y: style.layout.y }, key)} />
+      </>}
       {tab === 'layout' && <>
       <Section title="Position">
+        <Row label="Align to frame" hint="Centres this item, and every other item picked in the preview, on the frame.">
+          <Button size="xs" variant="secondary" onClick={() => alignPicked({ x: 50 })}>Centre ↔</Button>
+          <Button size="xs" variant="secondary" onClick={() => alignPicked({ y: 50 })}>Centre ↕</Button>
+          <Button size="xs" variant="secondary" onClick={() => alignPicked({ x: 50, y: 50 })}>Both</Button>
+        </Row>
         <Row label="Size"><Slider value={Math.round(o.scale * 100)} min={10} max={400} format={(v) => `${v}%`} onChange={(v) => patch({ scale: v / 100 }, 'scale')} /></Row>
         <Row label="X"><Slider value={Math.round(o.x)} min={0} max={100} format={(v) => `${v}%`} onChange={(x) => patch({ x }, 'x')} /></Row>
         <Row label="Y"><Slider value={Math.round(o.y)} min={0} max={100} format={(v) => `${v}%`} onChange={(y) => patch({ y }, 'y')} /></Row>
@@ -130,6 +156,7 @@ export function OverlayItemPanel() {
         <Row label="Start (s)"><Input type="number" step={0.1} min={0} className="h-7 w-24 text-xs" value={Number(o.start.toFixed(2))} onChange={(e) => patch({ start: Math.max(0, num(e.target.value, o.start)) }, 'start')} /></Row>
         <Row label="Length (s)"><Input type="number" step={0.1} min={0.2} className="h-7 w-24 text-xs" value={Number(o.duration.toFixed(2))} onChange={(e) => patch({ duration: Math.max(0.2, num(e.target.value, o.duration)) }, 'dur')} /></Row>
         <Row label="Ends"><span className="font-mono text-xs">{adjEnd(o).toFixed(2)}s{total ? ` of ${total.toFixed(1)}s` : ''}</span></Row>
+        {o.tpl && <div className="flex justify-end"><Button size="xs" variant="secondary" onClick={() => patch({ start: 0, duration: Math.max(0.2, total || o.duration) })}>Whole video</Button></div>}
         <div className="flex flex-wrap justify-end gap-1.5 pt-1">
           <Button size="xs" variant="secondary" onClick={() => overlayOps.splitAtPlayhead(o.id)}><Scissors />Split at playhead</Button>
           <Button size="xs" variant="secondary" onClick={() => overlayOps.duplicate(o.id)}><Copy />Duplicate</Button>

@@ -4,7 +4,7 @@ import { WAVEFORM_RATE } from '../types';
 import { useEditor } from '../store';
 import { loadAudioAsset } from '../audio/graph';
 import { peakOf, waveformOf } from '../audio/loudness';
-import { sfxWav } from '../audio/sfx';
+import { SFX, sfxWav } from '../audio/sfx';
 import * as db from './db';
 import { currentTime } from './player';
 
@@ -52,6 +52,32 @@ export async function addSound(src: SoundSource, start = currentTime(), layer?: 
   };
   st.update((p) => ({ ...p, audio: { ...p.audio, tracks: [...p.audio.tracks, t] } }));
   st.notify(`Added “${src.name}” at ${t.start.toFixed(1)}s.`, 'success');
+}
+
+/**
+ * Put a built-in sound effect on the timeline at each of `times` (one decode, one undo step).
+ * `replace` picks existing tracks to drop first, so applying a template again swaps its sounds instead of piling them up.
+ */
+export async function addSfxTracks(id: SfxId, times: number[], replace?: (t: MusicTrack) => boolean): Promise<number> {
+  const st = useEditor.getState();
+  const blob = times.length ? await sfxWav(id) : null;
+  const assetId = blob ? await db.putBlob(blob) : null;
+  const buf = assetId ? await loadAudioAsset(assetId) : null;
+  const label = SFX.find((s) => s.id === id)?.label ?? id;
+  st.update((p) => {
+    let tracks = replace ? p.audio.tracks.filter((t) => !replace(t)) : p.audio.tracks;
+    if (assetId && buf) {
+      for (const at of [...times].sort((a, b) => a - b)) {
+        const start = Math.max(0, at);
+        tracks = [...tracks, {
+          id: nanoid(8), assetId, name: label, source: 'library', effect: true, fromTemplate: true, layer: freeLayer(tracks, start, buf.duration),
+          fileDuration: buf.duration, start, offset: 0, duration: buf.duration, volume: -4, fadeIn: 0, fadeOut: Math.min(0.05, buf.duration / 4), loop: false,
+        }];
+      }
+    }
+    return { ...p, audio: { ...p.audio, tracks } };
+  });
+  return times.length;
 }
 
 /** Edit helpers for audio tracks on the timeline (music and sound effects). All go through the store so they undo. */

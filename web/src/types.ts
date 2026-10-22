@@ -70,7 +70,17 @@ export type DisplayMode =
 export type AnimationId =
   | 'none' | 'fade' | 'softRise' | 'slideUp' | 'slideDown' | 'glideLeft' | 'glideRight'
   | 'softZoom' | 'zoomIn' | 'pop' | 'springPop' | 'bounce' | 'floatIn' | 'typewriter'
-  | 'focusIn' | 'slam' | 'drop' | 'stretch' | 'swing' | 'flipUp' | 'jolt';
+  | 'focusIn' | 'slam' | 'drop' | 'stretch' | 'swing' | 'flipUp' | 'jolt'
+  | 'glitch' | 'flicker' | 'whip' | 'spinIn' | 'elastic' | 'wipe' | 'blurRise'
+  | 'blurSlide' | 'blurSlideL' | 'blurIn' | 'zoomThrough' | 'dimIn'
+  /** Plays the keyframes stored on the template (`customIn` / `customOut`), e.g. from an imported Premiere pack. */
+  | 'custom';
+
+/** One keyframe of an imported text animation. Offsets are in em; `alpha`, `scale`, `sx`, `sy` multiply, `rot` is radians, `blur` is em. */
+export interface AnimKey { t: number; alpha: number; dx: number; dy: number; scale: number; rot: number; sx: number; sy: number; blur: number; ease: Ease }
+
+/** Motion that keeps playing on a creative text block after it has entered. */
+export type TextLoop = 'none' | 'float' | 'wave' | 'pulse' | 'shake' | 'flicker';
 
 export interface HighlightStyle {
   fill: Fill; // color of the active word (highlight mode) or text inside the box (box mode)
@@ -96,6 +106,72 @@ export interface Layout {
   align: 'left' | 'center' | 'right';
 }
 
+/** How one line of a creative text layout looks. Unset fields follow the caption style. */
+export interface CreativeLine {
+  /** Size relative to the caption font size. */
+  scale: number;
+  /** The key line (the emphasised word, else the longest one) uses this entry. */
+  hero?: boolean;
+  fill?: Fill;
+  strokeWidth?: number;
+  strokeColor?: string;
+  glow?: { color: string; strength: number; radius: number };
+  /** Solid 3D-style extrusion behind the text; depth in px at the 1080 reference. */
+  extrude?: { color: string; depth: number };
+  /** Degrees. */
+  rotate?: number;
+  /** Horizontal shift, % of the block width (+ right). */
+  shift?: number;
+  bold?: boolean;
+  /** Font id used for this line where it supports the script. */
+  font?: string;
+  textCase?: TextCase;
+  /** Colours spread across the letters of the line (left to right); replaces the fill. */
+  tint?: string[];
+}
+
+/**
+ * Creative text: a caption chunk is split into short lines, each with its own size, colour and effects,
+ * stacked or bent along an arc, with the lines animating in one after another.
+ */
+export interface CreativeLayout {
+  kind: 'stack' | 'arc';
+  wordsPerLine: number;
+  /** Keep the whole chunk on one row; the key word keeps its own look but stays in the row. */
+  singleLine?: boolean;
+  /** Pattern of line looks; non-hero entries repeat down the lines. */
+  lines: CreativeLine[];
+  /** Arc sweep in degrees (positive bulges up, negative dips). */
+  arc?: number;
+  /** Whole-block rotation, degrees. */
+  tilt?: number;
+  lineAnim: AnimationId;
+  /** Seconds between each line's entrance. */
+  stagger: number;
+  /** Line spacing multiplier. */
+  gap?: number;
+  /** Seconds between each letter's entrance (kinetic type); 0 / absent = the whole line enters together. Sinhala words enter whole. */
+  perLetter?: number;
+  /** Entrance used by each letter when `perLetter` is set; defaults to `lineAnim`. */
+  letterAnim?: AnimationId;
+  /** Exit played in reverse over the last moments of the chunk; absent / 'none' = it just ends. */
+  outAnim?: AnimationId;
+  /** Keyframes played when `lineAnim` / `letterAnim` is 'custom' (times in seconds at 1× speed). */
+  customIn?: AnimKey[];
+  /** Per-letter keyframes (entrance-shaped), used with `perLetter` for text-animator style presets; the line keyframes then run separately. */
+  customLetterIn?: AnimKey[];
+  /** Per-letter exit, entrance-shaped and played in reverse, each letter leaving `perLetter` after the one before. */
+  customLetterOut?: AnimKey[];
+  /** Keyframes played in reverse over the end when `outAnim` is 'custom'; written entrance-shaped (first key = gone, last key = settled). */
+  customOut?: AnimKey[];
+  /** Red / blue colour split at the edges, in em; it settles as the line enters. */
+  split?: number;
+  /** Keep the colour split on after the entrance. */
+  splitHold?: boolean;
+  /** Idle motion after the entrance. */
+  loop?: TextLoop;
+}
+
 /** Everything that defines the look of captions. A template is a named CaptionStyle. */
 export interface CaptionStyle {
   text: TextLook;
@@ -107,6 +183,8 @@ export interface CaptionStyle {
   highlight: HighlightStyle;
   emphasis: EmphasisStyle;
   layout: Layout;
+  /** Creative multi-line text layout; null / absent = normal captions. */
+  creative?: CreativeLayout | null;
 }
 
 /** Per-word look, set by selecting words in the caption editor. Unset fields follow the caption style. */
@@ -188,6 +266,8 @@ export interface MusicTrack {
   fadeOut: number; // s
   loop: boolean;
   muted?: boolean;
+  /** Added by a text template, so re-applying or removing the template can replace it. */
+  fromTemplate?: boolean;
   /** Timeline row, 0 = top. Tracks on different layers may overlap in time. */
   layer?: number;
   analysis?: TrackAnalysis;
@@ -366,6 +446,8 @@ export interface OverlayItem {
   loop: OverlayLoopId;
   /** Rate of the loop animation and keyframes, 1 = normal. */
   speed?: number;
+  /** Text laid out with a creative text template (its caption style); the overlay's text, size, position and timing still apply. */
+  tpl?: { id: string; style: CaptionStyle };
   /** Motion over the overlay's time. Times are seconds since the overlay starts; x, y, rotation are offsets from the overlay's own position and scale, opacity are multipliers. */
   keyframes?: VideoKeyframe[];
 }
@@ -421,6 +503,12 @@ export interface Template {
   builtIn: boolean;
   style: CaptionStyle;
   createdAt: number;
+  /** Sound effect that suits this look (played as each caption appears). Users can turn it off or swap it. */
+  sfx?: SfxId | null;
+  /** Where an imported template came from, e.g. "Premiere pack: Text Scene.mogrt". */
+  origin?: string;
+  /** The motion was measured from a preview video, so it only approximates the original. */
+  approximate?: boolean;
 }
 
 export interface FontDef {

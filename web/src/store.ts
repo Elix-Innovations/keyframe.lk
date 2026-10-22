@@ -89,6 +89,8 @@ interface EditorState {
   selectedAdjId: string | null;
   /** Selected text, sticker or image overlay. */
   selectedOverlayId: string | null;
+  /** Overlays selected along with `selectedOverlayId` (shift-click, drag-select in the preview). */
+  extraOverlayIds: string[];
   /** Selected audio track (music or sound effect). */
   selectedTrackId: string | null;
   /** Deleting a clip closes the gap it leaves. */
@@ -121,6 +123,8 @@ interface EditorState {
   selectClip: (id: string | null) => void;
   selectAdj: (id: string | null) => void;
   selectOverlay: (id: string | null) => void;
+  /** Select several overlays at once; the first becomes the one the inspector shows. */
+  setOverlaySelection: (ids: string[]) => void;
   selectTrack: (id: string | null) => void;
   setOverlays: (fn: (list: OverlayItem[]) => OverlayItem[], coalesce?: string) => void;
   setAdj: (fn: (adj: AdjClip[]) => AdjClip[], coalesce?: string) => void;
@@ -173,6 +177,7 @@ export const useEditor = create<EditorState>((set, get) => ({
   selectedClipId: null,
   selectedAdjId: null,
   selectedOverlayId: null,
+  extraOverlayIds: [],
   selectedTrackId: null,
   rippleDelete: false,
   setRippleDelete: (rippleDelete) => set({ rippleDelete }),
@@ -186,7 +191,7 @@ export const useEditor = create<EditorState>((set, get) => ({
   load: (p) => {
     void saveNow(); // switching projects: keep the previous one's pending edits
     rememberLastProject(p.id);
-    set({ project: migrateProject(p), past: [], future: [], time: 0, playing: false, selectedCaptionId: null, selectedClipId: null, selectedAdjId: null, selectedOverlayId: null, selectedTrackId: null, dirty: false, savedAt: p.updatedAt });
+    set({ project: migrateProject(p), past: [], future: [], time: 0, playing: false, selectedCaptionId: null, selectedClipId: null, selectedAdjId: null, selectedOverlayId: null, extraOverlayIds: [], selectedTrackId: null, dirty: false, savedAt: p.updatedAt });
   },
   close: () => {
     void saveNow();
@@ -239,11 +244,12 @@ export const useEditor = create<EditorState>((set, get) => ({
 
   setTime: (t) => set({ time: t }),
   setPlaying: (playing) => set({ playing }),
-  select: (id) => set({ selectedTrackId: id ? null : get().selectedTrackId, selectedCaptionId: id, selectedClipId: id ? null : get().selectedClipId, selectedAdjId: id ? null : get().selectedAdjId, selectedOverlayId: id ? null : get().selectedOverlayId }),
-  selectClip: (id) => set({ selectedTrackId: id ? null : get().selectedTrackId, selectedClipId: id, selectedCaptionId: id ? null : get().selectedCaptionId, selectedAdjId: id ? null : get().selectedAdjId, selectedOverlayId: id ? null : get().selectedOverlayId }),
-  selectAdj: (id) => set({ selectedTrackId: id ? null : get().selectedTrackId, selectedAdjId: id, selectedClipId: id ? null : get().selectedClipId, selectedCaptionId: id ? null : get().selectedCaptionId, selectedOverlayId: id ? null : get().selectedOverlayId }),
-  selectOverlay: (id) => set({ selectedTrackId: id ? null : get().selectedTrackId, selectedOverlayId: id, selectedClipId: id ? null : get().selectedClipId, selectedCaptionId: id ? null : get().selectedCaptionId, selectedAdjId: id ? null : get().selectedAdjId }),
-  selectTrack: (id) => set({ selectedTrackId: id, selectedClipId: id ? null : get().selectedClipId, selectedCaptionId: id ? null : get().selectedCaptionId, selectedAdjId: id ? null : get().selectedAdjId, selectedOverlayId: id ? null : get().selectedOverlayId }),
+  select: (id) => set({ extraOverlayIds: [], selectedTrackId: id ? null : get().selectedTrackId, selectedCaptionId: id, selectedClipId: id ? null : get().selectedClipId, selectedAdjId: id ? null : get().selectedAdjId, selectedOverlayId: id ? null : get().selectedOverlayId }),
+  selectClip: (id) => set({ extraOverlayIds: [], selectedTrackId: id ? null : get().selectedTrackId, selectedClipId: id, selectedCaptionId: id ? null : get().selectedCaptionId, selectedAdjId: id ? null : get().selectedAdjId, selectedOverlayId: id ? null : get().selectedOverlayId }),
+  selectAdj: (id) => set({ extraOverlayIds: [], selectedTrackId: id ? null : get().selectedTrackId, selectedAdjId: id, selectedClipId: id ? null : get().selectedClipId, selectedCaptionId: id ? null : get().selectedCaptionId, selectedOverlayId: id ? null : get().selectedOverlayId }),
+  selectOverlay: (id) => set({ extraOverlayIds: [], selectedTrackId: id ? null : get().selectedTrackId, selectedOverlayId: id, selectedClipId: id ? null : get().selectedClipId, selectedCaptionId: id ? null : get().selectedCaptionId, selectedAdjId: id ? null : get().selectedAdjId }),
+  selectTrack: (id) => set({ extraOverlayIds: [], selectedTrackId: id, selectedClipId: id ? null : get().selectedClipId, selectedCaptionId: id ? null : get().selectedCaptionId, selectedAdjId: id ? null : get().selectedAdjId, selectedOverlayId: id ? null : get().selectedOverlayId }),
+  setOverlaySelection: (ids) => set({ selectedOverlayId: ids[0] ?? null, extraOverlayIds: ids.slice(1), selectedTrackId: null, selectedClipId: null, selectedCaptionId: null, selectedAdjId: null }),
   setOverlays: (fn, coalesce) => get().update((p) => ({ ...p, overlays: fn(p.overlays ?? []) }), coalesce),
   setAdj: (fn, coalesce) => get().update((p) => ({ ...p, adj: fn(p.adj ?? []) }), coalesce),
   setClips: (fn, coalesce) => get().update((p) => withClips(p, fn(p.clips ?? [])), coalesce),

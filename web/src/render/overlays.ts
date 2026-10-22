@@ -1,10 +1,10 @@
-import type { OverlayItem, Project } from '../types';
-import { cssFamily, getFont } from '../lib/fonts';
+import type { Caption, CaptionStyle, OverlayItem, Project } from '../types';
+import { cssFamily, ensureFonts, getFont } from '../lib/fonts';
 import { unicodeToFM } from '../lib/fm';
 import { laneOf } from '../lib/videoFx';
 import { overlayClock, overlayPose, overlaysAt } from '../lib/overlays';
 import { IDENTITY, transformAt } from '../lib/videoFx';
-import type { Ctx2D } from './captions';
+import { renderCaptionAt, type Ctx2D } from './captions';
 
 /** Where an overlay was painted, in canvas pixels, so the preview can select and drag it. `w` and `h` are before rotation. */
 export interface OverlayHit { id: string; cx: number; cy: number; w: number; h: number; rot: number }
@@ -136,6 +136,25 @@ function bodyOf(ctx: Ctx2D, o: OverlayItem, W: number, H: number, project: Proje
 }
 
 /** Paint every overlay active at t, lowest track first. Fills `hits` with where each one landed. */
+/** A text-template layer: the template's caption look drawn from the overlay's own text, size, position and timing. */
+function drawTemplateOverlay(ctx: Ctx2D, W: number, H: number, o: OverlayItem, t: number, hits?: OverlayHit[]) {
+  const style = o.tpl!.style;
+  void ensureFonts([style.text.sinhalaFont, style.text.englishFont, ...(style.creative?.lines.map((l) => l.font) ?? [])]);
+  const words = (o.text.trim() || 'Text').split(/\s+/).map((text, i) => ({ id: `${o.id}-${i}`, text, start: o.start, end: o.start + o.duration }));
+  const caption: Caption = { id: o.id, start: o.start, end: o.start + o.duration, words };
+  const look: CaptionStyle = {
+    ...style, displayMode: 'natural', wordsPerChunk: 0,
+    text: { ...style.text, fontSize: style.text.fontSize * o.scale, opacity: style.text.opacity * o.opacity },
+    layout: { ...style.layout, x: o.x, y: o.y },
+  };
+  ctx.save();
+  if (o.rotation) { const cx = (o.x / 100) * W, cy = (o.y / 100) * H; ctx.translate(cx, cy); ctx.rotate((o.rotation * Math.PI) / 180); ctx.translate(-cx, -cy); }
+  if (o.blend && o.blend !== 'normal') ctx.globalCompositeOperation = o.blend;
+  const r = renderCaptionAt(ctx, W, H, [caption], look, t);
+  ctx.restore();
+  if (r.bbox) hits?.push({ id: o.id, cx: r.bbox.x + r.bbox.w / 2, cy: r.bbox.y + r.bbox.h / 2, w: r.bbox.w, h: r.bbox.h, rot: o.rotation });
+}
+
 export function drawOverlays(
   ctx: Ctx2D, W: number, H: number, project: Project, t: number,
   images: Map<string, ImageBitmap | HTMLImageElement> | undefined, hits?: OverlayHit[],
@@ -144,6 +163,7 @@ export function drawOverlays(
   if (!list?.length) return;
   for (const o of overlaysAt(list, t)) {
     if (laneOf(project, overlayLane(o.track)).hidden) continue;
+    if (o.tpl) { drawTemplateOverlay(ctx, W, H, o, t, hits); continue; }
     const body = bodyOf(ctx, o, W, H, project, o.assetId ? images?.get(o.assetId) : undefined);
     if (!body) continue;
     const pose = overlayPose(o, t - o.start);

@@ -207,7 +207,12 @@ export function Editor() {
         }
         case 'Delete': case 'Backspace':
           if (st.selectedTrackId) { trackOps.remove(st.selectedTrackId); break; }
-          if (st.selectedOverlayId) { overlayOps.remove(st.selectedOverlayId); break; }
+          if (st.selectedOverlayId) {
+            const gone = new Set([st.selectedOverlayId, ...st.extraOverlayIds]); // everything picked in the preview goes together
+            st.setOverlays((l) => l.filter((o) => !gone.has(o.id)));
+            st.selectOverlay(null);
+            break;
+          }
           if (st.selectedAdjId) { adjOps.remove(st.selectedAdjId); break; }
           if (st.selectedClipId) { clipOps.remove(st.selectedClipId); break; }
           if (sel) { st.setCaptions(p.captions.filter((c) => c.id !== sel.id)); st.select(null); }

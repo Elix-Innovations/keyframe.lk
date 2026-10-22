@@ -19,6 +19,29 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Keys } from './ShortcutsDialog';
+import { snapBox, unionBox, type Box, type Guide } from '../lib/previewSnap';
+
+type Drag =
+  | { kind: 'move'; x0: number; y0: number; items: { id: string; x: number; y: number }[]; box0: Box; others: Box[] }
+  | { kind: 'caption'; dx: number; dy: number; captionId: string | null; shownId: string | null; w: number; h: number; moved: boolean; others: Box[] }
+  | { kind: 'scale'; id: string; cx: number; cy: number; d0: number; s0: number }
+  | { kind: 'rotate'; id: string; cx: number; cy: number; r0: number; a0: number }
+  | { kind: 'marquee'; x0: number; y0: number; x1: number; y1: number; moved: boolean; base: string[] };
+
+/** The four corner knobs of a selected overlay, in its own (rotated) coordinates. */
+const handlePoints = (h: OverlayHit, dpr: number): [number, number][] => {
+  const hw = h.w / 2 + 6 * dpr, hh = h.h / 2 + 6 * dpr;
+  return [[-hw, -hh], [hw, -hh], [hw, hh], [-hw, hh]];
+};
+
+/** Which knob (if any) sits under a canvas point. */
+function knobAt(h: OverlayHit, x: number, y: number, dpr: number): 'rotate' | 'scale' | null {
+  const a = (h.rot * Math.PI) / 180, cos = Math.cos(a), sin = Math.sin(a);
+  const world = (lx: number, ly: number) => ({ x: h.cx + lx * cos - ly * sin, y: h.cy + lx * sin + ly * cos });
+  const near = (p: { x: number; y: number }) => Math.hypot(p.x - x, p.y - y) <= 11 * dpr;
+  if (near(world(0, -h.h / 2 - 24 * dpr))) return 'rotate';
+  return handlePoints(h, dpr).some(([lx, ly]) => near(world(lx, ly))) ? 'scale' : null;
+}
 
 export function Preview() {
   const project = useEditor((s) => s.project)!;
@@ -31,8 +54,14 @@ export function Preview() {
   const [hover, setHover] = useState(false);
   const bboxRef = useRef<Rect | null>(null);
   const hitsRef = useRef<OverlayHit[]>([]);
-  const ovlDrag = useRef<{ id: string; dx: number; dy: number } | null>(null);
   const selOverlay = useEditor((s) => s.selectedOverlayId);
+  const selExtra = useEditor((s) => s.extraOverlayIds);
+  const selCaption = useEditor((s) => s.selectedCaptionId);
+  const [magnet, setMagnetState] = useState(() => { try { return localStorage.getItem('kf-magnet') !== '0'; } catch { return true; } });
+  const setMagnet = (v: boolean) => { setMagnetState(v); try { localStorage.setItem('kf-magnet', v ? '1' : '0'); } catch { /* private mode */ } };
+  const guidesRef = useRef<Guide[]>([]);
+  const magnetRef = useRef(magnet);
+  magnetRef.current = magnet;
   const brollRef = useRef(new Map<string, ImageBitmap>());
   const [tick, force] = useState(0);
 
@@ -130,109 +159,208 @@ export function Preview() {
       const res = composeFrame(ctx, W, H, p, t, null, { brollImages: brollRef.current, overlayHits: hits, frameFor, videoSize: first?.width && first.height ? { w: first.width, h: first.height } : undefined });
       bboxRef.current = res.bbox;
       hitsRef.current = hits;
-      const so = hits.find((h) => h.id === useEditor.getState().selectedOverlayId);
-      if (so) {
+      const stNow = useEditor.getState();
+      const picked = [stNow.selectedOverlayId, ...stNow.extraOverlayIds];
+      for (const h of hits.filter((x) => picked.includes(x.id))) {
+        const primary = h.id === stNow.selectedOverlayId;
         ctx.save();
-        ctx.translate(so.cx, so.cy);
-        ctx.rotate((so.rot * Math.PI) / 180);
-        ctx.strokeStyle = 'rgba(99,102,241,0.95)';
+        ctx.translate(h.cx, h.cy);
+        ctx.rotate((h.rot * Math.PI) / 180);
+        ctx.strokeStyle = primary ? 'rgba(99,102,241,0.95)' : 'rgba(99,102,241,0.6)';
         ctx.lineWidth = 2 * dpr;
-        ctx.strokeRect(-so.w / 2 - 6 * dpr, -so.h / 2 - 6 * dpr, so.w + 12 * dpr, so.h + 12 * dpr);
+        ctx.strokeRect(-h.w / 2 - 6 * dpr, -h.h / 2 - 6 * dpr, h.w + 12 * dpr, h.h + 12 * dpr);
+        if (primary && picked.length === 1 && !playing) {
+          ctx.fillStyle = '#fff';
+          ctx.strokeStyle = 'rgba(99,102,241,1)';
+          ctx.lineWidth = 1.5 * dpr;
+          for (const [hx, hy] of handlePoints(h, dpr)) { ctx.beginPath(); ctx.arc(hx, hy, 5 * dpr, 0, Math.PI * 2); ctx.fill(); ctx.stroke(); }
+          ctx.beginPath(); ctx.moveTo(0, -h.h / 2 - 6 * dpr); ctx.lineTo(0, -h.h / 2 - 24 * dpr); ctx.stroke();
+          ctx.beginPath(); ctx.arc(0, -h.h / 2 - 24 * dpr, 5 * dpr, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+        }
         ctx.restore();
       }
       shownRef.current = res.captionId;
-      if (res.bbox && (hover || dragging.current)) {
+      if (res.bbox && (hover || drag.current?.kind === 'caption' || (res.captionId && res.captionId === stNow.selectedCaptionId))) {
         ctx.save();
-        ctx.setLineDash([8 * dpr, 6 * dpr]);
-        ctx.strokeStyle = 'rgba(244,63,94,0.95)';
+        const chosen = res.captionId === stNow.selectedCaptionId;
+        ctx.setLineDash(chosen ? [] : [8 * dpr, 6 * dpr]);
+        ctx.strokeStyle = chosen ? 'rgba(99,102,241,0.95)' : 'rgba(244,63,94,0.95)';
         ctx.lineWidth = 1.5 * dpr;
         ctx.strokeRect(res.bbox.x - 8 * dpr, res.bbox.y - 8 * dpr, res.bbox.w + 16 * dpr, res.bbox.h + 16 * dpr);
         ctx.restore();
       }
-      const dragX = dragging.current?.captionId
-        ? p.captions.find((c) => c.id === dragging.current!.captionId)?.styleOverride?.layout?.x ?? p.style.layout.x : p.style.layout.x;
-      if (dragging.current && Math.abs(dragX - 50) < 0.01) {
-        ctx.fillStyle = 'rgba(255,212,0,0.8)';
-        ctx.fillRect(W / 2 - dpr / 2, 0, dpr, H);
+      // Magnet guides while dragging.
+      if (guidesRef.current.length && drag.current) {
+        ctx.save();
+        ctx.strokeStyle = '#FF3B9A';
+        ctx.lineWidth = dpr;
+        for (const g of guidesRef.current) {
+          ctx.beginPath();
+          if (g.axis === 'x') { ctx.moveTo(g.pos, 0); ctx.lineTo(g.pos, H); } else { ctx.moveTo(0, g.pos); ctx.lineTo(W, g.pos); }
+          ctx.stroke();
+        }
+        ctx.restore();
+      }
+      const dm = drag.current;
+      if (dm?.kind === 'marquee' && dm.moved) {
+        ctx.save();
+        ctx.fillStyle = 'rgba(99,102,241,0.14)';
+        ctx.strokeStyle = 'rgba(99,102,241,0.9)';
+        ctx.lineWidth = dpr;
+        const rx = Math.min(dm.x0, dm.x1), ry = Math.min(dm.y0, dm.y1);
+        ctx.fillRect(rx, ry, Math.abs(dm.x1 - dm.x0), Math.abs(dm.y1 - dm.y0));
+        ctx.strokeRect(rx, ry, Math.abs(dm.x1 - dm.x0), Math.abs(dm.y1 - dm.y0));
+        ctx.restore();
       }
       if (playing) raf = requestAnimationFrame(draw);
     };
     draw();
     return () => cancelAnimationFrame(raf);
-  }, [box.w, box.h, playing, project, time, hover, loaded, tick, selOverlay]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [box.w, box.h, playing, project, time, hover, loaded, tick, selOverlay, selExtra, selCaption]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Drag captions to reposition.
+  // Selecting and dragging in the preview: click an item to select it, shift / ⌘ / Ctrl-click to add more, drag on empty
+  // space to box-select, drag to move (the magnet sticks centres and edges to the frame and to other items; hold Alt to
+  // move freely), and use the corner and top knobs of a single selected overlay to resize and rotate.
   // A caption that is selected (or already has its own position) moves on its own; otherwise all captions move.
-  const dragging = useRef<{ dx: number; dy: number; captionId: string | null } | null>(null);
+  const drag = useRef<Drag | null>(null);
   const shownRef = useRef<string | null>(null);
   const toCanvas = (e: React.PointerEvent) => {
     const r = canvasRef.current!.getBoundingClientRect();
     const dpr = canvasRef.current!.width / r.width;
-    return { x: (e.clientX - r.left) * dpr, y: (e.clientY - r.top) * dpr, W: canvasRef.current!.width, H: canvasRef.current!.height };
+    return { x: (e.clientX - r.left) * dpr, y: (e.clientY - r.top) * dpr, W: canvasRef.current!.width, H: canvasRef.current!.height, dpr };
+  };
+  const inside = (h: OverlayHit, x: number, y: number, pad: number) => {
+    const a = (-h.rot * Math.PI) / 180, px = x - h.cx, py = y - h.cy;
+    const lx = px * Math.cos(a) - py * Math.sin(a), ly = px * Math.sin(a) + py * Math.cos(a);
+    return Math.abs(lx) <= h.w / 2 + pad && Math.abs(ly) <= h.h / 2 + pad;
   };
   /** Topmost overlay under a canvas point. */
-  const overlayAt = (x: number, y: number) => {
-    const dpr = canvasRef.current!.width / canvasRef.current!.getBoundingClientRect().width;
-    for (const h of [...hitsRef.current].reverse()) {
-      const a = (-h.rot * Math.PI) / 180, px = x - h.cx, py = y - h.cy;
-      const lx = px * Math.cos(a) - py * Math.sin(a), ly = px * Math.sin(a) + py * Math.cos(a);
-      const pad = 6 * dpr;
-      if (Math.abs(lx) <= h.w / 2 + pad && Math.abs(ly) <= h.h / 2 + pad) return h;
-    }
-    return null;
-  };
+  const overlayAt = (x: number, y: number, dpr: number) => [...hitsRef.current].reverse().find((h) => inside(h, x, y, 6 * dpr)) ?? null;
+  const onCaption = (x: number, y: number) => { const b = bboxRef.current; return !!b && x >= b.x - 20 && x <= b.x + b.w + 20 && y >= b.y - 20 && y <= b.y + b.h + 20; };
+  const boxOf = (h: OverlayHit): Box => ({ cx: h.cx, cy: h.cy, w: h.w, h: h.h });
+  const snapOn = (e: React.PointerEvent) => magnetRef.current && !e.altKey;
+
   const onDown = (e: React.PointerEvent) => {
-    const { x, y } = toCanvas(e);
-    const oh = overlayAt(x, y);
-    if (oh) {
-      const st = useEditor.getState();
-      st.selectOverlay(oh.id);
-      st.setPanel('overlay');
-      ovlDrag.current = { id: oh.id, dx: x - oh.cx, dy: y - oh.cy };
-      (e.target as HTMLElement).setPointerCapture(e.pointerId);
-      return;
-    }
-    const b = bboxRef.current;
-    if (b && x >= b.x - 20 && x <= b.x + b.w + 20 && y >= b.y - 20 && y <= b.y + b.h + 20) {
-      const { project: p, selectedCaptionId } = useEditor.getState();
-      const id = shownRef.current;
-      const own = !!id && (id === selectedCaptionId || !!p?.captions.find((c) => c.id === id)?.styleOverride?.layout);
-      dragging.current = { dx: x - (b.x + b.w / 2), dy: y - (b.y + b.h / 2), captionId: own ? id : null };
-      (e.target as HTMLElement).setPointerCapture(e.pointerId);
-    } else {
-      togglePlay();
-    }
-  };
-  const onMove = (e: React.PointerEvent) => {
-    const { x, y, W, H } = toCanvas(e);
-    const od = ovlDrag.current;
-    if (od) {
-      let nx = ((x - od.dx) / W) * 100;
-      const ny = ((y - od.dy) / H) * 100;
-      if (Math.abs(nx - 50) < 1.5) nx = 50; // snap to centre
-      const pos = { x: Math.round(nx * 10) / 10, y: Math.round(ny * 10) / 10 };
-      useEditor.getState().setOverlays((l) => l.map((o) => (o.id === od.id ? { ...o, ...pos } : o)), `ovl-drag-${od.id}`);
-      return;
-    }
-    const b = bboxRef.current;
-    if (!dragging.current) {
-      setHover(!!overlayAt(x, y) || (!!b && x >= b.x - 20 && x <= b.x + b.w + 20 && y >= b.y - 20 && y <= b.y + b.h + 20));
-      return;
-    }
-    let nx = ((x - dragging.current.dx) / W) * 100;
-    const ny = ((y - dragging.current.dy) / H) * 100;
-    if (Math.abs(nx - 50) < 1.5) nx = 50; // snap to center
-    const pos = { x: Math.round(nx * 10) / 10, y: Math.round(ny * 10) / 10 };
-    const id = dragging.current.captionId;
+    if (e.button !== 0) return;
+    const { x, y, W, H, dpr } = toCanvas(e);
     const st = useEditor.getState();
-    if (id) {
-      st.setCaptions(st.project!.captions.map((c) => (c.id === id
-        ? { ...c, styleOverride: { ...c.styleOverride, layout: { ...c.styleOverride?.layout, ...pos } } } : c)), `drag-caption-${id}`);
+    const capture = () => (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    const picked = [st.selectedOverlayId, ...st.extraOverlayIds].filter((id): id is string => !!id);
+    const hits = hitsRef.current;
+
+    // Knobs of the one selected overlay: rotate, then resize.
+    const only = picked.length === 1 ? hits.find((h) => h.id === picked[0]) : undefined;
+    const o = only && st.project?.overlays?.find((v) => v.id === only.id);
+    if (only && o) {
+      const knob = knobAt(only, x, y, dpr);
+      if (knob === 'rotate') { drag.current = { kind: 'rotate', id: o.id, cx: only.cx, cy: only.cy, r0: o.rotation, a0: Math.atan2(y - only.cy, x - only.cx) }; capture(); return; }
+      if (knob === 'scale') { drag.current = { kind: 'scale', id: o.id, cx: only.cx, cy: only.cy, d0: Math.hypot(x - only.cx, y - only.cy) || 1, s0: o.scale }; capture(); return; }
+    }
+
+    const oh = overlayAt(x, y, dpr);
+    if (oh) {
+      const multi = e.shiftKey || e.metaKey || e.ctrlKey;
+      if (multi) { // add to / take out of the selection
+        st.setOverlaySelection(picked.includes(oh.id) ? picked.filter((id) => id !== oh.id) : [...picked, oh.id]);
+        return;
+      }
+      if (!picked.includes(oh.id)) { st.selectOverlay(oh.id); st.setPanel('overlay'); }
+      const ids = picked.includes(oh.id) ? picked : [oh.id];
+      const items = (st.project?.overlays ?? []).filter((v) => ids.includes(v.id)).map((v) => ({ id: v.id, x: v.x, y: v.y }));
+      const group = hits.filter((h) => ids.includes(h.id)).map(boxOf);
+      const others = [...hits.filter((h) => !ids.includes(h.id)).map(boxOf)];
+      const bb = bboxRef.current;
+      if (bb) others.push({ cx: bb.x + bb.w / 2, cy: bb.y + bb.h / 2, w: bb.w, h: bb.h });
+      drag.current = { kind: 'move', x0: x, y0: y, items, box0: unionBox(group), others };
+      capture();
+      return;
+    }
+
+    if (onCaption(x, y)) {
+      const b = bboxRef.current!;
+      const id = shownRef.current;
+      const own = !!id && (id === st.selectedCaptionId || !!st.project?.captions.find((c) => c.id === id)?.styleOverride?.layout);
+      drag.current = { kind: 'caption', dx: x - (b.x + b.w / 2), dy: y - (b.y + b.h / 2), captionId: own ? id : null, shownId: id, w: b.w, h: b.h, moved: false, others: hits.map(boxOf) };
+      capture();
+      return;
+    }
+
+    drag.current = { kind: 'marquee', x0: x, y0: y, x1: x, y1: y, moved: false, base: e.shiftKey ? picked : [] };
+    capture();
+    void W; void H;
+  };
+
+  const onMove = (e: React.PointerEvent) => {
+    const { x, y, W, H, dpr } = toCanvas(e);
+    const d = drag.current;
+    const st = useEditor.getState();
+    if (!d) {
+      setHover(!!overlayAt(x, y, dpr) || onCaption(x, y));
+      return;
+    }
+    const thr = 7 * dpr;
+    if (d.kind === 'move') {
+      let dx = x - d.x0, dy = y - d.y0;
+      guidesRef.current = [];
+      if (snapOn(e)) {
+        const sn = snapBox({ ...d.box0, cx: d.box0.cx + dx, cy: d.box0.cy + dy }, d.others, W, H, thr);
+        dx += sn.dx; dy += sn.dy; guidesRef.current = sn.guides;
+      }
+      const at = new Map(d.items.map((v) => [v.id, v]));
+      st.setOverlays((l) => l.map((o) => { const v = at.get(o.id); return v ? { ...o, x: Math.round((v.x + (dx / W) * 100) * 10) / 10, y: Math.round((v.y + (dy / H) * 100) * 10) / 10 } : o; }), 'ovl-drag-group');
+      force((n) => n + 1);
+    } else if (d.kind === 'caption') {
+      d.moved = true;
+      let cx = x - d.dx, cy = y - d.dy;
+      guidesRef.current = [];
+      if (snapOn(e)) {
+        const sn = snapBox({ cx, cy, w: d.w, h: d.h }, d.others, W, H, thr);
+        cx += sn.dx; cy += sn.dy; guidesRef.current = sn.guides;
+      }
+      const pos = { x: Math.round((cx / W) * 1000) / 10, y: Math.round((cy / H) * 1000) / 10 };
+      if (d.captionId) {
+        const id = d.captionId;
+        st.setCaptions(st.project!.captions.map((c) => (c.id === id ? { ...c, styleOverride: { ...c.styleOverride, layout: { ...c.styleOverride?.layout, ...pos } } } : c)), `drag-caption-${id}`);
+      } else {
+        st.setStyle((s) => ({ ...s, layout: { ...s.layout, ...pos } }), 'drag-caption');
+      }
+      force((n) => n + 1);
+    } else if (d.kind === 'scale') {
+      const scale = Math.min(8, Math.max(0.1, Math.round(d.s0 * (Math.hypot(x - d.cx, y - d.cy) / d.d0) * 100) / 100));
+      st.setOverlays((l) => l.map((o) => (o.id === d.id ? { ...o, scale } : o)), `ovl-scale-${d.id}`);
+    } else if (d.kind === 'rotate') {
+      let rot = d.r0 + ((Math.atan2(y - d.cy, x - d.cx) - d.a0) * 180) / Math.PI;
+      rot = ((rot + 540) % 360) - 180;
+      guidesRef.current = [];
+      if (snapOn(e)) for (const a of [-180, -135, -90, -45, 0, 45, 90, 135, 180]) if (Math.abs(rot - a) < 4) rot = a;
+      st.setOverlays((l) => l.map((o) => (o.id === d.id ? { ...o, rotation: Math.round(rot * 10) / 10 } : o)), `ovl-rot-${d.id}`);
     } else {
-      st.setStyle((s) => ({ ...s, layout: { ...s.layout, ...pos } }), 'drag-caption');
+      d.x1 = x; d.y1 = y;
+      if (!d.moved && Math.hypot(x - d.x0, y - d.y0) > 4 * dpr) d.moved = true;
+      if (d.moved) {
+        const l = Math.min(d.x0, x), r = Math.max(d.x0, x), t = Math.min(d.y0, y), b = Math.max(d.y0, y);
+        const hit = hitsRef.current.filter((h) => h.cx + h.w / 2 >= l && h.cx - h.w / 2 <= r && h.cy + h.h / 2 >= t && h.cy - h.h / 2 <= b).map((h) => h.id);
+        const ids = [...new Set([...d.base, ...hit.reverse()])];
+        const cur = [st.selectedOverlayId, ...st.extraOverlayIds].filter(Boolean).join();
+        if (ids.join() !== cur) st.setOverlaySelection(ids);
+        if (ids.length) st.setPanel('overlay');
+      }
+      force((n) => n + 1);
     }
   };
-  const onUp = () => { dragging.current = null; ovlDrag.current = null; };
+
+  const onUp = () => {
+    const d = drag.current;
+    drag.current = null;
+    guidesRef.current = [];
+    const st = useEditor.getState();
+    if (d?.kind === 'caption' && !d.moved && d.shownId) st.select(d.shownId); // a click, not a drag: select this caption
+    if (d?.kind === 'marquee' && !d.moved) {
+      const anything = st.selectedOverlayId || st.selectedCaptionId;
+      if (anything) { st.select(null); st.selectOverlay(null); } else togglePlay(); // empty click: deselect, or play / pause
+    }
+    force((n) => n + 1);
+  };
 
   const dur = project.duration || 0;
   const noVideo = videoClips(project.clips ?? []).length === 0;
@@ -241,7 +369,7 @@ export function Preview() {
       <div ref={wrapRef} className="checker relative flex min-h-0 flex-1 items-center justify-center">
         <div className="relative" style={{ width: box.w, height: box.h }}>
           <canvas ref={canvasRef} className={`h-full w-full rounded-lg shadow-2xl shadow-black/30 ring-1 ring-border ${hover ? 'cursor-move' : 'cursor-pointer'}`}
-            onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerLeave={() => setHover(false)} />
+            onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerLeave={() => setHover(false)} onPointerCancel={onUp} />
           {safeZone && (
             <div className="pointer-events-none absolute inset-0">
               <div className="absolute inset-x-0 top-0 h-[12%] bg-destructive/15" />
@@ -290,6 +418,10 @@ export function Preview() {
         </Tooltip>
         <span className="ml-1 font-mono text-xs tabular-nums"><span>{formatClock(time, true)}</span><span className="text-muted-foreground"> / {formatClock(dur, true)}</span></span>
         <div className="ml-auto flex items-center gap-3">
+          <div className="flex items-center gap-2">
+            <Switch id="magnet" checked={magnet} onCheckedChange={setMagnet} />
+            <Label htmlFor="magnet" className="text-xs font-normal text-muted-foreground" title="Snap to the frame centre, edges and other items while dragging. Hold Alt to move freely.">Magnet</Label>
+          </div>
           <div className="flex items-center gap-2">
             <Switch id="safe" checked={safeZone} onCheckedChange={setSafeZone} />
             <Label htmlFor="safe" className="text-xs font-normal text-muted-foreground"><Smartphone className="size-3.5" />Safe zones</Label>

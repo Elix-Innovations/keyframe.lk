@@ -15,6 +15,7 @@ import { trackCount } from '@/lib/adj';
 import { groupOrder, moveGroup, moveLane, type LaneKind } from '@/lib/laneOrder';
 import { DRAG_MIME, geo, type DragPayload } from '@/lib/timelineGeo';
 import { importMedia } from '@/lib/importMedia';
+import { addTemplateLayer, findTemplate } from '@/lib/templateApply';
 import { addSound, trackOps, waveformForAsset } from '@/lib/sounds';
 import { AdjBlock, adjLane, adjOps } from './AdjLane';
 import { OverlayBlock, overlayOps } from './OverlayLane';
@@ -412,7 +413,16 @@ export function Timeline() {
     }
     let payload: DragPayload;
     try { payload = JSON.parse(e.dataTransfer.getData(DRAG_MIME)); } catch { return; }
-    if (payload.type === 'sound') {
+    if (payload.type === 'template') {
+      const tpl = findTemplate(payload.id);
+      const caps = st.project?.captions ?? [];
+      if (!tpl) return;
+      // Dropped on a caption: the layer takes that caption's words and timing. Elsewhere: a sample at the drop point.
+      const onCaption = caps.find((c) => t >= c.start && t < c.end);
+      const track = geo.overlayTrackAt(e.clientY);
+      if (onCaption) void addTemplateLayer(tpl, onCaption.start, track ?? 0, onCaption.words.map((w) => w.text).join(' '), onCaption.end - onCaption.start);
+      else void addTemplateLayer(tpl, t, track ?? 0);
+    } else if (payload.type === 'sound') {
       addSound(payload.sound, t, geo.soundLayerAt(e.clientY)).catch((err) => st.notify((err as Error).message, 'error'));
     } else if (payload.type === 'overlay') {
       const oTrack = geo.overlayTrackAt(e.clientY);

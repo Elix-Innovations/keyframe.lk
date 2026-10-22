@@ -1,10 +1,10 @@
 import type {
-  Caption, CaptionStyle, Fill, FontDef, Glow, Script, Shadow, TextCase, TextHook, TextLook, Word, WordStyle,
+  Caption, CaptionStyle, CreativeLayout, Fill, FontDef, Glow, Script, Shadow, TextCase, TextHook, TextLook, Word, WordStyle,
 } from '../types';
 import { cssFamily, getFont } from '../lib/fonts';
 import { SHADOW_PRESETS, merge } from '../lib/style';
 import { unicodeToFM } from '../lib/fm';
-import { animate, combine, IDENTITY, type AnimState } from './animations';
+import { animate, animateWith, animDuration, combine, IDENTITY, type AnimState } from './animations';
 import { fmPieces, type Piece } from './fmShape';
 
 export type Ctx2D = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
@@ -22,6 +22,8 @@ interface RunLook {
   shadow: Shadow & { passes: number };
   glow: Glow;
   letterSpacing: number;
+  /** Creative text: solid extrusion drawn behind the glyphs. */
+  extrude?: { color: string; depth: number };
 }
 
 interface Run { text: string; look: RunLook; width: number; ascent: number; descent: number; pieces?: Piece[] | null }
@@ -128,14 +130,15 @@ function displayText(raw: string, script: Script, look: RunLook, text: TextLook,
   return applyCase(raw, word?.textCase ?? text.textCase ?? (text.uppercaseEnglish ? 'upper' : 'none'));
 }
 
-function buildWord(ctx: Ctx2D, word: Word, index: number, style: CaptionStyle, refScale: number): WordBox {
+function buildWord(ctx: Ctx2D, word: Word, index: number, style: CaptionStyle, refScale: number, tweak?: (l: RunLook) => RunLook): WordBox {
   const emphasized = !!word.emphasize && style.emphasis.enabled;
   const sizeMul = (emphasized ? style.emphasis.scale : 1) * (word.style?.scale ?? 1);
   const runs: Run[] = [];
   let width = 0, ascent = 0, descent = 0;
   for (const part of word.text.match(SINHALA_RE) ?? []) {
     const script: Script = IS_SINHALA.test(part) ? 'sinhala' : 'english';
-    const look = resolveLook(style.text, script, refScale, sizeMul, { emphasized, style, word: word.style });
+    const look0 = resolveLook(style.text, script, refScale, sizeMul, { emphasized, style, word: word.style });
+    const look = tweak ? tweak(look0) : look0;
     const text = displayText(part, script, look, style.text, word.style);
     const m = measure(ctx, look.cssFont, look.letterSpacing, text);
     runs.push({ text, look, width: m.width, ascent: m.ascent, descent: m.descent });
@@ -216,6 +219,20 @@ function drawRun(ctx: Ctx2D, run: Run, x: number, baseline: number, fillOverride
     ctx.restore();
   }
 
+  if (L.extrude && L.extrude.depth > 0) {
+    ctx.save();
+    ctx.fillStyle = L.extrude.color;
+    ctx.strokeStyle = L.extrude.color;
+    ctx.lineWidth = L.strokeWidth * 2;
+    const steps = Math.min(40, Math.ceil(L.extrude.depth));
+    for (let i = steps; i >= 1; i--) {
+      const d = (i / steps) * L.extrude.depth;
+      if (stroke) draw('strokeText', x + d * 0.35, baseline + d);
+      draw('fillText', x + d * 0.35, baseline + d);
+    }
+    ctx.restore();
+  }
+
   if (L.glow.enabled && L.glow.strength > 0) {
     ctx.save();
     const glowColor = L.glow.matchText ? fill.gradient?.stops[Math.floor(fill.gradient.stops.length / 2)]?.color ?? fill.color : L.glow.color;
@@ -284,6 +301,8 @@ export function renderCaptionAt(
   // Active word: last word that has started (stays lit through short gaps).
   let active = -1;
   for (let i = 0; i < chunk.length; i++) if (chunk[i].start <= t) active = i;
+
+  if (style.creative) return renderCreative(ctx, W, H, caption, chunk, chunkStart, ci + 1 < chunks.length ? chunks[ci + 1][0].start : caption.end, style, style.creative, t, refScale);
 
   const progressive = mode === 'word-appear' || mode === 'compact-emphasis';
 
@@ -409,6 +428,183 @@ export function renderCaptionAt(
     }
     ctx.restore();
   }
+  ctx.restore();
+  return { bbox, captionId: caption.id };
+}
+
+/** Split an English run into one run per character so it can follow a curve. Sinhala stays whole: splitting would break its shaping. */
+function splitRun(ctx: Ctx2D, run: Run): Run[] {
+  if (run.look.font.legacy || IS_SINHALA.test(run.text) || run.text.length < 2) return [run];
+  return [...run.text].map((ch) => {
+    const m = measure(ctx, run.look.cssFont, run.look.letterSpacing, ch);
+    return { text: ch, look: run.look, width: m.width, ascent: run.ascent, descent: run.descent };
+  });
+}
+
+/** Colour `f` (0..1) of the way along evenly spaced hex stops. */
+function lerpStops(stops: string[], f: number): string {
+  const x = Math.min(1, Math.max(0, f)) * (stops.length - 1), i = Math.min(stops.length - 2, Math.floor(x)), k = x - i;
+  const rgb = (h: string) => { const n = parseInt(h.replace('#', '').slice(0, 6), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; };
+  const a = rgb(stops[i]), b = rgb(stops[i + 1]);
+  return `rgb(${a.map((v, j) => Math.round(v + (b[j] - v) * k)).join(',')})`;
+}
+
+/** Idle motion of a creative text block; `i` staggers the phase between letters (wave) or lines. */
+function loopPose(kind: CreativeLayout['loop'], t: number, i: number, em: number) {
+  const o = { dx: 0, dy: 0, rot: 0, scale: 1, alpha: 1 };
+  switch (kind) {
+    case 'float': o.dy = Math.sin(t * 2.2 + i * 0.8) * 0.06 * em; break;
+    case 'wave': o.dy = Math.sin(t * 6 - i * 0.7) * 0.14 * em; o.rot = Math.sin(t * 6 - i * 0.7) * 0.05; break;
+    case 'pulse': o.scale = 1 + 0.05 * Math.sin(t * 6 + i * 0.5); break;
+    case 'shake': o.dx = Math.sin(t * 61 + i * 3) * 0.015 * em; o.dy = Math.cos(t * 53 + i * 2) * 0.015 * em; break;
+    case 'flicker': o.alpha = Math.sin(t * 47 + i * 5) + Math.sin(t * 23 + i) > 1.55 ? 0.3 : 1; break;
+  }
+  return o;
+}
+
+/** Which line of a creative layout is the key line: the emphasised word, else the longest Latin word, else the longest. */
+function heroLine(lines: Word[][]): number {
+  const em = lines.findIndex((ln) => ln.some((w) => w.emphasize));
+  if (em >= 0) return em;
+  const len = (ln: Word[], latin: boolean) => Math.max(...ln.map((w) => (!latin || /[A-Za-z]/.test(w.text) ? w.text.length : 0)));
+  let best = -1, bestLen = 0;
+  lines.forEach((ln, i) => { const l = len(ln, true); if (l > bestLen) { bestLen = l; best = i; } });
+  if (best >= 0) return best;
+  lines.forEach((ln, i) => { const l = len(ln, false); if (l > bestLen) { bestLen = l; best = i; } });
+  return Math.max(0, best);
+}
+
+/** Creative text: the chunk's words split into short lines that differ in size and colour, stacked or arched, entering one by one. */
+function renderCreative(
+  ctx: Ctx2D, W: number, H: number, caption: Caption, chunk: Word[], chunkStart: number, chunkEnd: number,
+  style: CaptionStyle, cr: CreativeLayout, t: number, refScale: number,
+): CaptionRenderResult {
+  const per = Math.max(1, cr.wordsPerLine);
+  const heroSpec = cr.lines.find((l) => l.hero);
+  const plain = cr.lines.filter((l) => !l.hero);
+  // The key word gets a line to itself; the words around it are grouped `per` to a line.
+  const keyIdx = heroSpec ? heroLine(chunk.map((w) => [w])) : -1;
+  const single = !!cr.singleLine;
+  const groups: Word[][] = [];
+  const pack = (ws: Word[]) => { for (let i = 0; i < ws.length; i += per) groups.push(ws.slice(i, i + per)); };
+  let hero = -1;
+  if (single) groups.push(chunk);
+  else if (keyIdx >= 0 && chunk.length > 1) { pack(chunk.slice(0, keyIdx)); hero = groups.length; groups.push([chunk[keyIdx]]); pack(chunk.slice(keyIdx + 1)); }
+  else pack(chunk);
+  let plainIdx = 0;
+  const specs = groups.map((_, i) => (i === hero && heroSpec ? heroSpec : single && plain.length ? plain[0] : plain.length ? plain[plainIdx++ % plain.length] : cr.lines[0]));
+
+  const built = groups.map((g, li) => {
+    const spec = specs[li];
+    const boxes = g.map((w, i) => {
+      const ws = single && heroSpec && keyIdx >= 0 && chunk.length > 1 && w === chunk[keyIdx] ? heroSpec : spec; // the key word keeps its own look inside the row
+      const word: Word = { ...w, emphasize: false, style: { ...w.style, scale: ws.scale * (w.style?.scale ?? 1), bold: w.style?.bold ?? ws.bold, font: w.style?.font ?? ws.font, textCase: w.style?.textCase ?? ws.textCase } };
+      const tweak = (l: RunLook): RunLook => ({
+        ...l,
+        fill: w.style?.color ? l.fill : ws.fill ?? l.fill,
+        strokeWidth: ws.strokeWidth !== undefined ? ws.strokeWidth * refScale : l.strokeWidth,
+        strokeColor: ws.strokeColor ?? l.strokeColor,
+        glow: ws.glow ? { enabled: true, matchText: false, ...ws.glow } : l.glow,
+        extrude: ws.extrude ? { color: ws.extrude.color, depth: ws.extrude.depth * refScale } : undefined,
+      });
+      return buildWord(ctx, word, i, style, refScale, tweak);
+    });
+    return { spec, boxes };
+  });
+
+  const base = resolveLook(style.text, 'sinhala', refScale, 1, { emphasized: false, style });
+  const spaceW = Math.max(measure(ctx, base.cssFont, 0, ' ').width * 1.1, base.size * 0.3) * (style.text.wordSpacing ?? 1);
+  const maxW = (style.layout.maxWidth / 100) * W;
+  const metrics = built.map(({ boxes }) => {
+    const width = boxes.reduce((s, b) => s + b.width, 0) + spaceW * (boxes.length - 1);
+    const size = Math.max(...boxes.map((b) => b.size));
+    const ascent = Math.max(...boxes.map((b) => b.ascent)), descent = Math.max(...boxes.map((b) => b.descent));
+    const fit = width > maxW ? maxW / width : 1;
+    return { width, size, ascent, descent, fit, height: Math.max(ascent + descent, size * style.text.lineHeight) * (cr.gap ?? 1) * fit };
+  });
+  const blockW = Math.max(...metrics.map((m) => m.width * m.fit));
+  const blockH = metrics.reduce((s, m) => s + m.height, 0);
+  const margin = 0.03 * Math.min(W, H);
+  const cx = Math.min(Math.max((style.layout.x / 100) * W, margin + blockW / 2), W - margin - blockW / 2);
+  const cy = Math.min(Math.max((style.layout.y / 100) * H, margin + blockH / 2), H - margin - blockH / 2);
+  const bbox: Rect = { x: cx - blockW / 2, y: cy - blockH / 2, w: blockW, h: blockH };
+
+  ctx.save();
+  ctx.globalAlpha = style.text.opacity;
+  const vfit = Math.min(1, (H * 0.86) / blockH); // tall stacks shrink to stay in frame
+  if (vfit < 1) { ctx.translate(cx, cy); ctx.scale(vfit, vfit); ctx.translate(-cx, -cy); }
+  if (cr.tilt) { ctx.translate(cx, cy); ctx.rotate((cr.tilt * Math.PI) / 180); ctx.translate(-cx, -cy); }
+  const outAlpha = 1;
+  let y = cy - blockH / 2;
+  built.forEach(({ spec, boxes }, li) => {
+    const m = metrics[li];
+    const lineY = y + m.height / 2;
+    y += m.height;
+    const spd = Math.max(0.1, style.animationSpeed);
+    const ts = t - chunkStart - (li * cr.stagger) / spd;
+    if (ts < 0) return;
+    const letters = !!cr.perLetter && cr.perLetter > 0;
+    // Exit: the entrance played backwards over the last moments of the chunk.
+    const outDur = cr.outAnim && cr.outAnim !== 'none' ? animDuration(cr.outAnim, cr.customOut) / spd : 0;
+    const out = outDur && chunkEnd - t < outDur ? animateWith(cr.outAnim!, cr.customOut, Math.max(0, chunkEnd - t), style.animationSpeed) : IDENTITY;
+    const anim = combine(letters && !cr.customLetterIn ? IDENTITY : animateWith(cr.lineAnim, cr.customIn, ts, style.animationSpeed), out);
+    const align = style.layout.align;
+    const lcx = cx + ((spec.shift ?? 0) / 100) * blockW + (align === 'left' ? (m.width * m.fit - blockW) / 2 : align === 'right' ? (blockW - m.width * m.fit) / 2 : 0);
+    ctx.save();
+    ctx.globalAlpha *= outAlpha * anim.alpha;
+    applyTransform(ctx, anim, lcx, lineY, m.size);
+    ctx.translate(lcx, lineY);
+    if (spec.rotate) ctx.rotate((spec.rotate * Math.PI) / 180);
+    ctx.scale(m.fit, m.fit);
+    if (anim.reveal < 1) {
+      ctx.beginPath();
+      ctx.rect(-m.width / 2 - m.size, -m.height / m.fit, m.width * anim.reveal + m.size, (m.height / m.fit) * 2);
+      ctx.clip();
+    }
+    const baseline = (m.ascent - m.descent) / 2; // relative to the line centre
+    const bend = cr.kind === 'arc' && !!cr.arc;
+    const tint = spec.tint && spec.tint.length > 1 ? spec.tint : null;
+    const splitLetters = bend || letters || cr.loop === 'wave' || !!tint;
+    // Place each piece (a letter of English, a whole Sinhala word) along the line or on a circle.
+    const pieces: { run: Run; at: number }[] = [];
+    let x = -m.width / 2;
+    boxes.forEach((b, bi) => {
+      for (const run of b.runs) for (const piece of splitLetters ? splitRun(ctx, run) : [run]) { pieces.push({ run: piece, at: x + piece.width / 2 }); x += piece.width; }
+      if (bi < boxes.length - 1) x += spaceW;
+    });
+    const sweep = bend ? (Math.abs(cr.arc!) * Math.PI) / 180 : 0, R = bend ? m.width / sweep : 0, dir = (cr.arc ?? 0) > 0 ? 1 : -1;
+    const em = m.size;
+    const splitD = cr.split ? cr.split * em * (cr.splitHold ? 1 : Math.max(0, 1 - ts / (0.5 / spd))) : 0;
+    pieces.forEach(({ run, at }, pi) => {
+      const lts = ts - (letters ? (pi * cr.perLetter!) / spd : 0);
+      if (lts < 0) return;
+      const pIn = letters ? animateWith(cr.letterAnim ?? cr.lineAnim, cr.customLetterIn ?? cr.customIn, lts, style.animationSpeed) : IDENTITY;
+      // Letters leave in the same order they came, the first one first.
+      const pe = letters && cr.customLetterOut ? animateWith('custom', cr.customLetterOut, Math.max(0, chunkEnd - t - ((pieces.length - 1 - pi) * cr.perLetter!) / spd), style.animationSpeed) : IDENTITY;
+      const pa = combine(pIn, pe);
+      const lp = loopPose(cr.loop, t * spd, cr.loop === 'wave' ? pi : li, em);
+      ctx.save();
+      if (bend) { const th = at / R; ctx.translate(R * Math.sin(th), dir * R * (1 - Math.cos(th))); ctx.rotate(dir * th); }
+      else ctx.translate(at, 0);
+      ctx.translate(lp.dx, lp.dy);
+      if (lp.rot) ctx.rotate(lp.rot);
+      if (lp.scale !== 1) ctx.scale(lp.scale, lp.scale);
+      ctx.globalAlpha *= lp.alpha;
+      if (pa !== IDENTITY) applyTransform(ctx, pa, 0, 0, em);
+      const sc = ctx.getTransform().a;
+      if (splitD > 0.01) {
+        for (const [dx, tint] of [[-splitD, '#FF2D55'], [splitD, '#18D2FF']] as const) {
+          ctx.save(); ctx.globalAlpha *= 0.7; ctx.translate(dx, 0);
+          drawRun(ctx, run, -run.width / 2, baseline, { color: tint, gradient: null }, sc, 1);
+          ctx.restore();
+        }
+      }
+      const own = tint ? { color: lerpStops(tint, (at + m.width / 2) / m.width), gradient: null } : null;
+      drawRun(ctx, run, -run.width / 2, baseline, own, sc, pa.alpha * anim.alpha);
+      ctx.restore();
+    });
+    ctx.restore();
+  });
   ctx.restore();
   return { bbox, captionId: caption.id };
 }
