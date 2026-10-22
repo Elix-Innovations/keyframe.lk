@@ -1,0 +1,560 @@
+{
+ "version": 2,
+ "consonants": [
+  ["ක", "l"],
+  ["ඛ", "L"],
+  ["ග", "."],
+  ["ඝ", ">"],
+  ["ඞ", "X"],
+  ["ඟ", "Õ"],
+  ["ච", "p"],
+  ["ඡ", "P"],
+  ["ජ", "c"],
+  ["ඣ", "CO"],
+  ["ඤ", "["],
+  ["ඥ", "{"],
+  ["ඦ", "`P"],
+  ["ට", "g"],
+  ["ඨ", "G"],
+  ["ඩ", "v"],
+  ["ඪ", "V"],
+  ["ණ", "K"],
+  ["ඬ", "~"],
+  ["ත", ";"],
+  ["ථ", ":"],
+  ["ද", "o"],
+  ["ධ", "O"],
+  ["න", "k"],
+  ["ඳ", "|"],
+  ["ප", "m"],
+  ["ඵ", "M"],
+  ["බ", "n"],
+  ["භ", "N"],
+  ["ම", "u"],
+  ["ඹ", "U"],
+  ["ය", "h"],
+  ["ර", "r"],
+  ["ල", ","],
+  ["ව", "j"],
+  ["ශ", "Y"],
+  ["ෂ", "I"],
+  ["ස", "i"],
+  ["හ", "y"],
+  ["ළ", "<"],
+  ["ෆ", "*"]
+ ],
+ "independentVowels": [
+  ["අ", "w"],
+  ["ආ", "wd"],
+  ["ඇ", "we"],
+  ["ඈ", "wE"],
+  ["ඉ", "b"],
+  ["ඊ", "B"],
+  ["උ", "W"],
+  ["ඌ", "W!"],
+  ["ඍ", "R"],
+  ["ඎ", "RD"],
+  ["ඏ", "Ì"],
+  ["ඐ", "Ï"],
+  ["එ", "t"],
+  ["ඒ", "ta"],
+  ["ඓ", "ft"],
+  ["ඔ", "T"],
+  ["ඕ", "´"],
+  ["ඖ", "T!"]
+ ],
+ "vowelSigns": [
+  ["ා", "d"],
+  ["ැ", "e"],
+  ["ෑ", "E"],
+  ["ි", "s"],
+  ["ී", "S"],
+  ["ු", "q"],
+  ["ූ", "Q"],
+  ["ෘ", "D"],
+  ["ෲ", "DD"],
+  ["ෟ", "!"],
+  ["්", "a"]
+ ],
+ "preBase": [
+  ["ෙ", "f", ""],
+  ["ේ", "f", "a"],
+  ["ො", "f", "d"],
+  ["ෝ", "f", "da"],
+  ["ෞ", "f", "!"],
+  ["ෛ", "ff", ""]
+ ],
+ "specialSyllables": [
+  ["කු", "l="],
+  ["කූ", "l+"],
+  ["ගු", ".="],
+  ["ගූ", ".+"],
+  ["තු", ";="],
+  ["තූ", ";+"],
+  ["ශු", "Y="],
+  ["ශූ", "Y+"],
+  ["රු", "re"],
+  ["රූ", "rE"],
+  ["රැ", "/"],
+  ["රෑ", "?"],
+  ["ළු", "¿"],
+  ["ළූ", "¿E"]
+ ],
+ "conjuncts": [
+  ["ක්‍ෂ", "CI"],
+  ["ක්‍ව", "Cj"]
+ ],
+ "signs": {
+  "anusvara": "x",
+  "visarga": "#",
+  "rakaransaya": "%",
+  "yansaya": "H",
+  "repaya": "_"
+ },
+ "punctuation": [
+  [",", "\""],
+  [".", "'"],
+  [":", "("],
+  ["(", "^"],
+  [")", "&"],
+  ["/", "$"],
+  ["%", "]"],
+  ["?", "@"],
+  ["=", "}"],
+  [";", "¦"],
+  ["!", "æ"],
+  ["*", ")"],
+  ["×", "«"],
+  ["+", "¬"],
+  ["÷", "­"]
+ ],
+ "decodeAliases": [
+  ["®", "ඣ"],
+  ["`.", "ඟ"],
+  ["`v", "ඬ"],
+  ["`o", "ඳ"],
+  ["A", "්"],
+  ["=", "ු"],
+  ["+", "ූ"],
+  ["¾", "ර්"],
+  ["Ë", "ක්‍ෂ"],
+  ["†", "ත්‍ථ"],
+  ["…", "ත්‍ව"],
+  ["‡", "න්‍ද"],
+  ["„", "ද්‍ව"],
+  ["Š", "ද්‍ධ"],
+  ["ø", "ද්‍ර"],
+  ["›", "ශ්‍රී"],
+  ["¢", "ඳි"],
+  ["£", "ඳී"],
+  ["§", "දී"],
+  ["¨", "ලු"],
+  ["ª", "ඳූ"],
+  ["Æ", "ලූ"],
+  ["È", "දි"],
+  ["Í", "රී"],
+  ["ß", "රි"],
+  ["Þ", "දා"],
+  ["±", "දැ"],
+  ["÷", "ඳු"],
+  ["ÿ", "දු"],
+  ["û", "ඤු"],
+  ["ü", "ඤූ"],
+  ["À", "ඨි"],
+  ["Á", "ඨී"],
+  ["Â", "ඡී"],
+  ["Ä", "ඛ්"],
+  ["Å", "ඛි"],
+  ["Ç", "ඛී"],
+  ["É", "ච්"],
+  ["Ê", "ජ්"],
+  ["Î", "ඪි"],
+  ["Ð", "ඪී"],
+  ["Ñ", "චි"],
+  ["Ò", "ථී"],
+  ["Ó", "ථි"],
+  ["Ô", "ජී"],
+  ["Ö", "චී"],
+  ["×", "ඥ"],
+  ["Ø", "ඤ"],
+  ["Ù", "ඞ්"],
+  ["Ú", "ඵී"],
+  ["Ü", "ට්"],
+  ["Ý", "ඵි"],
+  ["à", "ටී"],
+  ["á", "ටි"],
+  ["â", "ඩ්"],
+  ["ã", "ඞී"],
+  ["ä", "ඩි"],
+  ["å", "ඬ්"],
+  ["ç", "ඬි"],
+  ["è", "ධ්"],
+  ["é", "ඬී"],
+  ["ê", "ධි"],
+  ["ë", "ධී"],
+  ["ì", "බි"],
+  ["í", "බ්"],
+  ["î", "බී"],
+  ["ï", "ම්"],
+  ["ð", "ජි"],
+  ["ñ", "මි"],
+  ["ò", "ඹ්"],
+  ["ó", "මී"],
+  ["ô", "ඹි"],
+  ["õ", "ව්"],
+  ["ö", "ඹී"],
+  ["ù", "වී"],
+  ["ú", "වි"],
+  ["ý", "ඡි"],
+  ["þ", "ඡ්"],
+  ["Œ", "ණී"],
+  ["‚", "ණි"],
+  ["ƒ", "ඳැ"]
+ ],
+ "wijesekara": {
+  "!": {
+   "type": "sign",
+   "u": "ෟ"
+  },
+  "#": {
+   "type": "mark",
+   "u": "ඃ"
+  },
+  "%": {
+   "type": "mod",
+   "u": "්‍ර"
+  },
+  "*": {
+   "type": "consonant",
+   "u": "ෆ"
+  },
+  "+": {
+   "type": "sign",
+   "u": "ූ"
+  },
+  ",": {
+   "type": "consonant",
+   "u": "ල"
+  },
+  ".": {
+   "type": "consonant",
+   "u": "ග"
+  },
+  "/": {
+   "type": "special",
+   "u": "රැ"
+  },
+  ":": {
+   "type": "consonant",
+   "u": "ථ"
+  },
+  ";": {
+   "type": "consonant",
+   "u": "ත"
+  },
+  "<": {
+   "type": "consonant",
+   "u": "ළ"
+  },
+  "=": {
+   "type": "sign",
+   "u": "ු"
+  },
+  ">": {
+   "type": "consonant",
+   "u": "ඝ"
+  },
+  "?": {
+   "type": "special",
+   "u": "රෑ"
+  },
+  "A": {
+   "type": "sign",
+   "u": "්"
+  },
+  "B": {
+   "type": "vowel",
+   "u": "ඊ"
+  },
+  "C": {
+   "type": "consonant",
+   "u": "ක්‍"
+  },
+  "D": {
+   "type": "sign",
+   "u": "ෘ"
+  },
+  "E": {
+   "type": "sign",
+   "u": "ෑ"
+  },
+  "G": {
+   "type": "consonant",
+   "u": "ඨ"
+  },
+  "H": {
+   "type": "mod",
+   "u": "්‍ය"
+  },
+  "I": {
+   "type": "consonant",
+   "u": "ෂ"
+  },
+  "K": {
+   "type": "consonant",
+   "u": "ණ"
+  },
+  "L": {
+   "type": "consonant",
+   "u": "ඛ"
+  },
+  "M": {
+   "type": "consonant",
+   "u": "ඵ"
+  },
+  "N": {
+   "type": "consonant",
+   "u": "භ"
+  },
+  "O": {
+   "type": "consonant",
+   "u": "ධ"
+  },
+  "P": {
+   "type": "consonant",
+   "u": "ඡ"
+  },
+  "Q": {
+   "type": "sign",
+   "u": "ූ"
+  },
+  "R": {
+   "type": "vowel",
+   "u": "ඍ"
+  },
+  "S": {
+   "type": "sign",
+   "u": "ී"
+  },
+  "T": {
+   "type": "vowel",
+   "u": "ඔ"
+  },
+  "U": {
+   "type": "consonant",
+   "u": "ඹ"
+  },
+  "V": {
+   "type": "consonant",
+   "u": "ඪ"
+  },
+  "W": {
+   "type": "vowel",
+   "u": "උ"
+  },
+  "X": {
+   "type": "consonant",
+   "u": "ඞ"
+  },
+  "Y": {
+   "type": "consonant",
+   "u": "ශ"
+  },
+  "[": {
+   "type": "consonant",
+   "u": "ඤ"
+  },
+  "_": {
+   "type": "repaya",
+   "u": "ර්‍"
+  },
+  "a": {
+   "type": "sign",
+   "u": "්"
+  },
+  "b": {
+   "type": "vowel",
+   "u": "ඉ"
+  },
+  "c": {
+   "type": "consonant",
+   "u": "ජ"
+  },
+  "d": {
+   "type": "sign",
+   "u": "ා"
+  },
+  "e": {
+   "type": "sign",
+   "u": "ැ"
+  },
+  "f": {
+   "type": "prebase",
+   "u": "ෙ"
+  },
+  "g": {
+   "type": "consonant",
+   "u": "ට"
+  },
+  "h": {
+   "type": "consonant",
+   "u": "ය"
+  },
+  "i": {
+   "type": "consonant",
+   "u": "ස"
+  },
+  "j": {
+   "type": "consonant",
+   "u": "ව"
+  },
+  "k": {
+   "type": "consonant",
+   "u": "න"
+  },
+  "l": {
+   "type": "consonant",
+   "u": "ක"
+  },
+  "m": {
+   "type": "consonant",
+   "u": "ප"
+  },
+  "n": {
+   "type": "consonant",
+   "u": "බ"
+  },
+  "o": {
+   "type": "consonant",
+   "u": "ද"
+  },
+  "p": {
+   "type": "consonant",
+   "u": "ච"
+  },
+  "q": {
+   "type": "sign",
+   "u": "ු"
+  },
+  "r": {
+   "type": "consonant",
+   "u": "ර"
+  },
+  "s": {
+   "type": "sign",
+   "u": "ි"
+  },
+  "t": {
+   "type": "vowel",
+   "u": "එ"
+  },
+  "u": {
+   "type": "consonant",
+   "u": "ම"
+  },
+  "v": {
+   "type": "consonant",
+   "u": "ඩ"
+  },
+  "w": {
+   "type": "vowel",
+   "u": "අ"
+  },
+  "x": {
+   "type": "mark",
+   "u": "ං"
+  },
+  "y": {
+   "type": "consonant",
+   "u": "හ"
+  },
+  "{": {
+   "type": "consonant",
+   "u": "ඥ"
+  },
+  "|": {
+   "type": "consonant",
+   "u": "ඳ"
+  },
+  "~": {
+   "type": "consonant",
+   "u": "ඬ"
+  },
+  "´": {
+   "type": "vowel",
+   "u": "ඕ"
+  },
+  "¿": {
+   "type": "special",
+   "u": "ළු"
+  },
+  "Ì": {
+   "type": "vowel",
+   "u": "ඏ"
+  },
+  "Ï": {
+   "type": "vowel",
+   "u": "ඐ"
+  },
+  "Õ": {
+   "type": "consonant",
+   "u": "ඟ"
+  }
+ },
+ "wijesekaraCompose": [
+  ["ක්‍", "O", "ඣ"],
+  ["අ", "E", "ඈ"],
+  ["අ", "d", "ආ"],
+  ["අ", "e", "ඇ"],
+  ["උ", "!", "ඌ"],
+  ["ඍ", "D", "ඎ"],
+  ["එ", "a", "ඒ"],
+  ["ඔ", "!", "ඖ"],
+  ["ඔ", "a", "ඕ"],
+  ["ර", "E", "රූ"],
+  ["ර", "e", "රු"],
+  ["ෘ", "D", "ෲ"]
+ ],
+ "unsure": [
+  {"u": "ශු", "fm": "Y=", "alternatives": ["Yq"], "note": "special u-glyph form vs generic paa-pilla"},
+  {"u": "ශූ", "fm": "Y+", "alternatives": ["YQ"], "note": "special uu-glyph form vs generic"},
+  {"u": "රැ", "fm": "/", "alternatives": ["re"], "note": "single ligature glyph"},
+  {"u": "රෑ", "fm": "?", "alternatives": ["rE"], "note": "single ligature glyph"},
+  {"u": "ළු", "fm": "¿", "alternatives": ["<q", "<="], "note": "single ligature glyph"},
+  {"u": "ළූ", "fm": "¿E", "alternatives": ["<Q", "¿Q", "<+"], "note": "ළු ligature + long aeda tail"},
+  {"u": "කඃ", "fm": "l#", "alternatives": ["l·", "l½"], "note": "visarga: '#' is two stacked rings in every font; '·'/'½' are other glyphs"},
+  {"u": "ර්‍ක", "fm": "l_", "alternatives": ["l¾", "¾l"], "note": "repaya hook"},
+  {"u": "ක්‍ය", "fm": "lH", "alternatives": [], "note": "yansaya"},
+  {"u": "ක්‍රේ", "fm": "fl%a", "alternatives": ["fla%"], "note": "al-lakuna / rakaransaya order"},
+  {"u": "ඟ", "fm": "Õ", "alternatives": ["¹", "`."], "note": "sanyaka ga"},
+  {"u": "ඦ", "fm": "`P", "alternatives": [], "note": "sanyaka ja (rare)"},
+  {"u": "ඏ", "fm": "Ì", "alternatives": [], "note": "rare vowel"},
+  {"u": "ඐ", "fm": "Ï", "alternatives": [], "note": "rare vowel"},
+  {"u": "කු", "fm": "l=", "alternatives": ["lq"], "note": "special u-glyph form"},
+  {"u": "කූ", "fm": "l+", "alternatives": ["lQ"], "note": "special uu-glyph form"},
+  {"u": "ගු", "fm": ".=", "alternatives": [".q"], "note": "special u-glyph form"},
+  {"u": "තු", "fm": ";=", "alternatives": [";q"], "note": "special u-glyph form"},
+  {"u": "රු", "fm": "re", "alternatives": ["rq"], "note": "ra + u is drawn with the aeda glyph"},
+  {"u": "රූ", "fm": "rE", "alternatives": ["rQ"], "note": "ra + uu is drawn with the aeda glyph"}
+ ],
+ "verified": {
+  "CC Old Press": "2026-09-23",
+  "FM Abhaya": "2026-09-23",
+  "FM Abhaya Bold": "2026-09-23",
+  "FM Arjunn": "2026-09-23",
+  "FM Basuru": "2026-09-23",
+  "FM Bindumathi": "2026-09-23",
+  "FM Derana": "2026-09-23",
+  "FM Econ Bold": "2026-09-23",
+  "FM Emanee": "2026-09-23",
+  "FM Ganganee": "2026-09-23",
+  "FM Gemunu": "2026-09-23",
+  "FM Malithi": "2026-09-23",
+  "FM Rajantha": "2026-09-23",
+  "FM Samantha": "2026-09-23",
+  "Tharu DC Susum": "2026-09-23",
+  "Tharu Digital Mahee": "2026-09-23",
+  "Tharu Digital Sansala": "2026-09-23",
+  "Tharu Digital Sinhala Cooper": "2026-09-23"
+ }
+}

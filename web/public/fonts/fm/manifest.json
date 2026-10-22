@@ -1,0 +1,226 @@
+{
+  "version": 1,
+  "note": "Legacy FM-layout Sinhala fonts. Files are gitignored; run `npm run fonts:fetch`.",
+  "fonts": [
+    {
+      "id": "fm-abhaya",
+      "label": "FM Abhaya",
+      "family": "FM Abhaya",
+      "internalFamily": "FMAbhaya",
+      "file": "fm-abhaya.ttf",
+      "sourceUrl": "https://raw.githubusercontent.com/Sinhala-Typing/fonts-legacy/34f22812e8992f5fafd8a818dfe1c8889fd01d52/Extracted/FM-Abhaya.TTF",
+      "license": "Freeware by Pushpananda Ekanayaka (FM fonts, (c) 1998), widely distributed for free download; no explicit licence text in the font or source repo. Mirrored from github.com/Sinhala-Typing/fonts-legacy (repo states it does not own the copyright).",
+      "licenseKnown": false,
+      "sha256": "84ef1150b4bd2063a6f3f804be2e45417914d37a4ee02b0b8c73863478c72afb"
+    },
+    {
+      "id": "fm-abhaya-bold",
+      "label": "FM Abhaya Bold",
+      "family": "FM Abhaya Bold",
+      "internalFamily": "FMAbabld",
+      "file": "fm-abhaya-bold.ttf",
+      "sourceUrl": "https://raw.githubusercontent.com/Sinhala-Typing/fonts-legacy/34f22812e8992f5fafd8a818dfe1c8889fd01d52/Extracted/FM-Aba-Bold.TTF",
+      "license": "Freeware by Pushpananda Ekanayaka (FM fonts, (c) 1998), widely distributed for free download; no explicit licence text in the font or source repo. Mirrored from github.com/Sinhala-Typing/fonts-legacy (repo states it does not own the copyright).",
+      "licenseKnown": false,
+      "sha256": "f378e402fadd5407860f685ee159f9a5549ef74ca9b7aabb6f3f7f62f3b6a8fb"
+    },
+    {
+      "id": "fm-malithi",
+      "label": "FM Malithi",
+      "family": "FM Malithi",
+      "internalFamily": "FMMalithi",
+      "file": "fm-malithi.ttf",
+      "sourceUrl": "https://raw.githubusercontent.com/Sinhala-Typing/fonts-legacy/34f22812e8992f5fafd8a818dfe1c8889fd01d52/Extracted/FM-Malithi.TTF",
+      "license": "Freeware by Pushpananda Ekanayaka (FM fonts, (c) 1998), widely distributed for free download; no explicit licence text in the font or source repo. Mirrored from github.com/Sinhala-Typing/fonts-legacy (repo states it does not own the copyright).",
+      "licenseKnown": false,
+      "sha256": "dbd0c52605a77d0f6f98f344c1199e0e0e0bfd97423330b4c494ca2c5e51c00d"
+    },
+    {
+      "id": "fm-bindumathi",
+      "label": "FM Bindumathi",
+      "family": "FM Bindumathi",
+      "internalFamily": "FMBindumathi",
+      "file": "fm-bindumathi.ttf",
+      "sourceUrl": "https://raw.githubusercontent.com/Sinhala-Typing/fonts-legacy/34f22812e8992f5fafd8a818dfe1c8889fd01d52/Extracted/FM-Bindumathi.TTF",
+      "license": "Freeware by Pushpananda Ekanayaka (FM fonts, (c) 1998), widely distributed for free download; no explicit licence text in the font or source repo. Mirrored from github.com/Sinhala-Typing/fonts-legacy (repo states it does not own the copyright).",
+      "licenseKnown": false,
+      "sha256": "70afbe6a1c926111f4ffcf97350dc862f5ef1c5e0392be4de188422fa894380d"
+    },
+    {
+      "id": "fm-ganganee",
+      "label": "FM Ganganee",
+      "family": "FM Ganganee",
+      "internalFamily": "FMGanganee",
+      "file": "fm-ganganee.ttf",
+      "sourceUrl": "https://raw.githubusercontent.com/Sinhala-Typing/fonts-legacy/34f22812e8992f5fafd8a818dfe1c8889fd01d52/Extracted/FM-Ganganee.TTF",
+      "license": "Freeware by Pushpananda Ekanayaka (FM fonts, (c) 1998), widely distributed for free download; no explicit licence text in the font or source repo. Mirrored from github.com/Sinhala-Typing/fonts-legacy (repo states it does not own the copyright).",
+      "licenseKnown": false,
+      "sha256": "633bf71f760c5d70e7bf3608e1b2ecb0997fe80db07abff51f133e4dd10b9214"
+    },
+    {
+      "id": "fm-emanee",
+      "label": "FM Emanee",
+      "family": "FM Emanee",
+      "internalFamily": "FMEmanee",
+      "file": "fm-emanee.ttf",
+      "sourceUrl": "https://raw.githubusercontent.com/Sinhala-Typing/fonts-legacy/34f22812e8992f5fafd8a818dfe1c8889fd01d52/Extracted/FM-Emanee.TTF",
+      "license": "Freeware by Pushpananda Ekanayaka (FM fonts, (c) 1998), widely distributed for free download; no explicit licence text in the font or source repo. Mirrored from github.com/Sinhala-Typing/fonts-legacy (repo states it does not own the copyright).",
+      "licenseKnown": false,
+      "sha256": "a50f785e9073c34ab4f17029118d315370e57bfcecfc0b695bbd11a164c0483c"
+    },
+    {
+      "id": "fm-samantha",
+      "label": "FM Samantha",
+      "family": "FM Samantha",
+      "internalFamily": "FMSamantha",
+      "file": "fm-samantha.ttf",
+      "sourceUrl": "https://raw.githubusercontent.com/Sinhala-Typing/fonts-legacy/34f22812e8992f5fafd8a818dfe1c8889fd01d52/Extracted/FM-Samantha.TTF",
+      "license": "Freeware by Pushpananda Ekanayaka (FM fonts, (c) 1998), widely distributed for free download; no explicit licence text in the font or source repo. Mirrored from github.com/Sinhala-Typing/fonts-legacy (repo states it does not own the copyright).",
+      "licenseKnown": false,
+      "sha256": "add3f68ad07e1507c0185f26c6a77429d15aa2f2ee21433e9f4c938f963e2baa"
+    },
+    {
+      "id": "fm-arjunn",
+      "label": "FM Arjunn",
+      "family": "FM Arjunn",
+      "internalFamily": "FMArjunn",
+      "file": "fm-arjunn.ttf",
+      "sourceUrl": "https://raw.githubusercontent.com/Sinhala-Typing/fonts-legacy/34f22812e8992f5fafd8a818dfe1c8889fd01d52/Extracted/FM-Arjunn.TTF",
+      "license": "Freeware by Pushpananda Ekanayaka (FM fonts, (c) 1998), widely distributed for free download; no explicit licence text in the font or source repo. Mirrored from github.com/Sinhala-Typing/fonts-legacy (repo states it does not own the copyright).",
+      "licenseKnown": false,
+      "sha256": "87ef5ab56391157fb7c59c3cc5e4b5e7e4a5146c37f1a328cf0944d9a2de7dea"
+    },
+    {
+      "id": "fm-derana",
+      "label": "FM Derana",
+      "family": "FM Derana",
+      "internalFamily": "FMDerana",
+      "file": "fm-derana.ttf",
+      "sourceUrl": "https://raw.githubusercontent.com/Sinhala-Typing/fonts-legacy/34f22812e8992f5fafd8a818dfe1c8889fd01d52/Extracted/FM-Derana.TTF",
+      "license": "Freeware by Pushpananda Ekanayaka (FM fonts, (c) 1998), widely distributed for free download; no explicit licence text in the font or source repo. Mirrored from github.com/Sinhala-Typing/fonts-legacy (repo states it does not own the copyright).",
+      "licenseKnown": false,
+      "sha256": "16081267bc081715431b0302a4cf65aaf3e5d4a4f457a266cda746526cdd660e"
+    },
+    {
+      "id": "fm-gemunu",
+      "label": "FM Gemunu",
+      "family": "FM Gemunu",
+      "internalFamily": "FMGemunu",
+      "file": "fm-gemunu.ttf",
+      "sourceUrl": "https://raw.githubusercontent.com/Sinhala-Typing/fonts-legacy/34f22812e8992f5fafd8a818dfe1c8889fd01d52/Extracted/FM-Gemunu.TTF",
+      "license": "Freeware by Pushpananda Ekanayaka (FM fonts, (c) 1998), widely distributed for free download; no explicit licence text in the font or source repo. Mirrored from github.com/Sinhala-Typing/fonts-legacy (repo states it does not own the copyright).",
+      "licenseKnown": false,
+      "sha256": "97846e47ff297a60c8b3f9aeb2d753d8d04df92620f9a0b15f1db86f8c14fa66"
+    },
+    {
+      "id": "fm-basuru",
+      "label": "FM Basuru",
+      "family": "FM Basuru",
+      "internalFamily": "FMBasuru",
+      "file": "fm-basuru.ttf",
+      "sourceUrl": "https://raw.githubusercontent.com/Sinhala-Typing/fonts-legacy/34f22812e8992f5fafd8a818dfe1c8889fd01d52/Extracted/FM-Basuru.TTF",
+      "license": "Freeware by Pushpananda Ekanayaka (FM fonts, (c) 1998), widely distributed for free download; no explicit licence text in the font or source repo. Mirrored from github.com/Sinhala-Typing/fonts-legacy (repo states it does not own the copyright).",
+      "licenseKnown": false,
+      "sha256": "f1d62cec972f31bbda2aa3fe6fb29ffb8ae63cd433221989622dc41ade4c73a5"
+    },
+    {
+      "id": "fm-rajantha",
+      "label": "FM Rajantha",
+      "family": "FM Rajantha",
+      "internalFamily": "FMRajantha",
+      "file": "fm-rajantha.ttf",
+      "sourceUrl": "https://raw.githubusercontent.com/Sinhala-Typing/fonts-legacy/34f22812e8992f5fafd8a818dfe1c8889fd01d52/Extracted/FM-Rajantha.TTF",
+      "license": "Freeware by Pushpananda Ekanayaka (FM fonts, (c) 1998), widely distributed for free download; no explicit licence text in the font or source repo. Mirrored from github.com/Sinhala-Typing/fonts-legacy (repo states it does not own the copyright).",
+      "licenseKnown": false,
+      "sha256": "8e0f10f8f691ee57a1558bbe76f6f535b8119c6854e2a83b19a865f392e396c6"
+    },
+    {
+      "id": "fm-econ-bold",
+      "label": "FM Econ Bold",
+      "family": "FM Econ Bold",
+      "internalFamily": "FMEconbld",
+      "file": "fm-econ-bold.ttf",
+      "sourceUrl": "https://raw.githubusercontent.com/Sinhala-Typing/fonts-legacy/34f22812e8992f5fafd8a818dfe1c8889fd01d52/Extracted/FM-eb.TTF",
+      "license": "Freeware by Pushpananda Ekanayaka (FM fonts, (c) 1998), widely distributed for free download; no explicit licence text in the font or source repo. Mirrored from github.com/Sinhala-Typing/fonts-legacy (repo states it does not own the copyright).",
+      "licenseKnown": false,
+      "sha256": "893b2c4a0d52ad896b7ef3d1c651c6dcf19c61044b2cd25411c18957607ede32"
+    },
+    {
+      "id": "tharu-dc-susum",
+      "label": "Tharu DC Susum",
+      "family": "Tharu DC Susum",
+      "internalFamily": "THARU DC Susum ",
+      "file": "tharu-dc-susum.ttf",
+      "sourceUrl": "https://raw.githubusercontent.com/DinethPansiluW/Sinhala-Fonts/59852fceb3031ed33a641f1f3947c7a6a312c4f1/tharu.ttf",
+      "license": "Tharu Digi Creations fonts by Asanka Chamara Uyanege; font says 'All Rights Reserved' but is distributed as a free download. No explicit licence text. Mirrored from github.com/DinethPansiluW/Sinhala-Fonts.",
+      "licenseKnown": false,
+      "sha256": "cf4a6f16bd4be52f96c29a306be79d82779f7c6e87e6a487c552a938b28766a6"
+    },
+    {
+      "id": "tharu-digital-mahee",
+      "label": "Tharu Digital Mahee",
+      "family": "Tharu Digital Mahee",
+      "internalFamily": "THARU DIGITAL MAHEE",
+      "file": "tharu-digital-mahee.ttf",
+      "sourceUrl": "https://raw.githubusercontent.com/DinethPansiluW/Sinhala-Fonts/59852fceb3031ed33a641f1f3947c7a6a312c4f1/tharu_digital_mahee.ttf",
+      "license": "Tharu Digi Creations fonts by Asanka Chamara Uyanege; font says 'All Rights Reserved' but is distributed as a free download. No explicit licence text. Mirrored from github.com/DinethPansiluW/Sinhala-Fonts.",
+      "licenseKnown": false,
+      "sha256": "504f89a20123e66f9f7b1b6ea41ede9fc0d5f098715482c57f519e49d9001ab7"
+    },
+    {
+      "id": "tharu-digital-ran",
+      "label": "Tharu Digital Ran",
+      "family": "Tharu Digital Ran",
+      "internalFamily": "THARU DIGITAL RAN",
+      "file": "tharu-digital-ran.ttf",
+      "sourceUrl": "https://raw.githubusercontent.com/DinethPansiluW/Sinhala-Fonts/59852fceb3031ed33a641f1f3947c7a6a312c4f1/tharu_digital_run.ttf",
+      "license": "Tharu Digi Creations fonts by Asanka Chamara Uyanege; font says 'All Rights Reserved' but is distributed as a free download. No explicit licence text. Mirrored from github.com/DinethPansiluW/Sinhala-Fonts.",
+      "licenseKnown": false,
+      "sha256": "dc819d5fa43724b1f5d5cb9230e82b0815fe307f7272f78afc7a5cdfe5deadfb"
+    },
+    {
+      "id": "tharu-digital-sansala",
+      "label": "Tharu Digital Sansala",
+      "family": "Tharu Digital Sansala",
+      "internalFamily": "THARU DIGITAL SANSALA",
+      "file": "tharu-digital-sansala.ttf",
+      "sourceUrl": "https://raw.githubusercontent.com/DinethPansiluW/Sinhala-Fonts/59852fceb3031ed33a641f1f3947c7a6a312c4f1/tharu_digital_sansala.ttf",
+      "license": "Tharu Digi Creations fonts by Asanka Chamara Uyanege; font says 'All Rights Reserved' but is distributed as a free download. No explicit licence text. Mirrored from github.com/DinethPansiluW/Sinhala-Fonts.",
+      "licenseKnown": false,
+      "sha256": "214cfdf7ddc5ea575a75e97b05a017fd1c6a3c8dd1843795199d83566252dd36"
+    },
+    {
+      "id": "tharu-digital-cooper",
+      "label": "Tharu Digital Sinhala Cooper",
+      "family": "Tharu Digital Sinhala Cooper",
+      "internalFamily": "THARU DIGITAL SINHALA COOPER",
+      "file": "tharu-digital-cooper.ttf",
+      "sourceUrl": "https://raw.githubusercontent.com/DinethPansiluW/Sinhala-Fonts/59852fceb3031ed33a641f1f3947c7a6a312c4f1/TharuDigitalSinhalaCooper.ttf",
+      "license": "Tharu Digi Creations fonts by Asanka Chamara Uyanege; font says 'All Rights Reserved' but is distributed as a free download. No explicit licence text. Mirrored from github.com/DinethPansiluW/Sinhala-Fonts.",
+      "licenseKnown": false,
+      "sha256": "453b63eacc0a961d5ecce870c448b10a67076da73b6c172c7a9c7280ca1596d2"
+    },
+    {
+      "id": "cc-oldpress",
+      "label": "CC Old Press",
+      "family": "CC Old Press",
+      "internalFamily": "CC_OldPress",
+      "file": "cc-oldpress.ttf",
+      "sourceUrl": "https://raw.githubusercontent.com/DinethPansiluW/Sinhala-Fonts/59852fceb3031ed33a641f1f3947c7a6a312c4f1/cc_oldpress.ttf",
+      "license": "By Damith Welikala; distributed as a free download, no explicit licence text in the font. Mirrored from github.com/DinethPansiluW/Sinhala-Fonts.",
+      "licenseKnown": false,
+      "sha256": "68890c5ce40ddcf68ce0ebc1647cb569075de78c7614354a2f53c5bfd10877e1"
+    },
+    {
+      "id": "cc-anupama",
+      "label": "CC Anupama",
+      "family": "CC Anupama",
+      "internalFamily": "CCAnupama",
+      "file": "cc-anupama.ttf",
+      "sourceUrl": "https://raw.githubusercontent.com/DinethPansiluW/Sinhala-Fonts/59852fceb3031ed33a641f1f3947c7a6a312c4f1/ccanupama.ttf",
+      "license": "By Damith Welikala; distributed as a free download, no explicit licence text in the font. Mirrored from github.com/DinethPansiluW/Sinhala-Fonts.",
+      "licenseKnown": false,
+      "sha256": "3cd78118e2ae1386079980eeefa6cd20313e86ed04144b9ec9e9b1e7ab0b0d2f"
+    }
+  ]
+}

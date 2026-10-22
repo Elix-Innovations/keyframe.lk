@@ -1,0 +1,63 @@
+import { nanoid } from 'nanoid';
+import type { MusicTrack } from '../types';
+import { freeLayer } from './sounds';
+import { analyzeTrack, loadAudioAsset } from '../audio/graph';
+import { hasAudio } from '../audio/decode';
+import { useEditor } from '../store';
+import { makeAudioClip, makeVideoClip, videoClips, clipEnd, freeVideoTrack } from './clips';
+import * as db from './db';
+import { imageThumb, probeVideo } from './media';
+import { currentTime } from './player';
+
+export type MediaKind = 'video' | 'audio' | 'image';
+
+export const kindOf = (f: Blob): MediaKind | null =>
+  f.type.startsWith('video/') ? 'video' : f.type.startsWith('audio/') ? 'audio' : f.type.startsWith('image/') ? 'image' : null;
+
+/** Append a video to the timeline as a video clip plus a linked audio clip (when the file has sound). */
+export async function addVideo(file: File, handle?: FileSystemFileHandle | null, pos?: { start: number; track: number }): Promise<void> {
+  const st = useEditor.getState();
+  if (!st.project) return;
+  const meta = await probeVideo(file);
+  const assetId = handle ? await db.putFileHandle(handle, file) : await db.putBlob(file);
+  const sound = await hasAudio(file);
+  const name = file.name.replace(/\.[^.]+$/, '');
+  const mainClips = videoClips(st.project.clips ?? []).filter((c) => (c.track ?? 0) === 0);
+  const last = mainClips.at(-1);
+  const start = pos ? pos.start : last ? clipEnd(last) : 0;
+  const linkId = sound ? nanoid(6) : undefined;
+  const track = pos ? freeVideoTrack(st.project.clips ?? [], start, meta.duration, pos.track) : 0;
+  const v = { ...makeVideoClip({ assetId, name, sourceDuration: meta.duration, start, width: meta.width, height: meta.height, linkId }), track };
+  const a = sound ? makeAudioClip({ assetId, name: `${name} audio`, sourceDuration: meta.duration, start, linkId, fromVideo: true }) : null;
+  st.setClips((c) => [...c, v, ...(a ? [a] : [])]);
+  if (!last) st.patchSilently({ thumbnail: meta.thumbnail ?? st.project.thumbnail });
+  st.selectClip(v.id);
+}
+
+/** Add a file to the open project: video becomes clips, audio a music track, an image b-roll at the playhead. */
+export async function importMedia(file: File, handle?: FileSystemFileHandle | null, pos?: { start: number; track: number }): Promise<MediaKind | null> {
+  const st = useEditor.getState();
+  const kind = kindOf(file);
+  if (!kind || !st.project) return null;
+  if (kind === 'video') {
+    await addVideo(file, handle, pos);
+  } else if (kind === 'audio') {
+    const assetId = handle ? await db.putFileHandle(handle, file) : await db.putBlob(file);
+    const buf = await loadAudioAsset(assetId);
+    const analysis = await analyzeTrack(file, buf);
+    const dur = st.project.duration || buf.duration;
+    const t: MusicTrack = {
+      id: nanoid(8), assetId, name: file.name.replace(/\.[^.]+$/, ''), source: 'upload', fileDuration: buf.duration,
+      start: 0, offset: 0, duration: dur, volume: 0, fadeIn: 0.5, fadeOut: 2, loop: buf.duration < dur, analysis,
+      layer: freeLayer(st.project.audio.tracks, 0, dur),
+    };
+    st.update((p) => ({ ...p, audio: { ...p.audio, tracks: [...p.audio.tracks, t] } }));
+  } else {
+    const assetId = await db.putBlob(file);
+    const at = currentTime();
+    st.update((p) => ({ ...p, broll: [...p.broll, { id: nanoid(8), assetId, start: at, end: at + 2.5, mode: 'fullscreen', note: file.name }] }));
+  }
+  return kind;
+}
+
+export { imageThumb };

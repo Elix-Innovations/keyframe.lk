@@ -1,0 +1,109 @@
+import { useEditor } from '../store';
+import { previewAudio } from '../audio/preview';
+import { videoLayersAt, sourceTimeAt, videoClips } from './clips';
+import { allVideos, peekVideo } from './videoPool';
+
+/**
+ * Timeline playback. The master clock is wall time while playing; the hidden video elements
+ * (see videoPool) are slaved to it, so gaps, cuts and speed changes all play correctly.
+ */
+let playing = false;
+let anchorPerf = 0;
+let anchorT = 0;
+let stopAt: number | null = null;
+let raf = 0;
+let lastPush = 0;
+
+const dur = () => useEditor.getState().project?.duration ?? 0;
+
+export function currentTime() {
+  if (!playing) return useEditor.getState().time;
+  return Math.min(dur(), anchorT + (performance.now() - anchorPerf) / 1000);
+}
+
+function pushTime(force = false) {
+  const now = performance.now();
+  if (force || now - lastPush > 50) { lastPush = now; useEditor.getState().setTime(currentTime()); }
+}
+
+/** Point every video element at the right frame for timeline time t (one per visible clip, so overlay tracks decode too). */
+export function syncVideos(t = currentTime()) {
+  const p = useEditor.getState().project;
+  const active = videoLayersAt(p?.clips ?? [], t);
+  const used = new Set<HTMLVideoElement>();
+  for (const clip of active) {
+    const el = peekVideo(clip.assetId, clip.track ?? 0);
+    if (!el) continue;
+    used.add(el);
+    const want = Math.max(0, Math.min(sourceTimeAt(clip, t), (el.duration || clip.sourceDuration) - 0.001));
+    if (playing && !clip.freeze) {
+      const rate = Math.min(16, Math.max(0.0625, clip.speed));
+      if (el.playbackRate !== rate) el.playbackRate = rate;
+      if (Math.abs(el.currentTime - want) > 0.25) el.currentTime = want;
+      if (el.paused) void el.play().catch(() => {});
+    } else {
+      if (!el.paused) el.pause();
+      if (Math.abs(el.currentTime - want) > 0.005) el.currentTime = want;
+    }
+  }
+  for (const { el } of allVideos()) if (!used.has(el) && !el.paused) el.pause();
+}
+
+function loop() {
+  if (!playing) return;
+  const t = currentTime();
+  if (t >= dur() - 1e-3 || (stopAt !== null && t >= stopAt)) {
+    pause();
+    if (stopAt !== null) { useEditor.getState().setTime(stopAt); syncVideos(stopAt); }
+    stopAt = null;
+    return;
+  }
+  syncVideos(t);
+  pushTime();
+  raf = requestAnimationFrame(loop);
+}
+
+export function seek(t: number) {
+  const d = dur();
+  const clamped = Math.max(0, Math.min(t, d || t));
+  useEditor.getState().setTime(clamped);
+  if (playing) { anchorT = clamped; anchorPerf = performance.now(); void previewAudio.start(); }
+  syncVideos(clamped);
+}
+
+export function play() {
+  if (playing || dur() <= 0) return;
+  let t = useEditor.getState().time;
+  if (t >= dur() - 0.05) t = 0;
+  anchorT = t; anchorPerf = performance.now();
+  playing = true;
+  useEditor.getState().setTime(t);
+  useEditor.getState().setPlaying(true);
+  void previewAudio.start();
+  loop();
+}
+
+export function pause() {
+  if (!playing) { stopAt = null; return; }
+  const t = currentTime();
+  playing = false;
+  cancelAnimationFrame(raf);
+  previewAudio.stop();
+  useEditor.getState().setTime(t);
+  useEditor.getState().setPlaying(false);
+  syncVideos(t);
+}
+
+export function togglePlay() {
+  if (playing) pause(); else play();
+}
+
+/** Play a range once (used by "play caption"). */
+export function playRange(start: number, end: number) {
+  pause();
+  seek(start);
+  stopAt = end;
+  play();
+}
+
+export { videoClips };

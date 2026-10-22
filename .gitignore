@@ -1,0 +1,81 @@
+# ─── Secrets ──────────────────────────────────────────────
+# API keys live in server/.env — never commit it. The template (.env.example) is tracked.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# ─── Node / TypeScript ────────────────────────────────────
+node_modules/
+dist/
+build/
+*.tsbuildinfo
+.eslintcache
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+*.log
+
+# ─── Python service ───────────────────────────────────────
+python/.venv/
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+python/.cache/
+python/reports/
+
+# ─── App data (local only) ────────────────────────────────
+# API request / cost log written by the server
+server/data/
+# Temporary uploads and renders
+tmp/
+*.tmp
+
+# Legacy FM / Tharu fonts: licences unclear, fetched by `npm run fonts:fetch`.
+# manifest.json is tracked so the app knows what to load.
+web/public/fonts/fm/*
+!web/public/fonts/fm/manifest.json
+
+# Media you test with (keep large files out of git)
+*.mp4
+*.mov
+*.m4v
+*.mkv
+*.webm
+*.avi
+*.wav
+*.flac
+*.m4a
+*.aac
+
+# ─── Editors / OS ─────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+*.swp
+*.swo
+*~
+
+# ─── Tooling ──────────────────────────────────────────────
+.claude/settings.local.json
+graphify-out/
+
+# Next.js
+.next/
+next-env.d.ts
+
+# Next.js
+.next/
+next-env.d.ts
