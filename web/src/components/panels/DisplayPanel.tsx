@@ -1,5 +1,6 @@
-import type { DisplayMode } from '@/types';
+import type { CaptionStyle, DisplayMode } from '@/types';
 import { useEditor } from '@/store';
+import { boxPads } from '@/render/captions';
 import { StylePreview } from '../StylePreview';
 import { ColorInput, FillEditor, Row, Section, Slider, Toggle } from '../controls';
 import { FontPicker } from '../FontPicker';
@@ -16,6 +17,11 @@ const MODES: { id: DisplayMode; label: string; desc: string }[] = [
 export function DisplayPanel() {
   const style = useEditor((s) => s.project!.style);
   const setStyle = useEditor((s) => s.setStyle);
+  return <DisplayControls style={style} setStyle={setStyle} />;
+}
+
+/** Display mode, active-word look and emphasised-word look for any caption style: the project's, or a template layer's own. */
+export function DisplayControls({ style, setStyle, preview = true }: { style: CaptionStyle; setStyle: (fn: (s: CaptionStyle) => CaptionStyle, key?: string) => void; preview?: boolean }) {
   const mode = style.displayMode;
   const usesChunks = mode !== 'natural';
   const usesActive = mode === 'highlight' || mode === 'box-highlight';
@@ -23,9 +29,11 @@ export function DisplayPanel() {
   return (
     <div>
       <Section title="Display mode">
-        <div className="overflow-hidden rounded-xl border border-border checker">
-          <StylePreview style={style} animate height={110} />
-        </div>
+        {preview && (
+          <div className="overflow-hidden rounded-xl border border-border checker">
+            <StylePreview style={style} animate height={110} />
+          </div>
+        )}
         <div className="flex flex-col gap-1.5">
           {MODES.map((m) => (
             <button key={m.id} onClick={() => setStyle((s) => ({ ...s, displayMode: m.id }))}
@@ -53,7 +61,13 @@ export function DisplayPanel() {
             <>
               <Row label="Box color"><ColorInput value={style.highlight.boxColor} onChange={(boxColor) => setStyle((s) => ({ ...s, highlight: { ...s.highlight, boxColor } }), 'hb')} /></Row>
               <Row label="Box radius"><Slider value={style.highlight.boxRadius} min={0} max={40} onChange={(boxRadius) => setStyle((s) => ({ ...s, highlight: { ...s.highlight, boxRadius } }), 'hr')} /></Row>
-              <Row label="Box padding"><Slider value={style.highlight.boxPadding} min={0} max={30} onChange={(boxPadding) => setStyle((s) => ({ ...s, highlight: { ...s.highlight, boxPadding } }), 'hp')} /></Row>
+              <Row label="Box padding"><Slider value={style.highlight.boxPadding} min={0} max={30} onChange={(boxPadding) => setStyle((s) => ({ ...s, highlight: { ...s.highlight, boxPadding, boxPadTop: undefined, boxPadBottom: undefined, boxPadLeft: undefined, boxPadRight: undefined } }), 'hp')} /></Row>
+              {([['Margin top', 'boxPadTop'], ['Margin bottom', 'boxPadBottom'], ['Margin left', 'boxPadLeft'], ['Margin right', 'boxPadRight']] as const).map(([label, key]) => (
+                <Row key={key} label={label}>
+                  <Slider value={boxPads(style.highlight)[key.slice(6).toLowerCase() as 'top' | 'bottom' | 'left' | 'right']} min={0} max={40}
+                    onChange={(v) => setStyle((s) => ({ ...s, highlight: { ...s.highlight, [key]: v } }), key)} />
+                </Row>
+              ))}
             </>
           )}
           <Row label="Grow"><Slider value={style.highlight.scale} min={1} max={1.5} step={0.01} onChange={(scale) => setStyle((s) => ({ ...s, highlight: { ...s.highlight, scale } }), 'hs')} format={(v) => `×${v.toFixed(2)}`} /></Row>

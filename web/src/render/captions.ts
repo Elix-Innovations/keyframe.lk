@@ -1,5 +1,5 @@
 import type {
-  Caption, CaptionStyle, CreativeLayout, Fill, FontDef, Glow, Script, Shadow, TextCase, TextHook, TextLook, Word, WordStyle,
+  Caption, CaptionStyle, CreativeLayout, Fill, FontDef, Glow, HighlightStyle, Script, Shadow, TextCase, TextHook, TextLook, Word, WordStyle,
 } from '../types';
 import { cssFamily, getFont } from '../lib/fonts';
 import { SHADOW_PRESETS, merge } from '../lib/style';
@@ -72,6 +72,16 @@ function measure(ctx: Ctx2D, cssFont: string, letterSpacing: number, text: strin
 }
 
 /** Call when fonts finish loading so stale fallback metrics are dropped. */
+/** Resolved box-highlight margins in reference px. Unset sides keep the original look (top/bottom = half of `boxPadding`). */
+export function boxPads(h: HighlightStyle) {
+  return {
+    top: h.boxPadTop ?? h.boxPadding * 0.5,
+    bottom: h.boxPadBottom ?? h.boxPadding * 0.5,
+    left: h.boxPadLeft ?? h.boxPadding,
+    right: h.boxPadRight ?? h.boxPadding,
+  };
+}
+
 export function clearMeasureCache() {
   measureCache.clear();
 }
@@ -101,7 +111,7 @@ function resolveLook(
   const font = getFont(fontId);
   const bold = opts.word?.bold ?? (em?.bold || (o.bold ?? text.bold));
   const italic = o.italic ?? text.italic;
-  const size = text.fontSize * refScale * sizeMul * (o.sizeScale ?? 1);
+  const size = (o.fontSize ?? text.fontSize) * refScale * sizeMul * (o.sizeScale ?? 1);
   const presetName = o.shadowPreset ?? text.shadowPreset;
   const preset = SHADOW_PRESETS[presetName];
   const shadow = { ...preset, ...(o.shadow ?? {}), passes: preset.passes };
@@ -310,14 +320,14 @@ export function renderCaptionAt(
   const boxes = chunk.map((w, i) => buildWord(ctx, w, i, style, refScale));
   const base = resolveLook(style.text, 'sinhala', refScale, 1, { emphasized: false, style });
   const spaceW = Math.max(measure(ctx, base.cssFont, 0, ' ').width * 1.1, base.size * 0.3) * (style.text.wordSpacing ?? 1) +
-    (mode === 'box-highlight' ? style.highlight.boxPadding * 2 * refScale : 0);
+    (mode === 'box-highlight' ? (boxPads(style.highlight).left + boxPads(style.highlight).right) * refScale : 0);
   const maxW = (style.layout.maxWidth / 100) * W;
 
   const lines: WordBox[][] = [];
   let cur: WordBox[] = [], curW = 0;
   for (const b of boxes) {
     const need = cur.length ? curW + spaceW + b.width : b.width;
-    if (cur.length && (b.forceOwnLine || cur[cur.length - 1].forceOwnLine || need > maxW)) {
+    if (cur.length && (b.word.br || b.forceOwnLine || cur[cur.length - 1].forceOwnLine || need > maxW)) {
       lines.push(cur);
       cur = [b];
       curW = b.width;
@@ -381,8 +391,9 @@ export function renderCaptionAt(
 
   // Box highlight slides from the previous word to the active one.
   if (mode === 'box-highlight' && active >= 0) {
-    const pad = style.highlight.boxPadding * refScale;
-    const rectOf = (b: WordBox): Rect => ({ x: b.x - pad, y: b.baseline - b.ascent * 0.92 - pad * 0.5, w: b.width + pad * 2, h: (b.ascent + b.descent) * 0.92 + pad });
+    const bp = boxPads(style.highlight);
+    const [pt, pb, pl, pr] = [bp.top * refScale, bp.bottom * refScale, bp.left * refScale, bp.right * refScale];
+    const rectOf = (b: WordBox): Rect => ({ x: b.x - pl, y: b.baseline - b.ascent * 0.92 - pt, w: b.width + pl + pr, h: (b.ascent + b.descent) * 0.92 + pt + pb });
     const curB = boxes[active];
     let r = rectOf(curB);
     const prev = active > 0 ? boxes[active - 1] : null;
@@ -582,7 +593,7 @@ function renderCreative(
       // Letters leave in the same order they came, the first one first.
       const pe = letters && cr.customLetterOut ? animateWith('custom', cr.customLetterOut, Math.max(0, chunkEnd - t - ((pieces.length - 1 - pi) * cr.perLetter!) / spd), style.animationSpeed) : IDENTITY;
       const pa = combine(pIn, pe);
-      const lp = loopPose(cr.loop, t * spd, cr.loop === 'wave' ? pi : li, em);
+      const lp = loopPose(cr.loop, t * spd * (cr.loopSpeed ?? 1), cr.loop === 'wave' ? pi : li, em);
       ctx.save();
       if (bend) { const th = at / R; ctx.translate(R * Math.sin(th), dir * R * (1 - Math.cos(th))); ctx.rotate(dir * th); }
       else ctx.translate(at, 0);

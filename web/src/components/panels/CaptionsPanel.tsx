@@ -12,7 +12,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { useEditor } from '@/store';
 import { ai, health, transcribe } from '@/lib/api';
 import { getBlob } from '@/lib/db';
-import { segmentWords, retimeWordsForText } from '@/lib/segment';
+import { segmentWords, retimeWordsWithBreaks, wordsToText } from '@/lib/segment';
 import { cuesToCaptions, formatClock, parseSubtitles } from '@/lib/srt';
 import { currentTime, playRange, seek } from '@/lib/player';
 import { isSimple } from '@/lib/clips';
@@ -23,6 +23,8 @@ import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import { ColorInput, Progress, Row, Section, Segmented, Slider, Spinner } from '../controls';
+import { ApiKeys } from '../ApiKeys';
+import { copyCaptionStyle, pasteCaptionStyle } from '@/lib/clipboard';
 import { InputModeToggle, SinhalaInput } from '../SinhalaInput';
 
 type Provider = 'auto' | 'elevenlabs' | 'gemini' | 'openai';
@@ -100,7 +102,13 @@ function Generate() {
         </Button>
       )}
       {h === null && <p className="text-xs text-warn">The caption server is offline. Start it with <code>npm run dev</code>. You can still import subtitle files.</p>}
-      {h && !anyProvider && <p className="text-xs text-warn">Add <code>GEMINI_API_KEY</code>, <code>ELEVENLABS_API_KEY</code> or <code>OPENAI_API_KEY</code> to <code>server/.env</code>.</p>}
+      {h && !anyProvider && <p className="text-xs text-warn">Add a Gemini, ElevenLabs or OpenAI key below to turn on auto-generate.</p>}
+      {h !== null && (
+        <details className="group mt-1 rounded-md border" open={!!h && !anyProvider}>
+          <summary className="flex cursor-pointer select-none items-center justify-between px-2.5 py-2 text-xs font-medium">API keys<ChevronDown className="size-3.5 transition-transform group-open:rotate-180" /></summary>
+          <div className="border-t p-2.5"><ApiKeys only={['GEMINI_API_KEY', 'ELEVENLABS_API_KEY', 'OPENAI_API_KEY']} onChange={() => health().then(setH)} /></div>
+        </details>
+      )}
     </Section>
   );
 }
@@ -315,6 +323,47 @@ function WordToolbar({ c, sel, onChange, onClear }: { c: Caption; sel: Set<strin
   );
 }
 
+const r2 = (n: number) => Math.round(n * 100) / 100;
+
+/** When each word is spoken (and so lit / shown): change the speed of the whole caption or type exact times per word. */
+function TimingBox({ c, onChange }: { c: Caption; onChange: (c: Caption) => void }) {
+  const ws = c.words;
+  const setWord = (i: number, patch: Partial<Pick<Word, 'start' | 'end'>>) => {
+    const w = { ...ws[i], ...patch };
+    const lo = i === 0 ? c.start : ws[i - 1].start, hi = c.end;
+    w.start = r2(Math.min(Math.max(w.start, lo), hi - 0.05));
+    w.end = r2(Math.min(Math.max(w.end, w.start + 0.05), hi));
+    onChange({ ...c, words: ws.map((x, j) => (j === i ? w : x)) });
+  };
+  /** Scale word times around the caption start; `k` > 1 = faster speech, so words land earlier. */
+  const speed = (k: number) => onChange({ ...c, words: ws.map((w) => ({ ...w, start: r2(c.start + (w.start - c.start) / k), end: r2(Math.min(c.end, c.start + (w.end - c.start) / k)) })) });
+  const even = () => {
+    const step = (c.end - c.start) / ws.length;
+    onChange({ ...c, words: ws.map((w, i) => ({ ...w, start: r2(c.start + i * step), end: r2(c.start + (i + 1) * step) })) });
+  };
+  const num = 'h-7 w-[4.5rem] rounded-md border bg-background px-1.5 text-center font-mono text-xs tabular-nums';
+  return (
+    <div onClick={(e) => e.stopPropagation()} className="mt-2 rounded-xl border bg-muted/20 p-2.5">
+      <div className="mb-2 flex flex-wrap items-center gap-1">
+        <span className="mr-auto font-medium">Word timing</span>
+        <Button variant="outline" size="xs" onClick={() => speed(0.8)}>Slower ×0.8</Button>
+        <Button variant="outline" size="xs" onClick={() => speed(1.25)}>Faster ×1.25</Button>
+        <Button variant="outline" size="xs" onClick={even}>Even out</Button>
+      </div>
+      <div className="grid grid-cols-[1fr_auto_auto] items-center gap-x-2 gap-y-1">
+        <span className="text-[11px] text-muted-foreground">Word</span><span className="text-center text-[11px] text-muted-foreground">Shows at (s)</span><span className="text-center text-[11px] text-muted-foreground">Until (s)</span>
+        {ws.map((w, i) => (
+          <div key={w.id} className="contents">
+            <span className="sinhala truncate text-xs">{w.text}</span>
+            <input type="number" step={0.05} className={num} value={r2(w.start)} onChange={(e) => setWord(i, { start: Number(e.target.value) })} />
+            <input type="number" step={0.05} className={num} value={r2(w.end)} onChange={(e) => setWord(i, { end: Number(e.target.value) })} />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 /** Per-caption overrides: position, fonts, size, letter case. Stored in caption.styleOverride. */
 function CaptionStyleBox({ c, onChange }: { c: Caption; onChange: (c: Caption) => void }) {
   const base = useEditor((s) => s.project!.style);
@@ -338,6 +387,8 @@ function CaptionStyleBox({ c, onChange }: { c: Caption; onChange: (c: Caption) =
         <span className="font-medium">This caption</span>
         <div className="flex gap-1">
           {c.words.some((w) => IS_SI.test(w.text)) && <EnglishButton captionIds={[c.id]} />}
+          <Button variant="ghost" size="xs" onClick={() => copyCaptionStyle(c.id)}>Copy style</Button>
+          <Button variant="ghost" size="xs" onClick={() => pasteCaptionStyle([c.id])}>Paste style</Button>
           {custom && <Button variant="ghost" size="xs" onClick={() => onChange({ ...c, styleOverride: undefined })}><RotateCcw />Use project style</Button>}
         </div>
       </div>
@@ -349,6 +400,22 @@ function CaptionStyleBox({ c, onChange }: { c: Caption; onChange: (c: Caption) =
       <Row label="Horizontal"><Slider value={eff.layout.x} min={0} max={100} step={0.5} onChange={(x) => set({ layout: { x } })} format={(v) => `${Math.round(v)}%`} /></Row>
       <Row label="Vertical"><Slider value={eff.layout.y} min={0} max={100} step={0.5} onChange={(y) => set({ layout: { y } })} format={(v) => `${Math.round(v)}%`} /></Row>
       <Row label="Size"><Slider value={eff.text.fontSize} min={20} max={160} onChange={(fontSize) => set({ text: { fontSize } })} /></Row>
+      <Row label="Animation speed" hint="Speed of this caption's enter / exit animation">
+        <Slider value={eff.animationSpeed} min={0.25} max={3} step={0.05} format={(v) => `${v.toFixed(2)}×`} onChange={(animationSpeed) => set({ animationSpeed })} />
+      </Row>
+      {eff.creative?.loop && eff.creative.loop !== 'none' && (
+        <Row label="Idle speed" hint="Speed of the hover / float / wave loop">
+          <Slider value={eff.creative.loopSpeed ?? 1} min={0.2} max={4} step={0.05} format={(v) => `${v.toFixed(2)}×`} onChange={(loopSpeed) => set({ creative: { loopSpeed } as never })} />
+        </Row>
+      )}
+      <Row label="Sinhala size" hint="Size of the Sinhala letters only">
+        <Slider value={Math.round((eff.text.sinhala.fontSize ?? eff.text.fontSize) * (eff.text.sinhala.sizeScale ?? 1))} min={20} max={200}
+          onChange={(fontSize) => set({ text: { sinhala: { fontSize, sizeScale: 1 } } })} />
+      </Row>
+      <Row label="English size" hint="Size of the English letters only">
+        <Slider value={Math.round((eff.text.english.fontSize ?? eff.text.fontSize) * (eff.text.english.sizeScale ?? 1))} min={20} max={200}
+          onChange={(fontSize) => set({ text: { english: { fontSize, sizeScale: 1 } } })} />
+      </Row>
       <Row label="Sinhala font">
         <FontPicker className="h-8 w-40 text-xs" value={o.text?.sinhalaFont ?? null} script="sinhala" allowInherit="Project font"
           onChange={(id) => (id ? set({ text: { sinhalaFont: id } }) : drop('text', 'sinhalaFont'))} />
@@ -371,7 +438,7 @@ const CaptionRow = memo(function CaptionRow({ c, index, active, selected, onChan
   c: Caption; index: number; active: boolean; selected: boolean; onChange: (c: Caption) => void; onDelete: () => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
-  const text = c.words.map((w) => w.text).join(' ');
+  const text = wordsToText(c.words);
   const [draft, setDraft] = useState(text);
   const [sel, setSel] = useState<Set<string>>(new Set());
   const anchor = useRef<number | null>(null);
@@ -381,7 +448,7 @@ const CaptionRow = memo(function CaptionRow({ c, index, active, selected, onChan
     const t = draft.trim();
     if (t === text) return;
     if (!t) { onDelete(); return; }
-    onChange({ ...c, words: retimeWordsForText(c.words, t, c.start, c.end) });
+    onChange({ ...c, words: retimeWordsWithBreaks(c.words, t, c.start, c.end) });
   };
   const clickChip = (e: React.MouseEvent, i: number) => {
     e.stopPropagation();
@@ -411,14 +478,14 @@ const CaptionRow = memo(function CaptionRow({ c, index, active, selected, onChan
           <Button variant="ghost" size="icon-xs" className="hover:text-destructive" onClick={onDelete} aria-label="Delete caption"><Trash2 /></Button>
         </div>
       </div>
-      <SinhalaInput rows={Math.max(1, Math.ceil(draft.length / 34))} value={draft} onChange={setDraft} onBlur={commit}
+      <SinhalaInput rows={Math.max(1, draft.split('\n').reduce((n, l) => n + Math.max(1, Math.ceil(l.length / 34)), 0))} value={draft} onChange={setDraft} onBlur={commit}
         onSelect={(e) => {
           if (draft !== text) return; // selection maps to words only when the text is unchanged
           const el = e.currentTarget;
           const idx = wordsInSelection(draft, el.selectionStart, el.selectionEnd);
           if (idx.length) { setSel(new Set(idx.map((i) => c.words[i]?.id).filter(Boolean) as string[])); anchor.current = idx[0]; }
         }}
-        onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); (e.target as HTMLTextAreaElement).blur(); } }} />
+        onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); (e.target as HTMLTextAreaElement).blur(); } }} />
       <div className="mt-2 flex flex-wrap items-end gap-1">
         {c.words.map((w, i) => (
           <button key={w.id} title="Click to select · Shift-click for a range · ⌘-click to add"
@@ -438,6 +505,7 @@ const CaptionRow = memo(function CaptionRow({ c, index, active, selected, onChan
         ))}
       </div>
       {sel.size > 0 && <WordToolbar c={c} sel={sel} onChange={onChange} onClear={() => setSel(new Set())} />}
+      {selected && <TimingBox c={c} onChange={onChange} />}
       {selected && <CaptionStyleBox c={c} onChange={onChange} />}
     </div>
   );

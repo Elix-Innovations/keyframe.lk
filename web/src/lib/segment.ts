@@ -141,6 +141,25 @@ export { distribute as distributeTokens };
  * Otherwise: distribute times proportionally, preserving id + emphasis for
  * words whose text is unchanged.
  */
+/** Like `retimeWordsForText`, but a newline in the text becomes a line break before the next word. */
+export function retimeWordsWithBreaks(oldWords: Word[], newText: string, start: number, end: number): Word[] {
+  const breaks: boolean[] = [];
+  for (const line of newText.split(/\r?\n/)) {
+    const n = line.trim().split(/\s+/).filter(Boolean).length;
+    for (let i = 0; i < n; i++) breaks.push(i === 0 && breaks.length > 0);
+  }
+  return retimeWordsForText(oldWords, newText, start, end).map((w, i) => {
+    const { br: _drop, ...rest } = w;
+    void _drop;
+    return breaks[i] ? { ...rest, br: true } : rest;
+  });
+}
+
+/** Caption text as typed: words joined by spaces, with a newline where a word starts a new line. */
+export function wordsToText(words: Word[]): string {
+  return words.map((w, i) => (i === 0 ? '' : w.br ? '\n' : ' ') + w.text).join('');
+}
+
 export function retimeWordsForText(oldWords: Word[], newText: string, start: number, end: number): Word[] {
   const tokens = newText.trim().split(/\s+/).filter(Boolean);
   if (!tokens.length) return [];

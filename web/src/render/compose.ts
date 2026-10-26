@@ -1,8 +1,9 @@
 import type { AdjClip, AspectRatio, Clip, FitMode, Project } from '../types';
 import { FILTER_PRESETS, blendFilters, cssFilter, hasCrop, isNeutral, laneOf, migrateVideo, transformAt, transitionAt } from '../lib/videoFx';
-import { videoLayersAt } from '../lib/clips';
+import { sourceTimeAt, videoLayersAt } from '../lib/clips';
 import { adjAt } from '../lib/adj';
 import { applyEffectPass, drawEffectOverlays, drawVideoWithEffects, effectTransform } from './effects';
+import { needsMatte, processSource } from './matte';
 import { drawOverlays, type OverlayHit } from './overlays';
 import { renderCaptionAt, renderHook, type CaptionRenderResult, type Ctx2D, type Rect } from './captions';
 
@@ -33,7 +34,11 @@ function fitRect(sw: number, sh: number, W: number, H: number, cover: boolean): 
 }
 
 /** One decoded source frame of a clip, ready to draw. */
-export interface FrameSource { draw: DrawVideo; w: number; h: number }
+export interface FrameSource {
+  draw: DrawVideo; w: number; h: number;
+  /** Cut-out frames: 0..1 opacity of the processed frame at (u, v) in 0..1, for clicking the subject rather than the empty area. */
+  alphaAt?: (u: number, v: number) => number;
+}
 
 export interface ComposeOptions {
   brollImages?: Map<string, ImageBitmap | HTMLImageElement>;
@@ -69,14 +74,15 @@ const trackLane = (track: number) => (track === 0 ? 'video' : `video:${track}`);
 
 /** Draw one video clip with its own crop, transform, keyframes, filters, effects and transitions. */
 function drawLayer(
-  ctx: Ctx2D, W: number, H: number, project: Project, t: number, clip: Clip | null, src: FrameSource, main: boolean, fxOn: boolean,
+  ctx: Ctx2D, W: number, H: number, project: Project, t: number, clip: Clip | null, src: FrameSource, main: boolean, fxOn: boolean, hits?: OverlayHit[],
 ) {
   const layer = migrateVideo(clip?.fx ?? project.video);
   const lt = clip ? t - clip.start : t; // time inside the clip (effects, transitions and keyframes are clip-relative)
   const clipDur = clip ? clip.duration : project.duration;
   const vw = src.w || project.videoWidth || W, vh = src.h || project.videoHeight || H;
-  const drawVideo = src.draw;
-  const fit: FitMode = main ? project.fit : project.fit === 'cover' ? 'cover' : 'contain';
+  const matted = needsMatte(layer) ? processSource(clip?.id ?? 'main', src, layer, lt, clip ? { asset: clip.assetId, srcT: sourceTimeAt(clip, t), cutout: clip.cutout } : undefined) : src;
+  const drawVideo = matted.draw;
+  const fit: FitMode = main || clip?.cutout ? project.fit : project.fit === 'cover' ? 'cover' : 'contain';
   if (main && project.fit === 'blur') {
     const c = fitRect(vw, vh, W, H, true);
     ctx.save();
@@ -139,6 +145,22 @@ function drawLayer(
   const effects = tr.split > 0 ? [...(fxOn ? layer.effects : []), { id: 'tr-split', effectId: 'rgbSplit', intensity: tr.split }] : fxOn ? layer.effects : [];
   drawVideoWithEffects(ctx, draw, r, W, H, effects, lt);
   ctx.restore();
+  if (hits && clip && ((clip.track ?? 0) > 0 || clip.cutout)) {
+    // Where this video layer landed, so the preview can select, move, resize and rotate it like an overlay.
+    const rot = tf.rotation + fxT.rotation + tr.rot, a = (rot * Math.PI) / 180, k = sc * tr.sx;
+    const mid = { x: r.x + r.w / 2, y: r.y + r.h / 2 };
+    const hit: OverlayHit = { id: clip.id, clipId: clip.id, cx: cx + (mid.x - W / 2) * k * Math.cos(a) - (mid.y - H / 2) * sc * Math.sin(a), cy: cy + (mid.x - W / 2) * k * Math.sin(a) + (mid.y - H / 2) * sc * Math.cos(a), w: r.w * k, h: r.h * sc, rot };
+    if (matted.alphaAt) {
+      const alphaAt = matted.alphaAt;
+      hit.solidAt = (x, y) => {
+        // Canvas point -> the layer's own (untransformed) frame -> the cut-out frame.
+        const px = x - cx, py = y - cy, cos = Math.cos(-a), sin = Math.sin(-a);
+        const lx = (px * cos - py * sin) / k + W / 2, ly = (px * sin + py * cos) / sc + H / 2;
+        return alphaAt((lx - r.x) / r.w, (ly - r.y) / r.h) > 0.15;
+      };
+    }
+    hits.push(hit);
+  }
   if (fxOn && layer.filters.vignette > 0) {
     const g = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.25, W / 2, H / 2, Math.max(W, H) * 0.75);
     g.addColorStop(0, 'rgba(0,0,0,0)');
@@ -165,10 +187,14 @@ export function composeFrame(
     const layers = videoLayersAt(clips, t);
     const fallback: FrameSource | null = drawVideo ? { draw: drawVideo, w: opts.videoSize?.w || project.videoWidth || W, h: opts.videoSize?.h || project.videoHeight || H } : null;
     if (layers.length === 0 && clips.length === 0 && fallback && !laneOf(project, 'video').hidden) drawLayer(c, W, H, project, t, null, fallback, true, fxOn);
+    // Overlays set to sit behind a video layer are painted just before that layer.
+    const placed = new Set<string>();
+    const behind = (upTo: number) => { if (!opts.hideOverlays) drawOverlays(c, W, H, project, t, opts.brollImages, opts.overlayHits, (o) => o.behind !== undefined && o.behind <= upTo && !placed.has(o.id), placed); };
     layers.forEach((clip, i) => {
       if (laneOf(project, trackLane(clip.track ?? 0)).hidden) return;
+      behind(clip.track ?? 0);
       const src = opts.frameFor ? opts.frameFor(clip) : i === 0 ? fallback : null;
-      if (src && !migrateVideo(clip.fx).hidden) drawLayer(c, W, H, project, t, clip, src, i === 0, fxOn);
+      if (src && !migrateVideo(clip.fx).hidden) drawLayer(c, W, H, project, t, clip, src, (clip.track ?? 0) === 0 && i === 0, fxOn, opts.overlayHits);
     });
 
     for (const b of opts.hideBroll || laneOf(project, 'broll').hidden ? [] : project.broll) {
@@ -197,7 +223,7 @@ export function composeFrame(
       }
       c.restore();
     }
-    if (!opts.hideOverlays) drawOverlays(c, W, H, project, t, opts.brollImages, opts.overlayHits);
+    if (!opts.hideOverlays) drawOverlays(c, W, H, project, t, opts.brollImages, opts.overlayHits, (o) => !placed.has(o.id), placed);
   };
 
   if (!adj.length) scene(ctx);

@@ -349,8 +349,8 @@ async function transcribeOpenAI(audioPath: string, language: Language, dir: stri
 // Google Gemini (audio understanding with structured word timings)
 // ---------------------------------------------------------------------------
 
-/** gemini-2.5-flash was the most faithful on code-mixed Sinhala in testing; override with GEMINI_MODEL. */
-const geminiModel = () => process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+/** gemini-2.5-flash is retired for new API keys, so the default is gemini-3.5-flash; override with GEMINI_MODEL. */
+const geminiModel = () => process.env.GEMINI_MODEL || 'gemini-3.5-flash';
 /** Timestamps from an LLM drift on long audio, so long files are cut at pauses into short pieces. */
 const GEMINI_TARGET_CHUNK = 30;
 const GEMINI_MAX_CHUNK = 45;
@@ -406,6 +406,7 @@ async function geminiRequest(audio: Buffer, language: Language, attempt = 0): Pr
       contents: [{ parts: [{ inlineData: { mimeType: 'audio/mp3', data: audio.toString('base64') } }, { text: GEMINI_PROMPT(language) }] }],
       generationConfig: { responseMimeType: 'application/json', responseSchema: GEMINI_SCHEMA, temperature: 0 },
     }),
+    signal: AbortSignal.timeout(120_000),
   });
   if ((res.status === 429 || res.status >= 500) && attempt < 2) {
     recordFailure('gemini', geminiModel());

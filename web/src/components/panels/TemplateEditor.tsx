@@ -10,6 +10,7 @@ import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { ColorInput, FillEditor, Row, Section, Segmented, Slider, Toggle } from '../controls';
 import { FontPicker } from '../FontPicker';
+import { DisplayControls } from './DisplayPanel';
 
 const ANIM_IDS = Object.keys(ANIMATION_LABELS) as AnimationId[];
 const LOOPS: { id: TextLoop; label: string }[] = [
@@ -84,6 +85,7 @@ export function TemplateEditor({ style, onStyle, sfx, onSfx }: {
 
   return (
     <div>
+      {!cr && <DisplayControls style={style} preview={false} setStyle={(fn, key) => onStyle(fn(style), key && `tpl-${key}`)} />}
       <Section title="Fonts">
         <Row label="Sinhala"><div className="min-w-0 flex-1"><FontPicker value={t.sinhalaFont} script="sinhala" onChange={(id) => id && setText({ sinhalaFont: id })} /></div></Row>
         <Row label="English"><div className="min-w-0 flex-1"><FontPicker value={t.englishFont} script="english" onChange={(id) => id && setText({ englishFont: id })} /></div></Row>
@@ -196,6 +198,7 @@ export function TemplateEditor({ style, onStyle, sfx, onSfx }: {
             <SelectTrigger size="sm" className="w-36"><SelectValue /></SelectTrigger>
             <SelectContent>{LOOPS.map((l) => <SelectItem key={l.id} value={l.id}>{l.label}</SelectItem>)}</SelectContent>
           </Select></Row>
+          {cr.loop && cr.loop !== 'none' && <Row label="Idle speed" hint="How fast the float / wave / pulse repeats."><Slider value={cr.loopSpeed ?? 1} min={0.2} max={4} step={0.05} format={(v) => `${v.toFixed(2)}×`} onChange={(loopSpeed) => setCr({ loopSpeed }, 'lps')} /></Row>}
           <Row label="Colour split" hint="Red and blue ghosts at the edges, like a glitch or lens fringe."><Slider value={Math.round((cr.split ?? 0) * 100)} min={0} max={15} format={(v) => (v ? `${v}%` : 'Off')} onChange={(v) => setCr({ split: v / 100 }, 'spl')} /></Row>
           {!!cr.split && <Row label="Keep split"><Toggle checked={!!cr.splitHold} onChange={(splitHold) => setCr({ splitHold })} label="Keep colour split on" /></Row>}
         </> : (

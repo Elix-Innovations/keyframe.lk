@@ -1,6 +1,7 @@
 import { nanoid } from 'nanoid';
 import type { MusicTrack } from '../types';
 import { freeLayer } from './sounds';
+import { brollOverlay } from './overlays';
 import { analyzeTrack, loadAudioAsset } from '../audio/graph';
 import { hasAudio } from '../audio/decode';
 import { useEditor } from '../store';
@@ -55,7 +56,12 @@ export async function importMedia(file: File, handle?: FileSystemFileHandle | nu
   } else {
     const assetId = await db.putBlob(file);
     const at = currentTime();
-    st.update((p) => ({ ...p, broll: [...p.broll, { id: nanoid(8), assetId, start: at, end: at + 2.5, mode: 'fullscreen', note: file.name }] }));
+    const bmp = await createImageBitmap(file).catch(() => null);
+    const dims = bmp ? { w: bmp.width, h: bmp.height } : undefined;
+    bmp?.close();
+    const id = nanoid(8);
+    st.update((p) => ({ ...p, overlays: [...(p.overlays ?? []), { ...brollOverlay({ assetId, start: at, end: at + 3, mode: 'fullscreen', note: file.name.replace(/\.[^.]+$/, '') }, p.overlays ?? [], { w: p.videoWidth || 1080, h: p.videoHeight || 1920 }, dims), id }] }));
+    st.selectOverlay(id);
   }
   return kind;
 }

@@ -25,6 +25,7 @@ import { clipOps } from './ClipLane';
 import { Keys } from './ShortcutsDialog';
 import { CaptionsPanel } from './panels/CaptionsPanel';
 import { TemplatesPanel } from './panels/TemplatesPanel';
+import { MotionPanel } from './panels/MotionPanel';
 import { StylePanel } from './panels/StylePanel';
 import { DisplayPanel } from './panels/DisplayPanel';
 import { AnimationPanel } from './panels/AnimationPanel';
@@ -46,6 +47,7 @@ import { SoundsPanel } from './panels/SoundsPanel';
 import { OverlayItemPanel } from './panels/OverlayItemPanel';
 import { overlayOps } from './OverlayLane';
 import { trackOps } from '@/lib/sounds';
+import { canCopy, copySelection, cutSelection, hasClipboard, pasteAtPlayhead, pasteAttributes } from '@/lib/clipboard';
 import { adjOps } from './AdjLane';
 
 const META: Record<PanelId, { label: string; title: string; icon: ComponentType<{ className?: string }> }> = {
@@ -58,6 +60,7 @@ const META: Record<PanelId, { label: string; title: string; icon: ComponentType<
   effects: { label: 'Effects', title: 'Effects', icon: WandSparkles },
   filters: { label: 'Filters', title: 'Filters', icon: Sparkles },
   templates: { label: 'Templates', title: 'Templates', icon: LayoutTemplate },
+  motion: { label: 'Graphics', title: 'Motion graphics and transitions', icon: Sparkles },
   style: { label: 'Style', title: 'Text style', icon: Type },
   display: { label: 'Display', title: 'Display mode', icon: Highlighter },
   animation: { label: 'Motion', title: 'Caption motion', icon: Activity },
@@ -82,6 +85,7 @@ function PanelBody({ id }: { id: PanelId }) {
     case 'effects': return <EffectsPanel />;
     case 'filters': return <FiltersPanel />;
     case 'templates': return <TemplatesPanel />;
+    case 'motion': return <MotionPanel />;
     case 'style': return <StylePanel />;
     case 'display': return <DisplayPanel />;
     case 'animation': return <AnimationPanel />;
@@ -171,6 +175,12 @@ export function Editor() {
       if (mod && e.key.toLowerCase() === 'z') { e.preventDefault(); if (e.shiftKey) st.redo(); else st.undo(); return; }
       if (mod && e.key.toLowerCase() === 'y') { e.preventDefault(); st.redo(); return; }
       if (mod && e.key.toLowerCase() === 'k') { e.preventDefault(); st.setConverterOpen(!st.converterOpen); return; }
+      // Copy / cut / paste on the timeline (⌘C, ⌘X, ⌘V; ⌥⌘V pastes a video clip as an overlay; ⇧⌘V pastes only the look).
+      if (mod && !isTyping(e) && !window.getSelection()?.toString()) {
+        if (e.code === 'KeyC' && canCopy()) { e.preventDefault(); copySelection(); return; }
+        if (e.code === 'KeyX' && canCopy()) { e.preventDefault(); cutSelection(); return; }
+        if (e.code === 'KeyV' && hasClipboard()) { e.preventDefault(); if (e.shiftKey) pasteAttributes(); else pasteAtPlayhead(e.altKey); return; }
+      }
       if (isTyping(e) || mod) return;
       const p = st.project;
       if (!p) return;

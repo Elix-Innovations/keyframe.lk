@@ -1,18 +1,21 @@
+import { clipboardKind, copySelection, hasClipboard, pasteAtPlayhead, pasteAttributes } from '@/lib/clipboard';
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import type { Clip } from '@/types';
 import { WAVEFORM_RATE } from '@/types';
 import { useEditor } from '@/store';
 import { currentTime } from '@/lib/player';
+import { toast } from 'sonner';
+import { extractCutout } from '@/lib/extractCutout';
 import {
-  changeSpeed, clipEnd, deleteClips, duplicateClip, freezeFrame, link, moveClips, partnerOf, setVideoTrack, splitClips, trimLeft, trimRight, unlink,
+  changeSpeed, clipEnd, deleteClips, createCutoutLayer, duplicateClip, freezeFrame, link, moveClips, partnerOf, setVideoTrack, splitClips, trimLeft, trimRight, unlink,
 } from '@/lib/clips';
-import { hasClipFx, laneOf } from '@/lib/videoFx';
+import { hasClipFx, laneOf, migrateVideo } from '@/lib/videoFx';
 import { geo } from '@/lib/timelineGeo';
 import { loadSourceAudio } from '@/audio/clips';
 import { waveformOf } from '@/audio/loudness';
 import { formatClock } from '@/lib/srt';
 import { cn } from '@/lib/utils';
-import { Copy, Play, Scissors, Trash2 } from '@/components/icons';
+import { Copy, PictureInPicture, Play, Scissors, Trash2 } from '@/components/icons';
 import { Lock, Volume, VolumeOff } from '@/components/icons-audio';
 import {
   ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuShortcut, ContextMenuTrigger,
@@ -46,6 +49,29 @@ export const clipOps = {
     st.selectClip(null);
   },
   duplicate(id: string) { useEditor.getState().setClips((cs) => duplicateClip(cs, id)); },
+  /** Make an overlay layer from the clip's cut-out so overlays can go behind or in front of the subject. */
+  createCutout(id: string) {
+    const st = useEditor.getState();
+    const r = createCutoutLayer(st.project?.clips ?? [], id);
+    if (!r.id) return;
+    st.setClips(() => r.clips);
+    st.selectClip(r.id);
+    st.setPanel('clip');
+    // The layer shows a live matte at once; in the background the subject is rendered into its own transparent video, which then replaces it.
+    const src = r.clips.find((x) => x.id === r.id)!;
+    const tid = toast.loading('Extracting the cut-out into its own video layer… 0%');
+    void extractCutout(src, (p) => toast.loading(`Extracting the cut-out into its own video layer… ${Math.round(p * 100)}%`, { id: tid }))
+      .then((x) => {
+        const cur = useEditor.getState().project?.clips?.find((c) => c.id === src.id);
+        if (!cur || cur.assetId !== src.assetId) { toast.dismiss(tid); return; } // deleted or changed meanwhile
+        useEditor.getState().setClips((cs) => cs.map((c) => (c.id === src.id ? {
+          ...c, assetId: x.assetId, in: 0, speed: 1, freeze: false, sourceDuration: c.duration, width: x.width, height: x.height,
+          fx: { ...migrateVideo(c.fx), matte: undefined, regionBlurs: [] },
+        } : c)));
+        toast.success('Cut-out extracted as its own video layer. Set text or images to Depth "Behind cut-out" to place them between it and the clip below.', { id: tid });
+      })
+      .catch((e: Error) => toast.error(e.name === 'AbortError' ? 'Extraction cancelled.' : `Could not extract the cut-out: ${e.message}. The layer keeps its live cut-out.`, { id: tid }));
+  },
   speed(id: string, s: number) { useEditor.getState().setClips((cs) => changeSpeed(cs, id, s)); },
   freeze(id: string) { useEditor.getState().setClips((cs) => freezeFrame(cs, id, currentTime())); },
   unlink(id: string) { useEditor.getState().setClips((cs) => unlink(cs, id)); },
@@ -86,6 +112,11 @@ function Menu({ clip, children }: { clip: Clip; children: React.ReactNode }) {
       <ContextMenuContent className="w-60">
         <ContextMenuItem disabled={!canSplit} onClick={() => clipOps.splitAtPlayhead([clip.id])}><Scissors />Split at playhead<ContextMenuShortcut>S</ContextMenuShortcut></ContextMenuItem>
         <ContextMenuItem onClick={() => clipOps.duplicate(clip.id)}><Copy />Duplicate</ContextMenuItem>
+        {clip.kind === 'video' && <ContextMenuItem onClick={() => clipOps.createCutout(clip.id)}><PictureInPicture />Create cut-out layer</ContextMenuItem>}
+        <ContextMenuItem onClick={() => copySelection()}><Copy />Copy<ContextMenuShortcut>⌘C</ContextMenuShortcut></ContextMenuItem>
+        <ContextMenuItem disabled={!hasClipboard()} onClick={() => pasteAtPlayhead(false)}>Paste at playhead<ContextMenuShortcut>⌘V</ContextMenuShortcut></ContextMenuItem>
+        <ContextMenuItem disabled={clipboardKind() !== 'clip'} onClick={() => pasteAtPlayhead(true)}>Paste as overlay window<ContextMenuShortcut>⌥⌘V</ContextMenuShortcut></ContextMenuItem>
+        <ContextMenuItem disabled={!hasClipboard()} onClick={() => pasteAttributes()}>Paste look only<ContextMenuShortcut>⇧⌘V</ContextMenuShortcut></ContextMenuItem>
         {clip.kind === 'video' && <ContextMenuItem disabled={!canSplit} onClick={() => clipOps.freeze(clip.id)}><Play />Freeze frame (2 s)</ContextMenuItem>}
         <ContextMenuSeparator />
         {linked

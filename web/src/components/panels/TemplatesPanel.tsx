@@ -11,7 +11,7 @@ import { currentTime } from '@/lib/player';
 import * as db from '@/lib/db';
 import { StylePreview } from '../StylePreview';
 import { downloadBlob } from '@/lib/util';
-import { Check, Download, Pencil, Save, Trash2, Upload } from '@/components/icons';
+import { Check, ChevronRight, Download, Pencil, Save, Search, Trash2, Upload } from '@/components/icons';
 import { Volume } from '@/components/icons-audio';
 import { getFont, onFontsChanged } from '@/lib/fonts';
 import { cn } from '@/lib/utils';
@@ -23,6 +23,7 @@ import { importPremierePack, PACK_ACCEPT } from '@/lib/premiere';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 type Scope = 'all' | 'caption' | 'range';
+type Cat = 'all' | 'mine' | 'captions' | 'creative' | 'motion' | 'presets' | 'scenes' | 'apple' | 'premiere';
 
 /** "Tharu Digital Sinhala Cooper" → "Cooper", "FM Abhaya Bold" → "Abhaya Bold": the card has little room. */
 const shortFontName = (label: string) => label.replace(/^(FM|CC|Tharu( Digital| DC)?)\s+/, '').replace(/^Sinhala\s+/, '');
@@ -43,6 +44,8 @@ export function TemplatesPanel() {
   const [scope, setScope] = useState<Scope>('all');
   const [sound, setSoundState] = useState<SoundChoice>(templatePrefs.sound);
   const setSound = (v: SoundChoice) => { templatePrefs.sound = v; setSoundState(v); }; // a template dropped on the timeline uses the same choice
+  const [cat, setCat] = useState<Cat>('all');
+  const [query, setQuery] = useState('');
   const packRef = useRef<HTMLInputElement>(null);
   const [packStatus, setPackStatus] = useState<string | null>(null);
   const [packWarnings, setPackWarnings] = useState<string[]>([]);
@@ -61,8 +64,9 @@ export function TemplatesPanel() {
 
   const apply = async (t: Template) => {
     const hit = targets();
+    if (scope === 'all') { await applyTemplate(t, 'all', sound); return; } // sets the project look even before there are captions
     if (!hit.length) { notify(scope === 'caption' ? 'Select a caption on the timeline first.' : 'No captions in that time range.', 'info'); return; }
-    await applyTemplate(t, scope === 'all' ? 'all' : hit, sound);
+    await applyTemplate(t, hit, sound);
   };
 
   const save = async () => {
@@ -118,11 +122,12 @@ export function TemplatesPanel() {
     }
   };
 
-  const Card = ({ t }: { t: Template }) => {
+  // Called as a function, not rendered as <Card/>: a component type created per render would remount every card (and reset the scroll) on each state change.
+  const card = (t: Template) => {
     const active = project.templateId === t.id && scope === 'all';
     const font = getFont(t.style.text.sinhalaFont);
     return (
-      <div className={cn('group relative overflow-hidden rounded-lg border bg-muted/40 transition-colors',
+      <div key={t.id} className={cn('group relative overflow-hidden rounded-lg border bg-muted/40 transition-colors',
         active ? 'border-primary ring-1 ring-primary' : 'border-border hover:border-foreground/25')}
         onMouseEnter={() => setHover(t.id)} onMouseLeave={() => setHover(null)}>
         <button className="block w-full cursor-grab text-left active:cursor-grabbing" onClick={() => apply(t)} aria-pressed={active}
@@ -172,9 +177,42 @@ export function TemplatesPanel() {
     );
   }
 
+  // Browse like an app store: a search box and category chips on top, a few cards per category, "See all" to dive in.
+  const mine = custom.filter((t) => !t.origin), imported = custom.filter((t) => t.origin);
+  const groups: { id: Cat; title: string; desc: string; list: Template[] }[] = [
+    { id: 'mine', title: 'My templates', desc: 'Looks you saved or customised.', list: mine },
+    { id: 'captions', title: 'Caption styles', desc: 'Word-by-word, highlight and box looks for captions.', list: BUILTIN_TEMPLATES },
+    { id: 'creative', title: 'Creative stacks', desc: 'Stacked and curved lines around one big key word.', list: CREATIVE_TEMPLATES },
+    { id: 'motion', title: 'Motion titles', desc: 'Kinetic letters, glitch, neon flicker, wipes and bounces.', list: MOTION_TEMPLATES },
+    { id: 'presets', title: 'Text presets', desc: 'Clean rounded type with a soft glow.', list: PRESET_TEMPLATES },
+    { id: 'scenes', title: 'Text scenes', desc: 'Neon single-row titles that resolve out of a blur.', list: SCENE_TEMPLATES },
+    { id: 'apple', title: 'Apple style', desc: 'Gradient headlines and words that brighten as you read.', list: APPLE_TEMPLATES },
+    { id: 'premiere', title: 'Imported packs', desc: 'Text animations read from Premiere Pro packs.', list: imported },
+  ];
+  const q = query.trim().toLowerCase();
+  const visible = groups.filter((g) => g.list.length && (cat === 'all' || g.id === cat));
+  const found = q ? groups.flatMap((g) => g.list).filter((t) => t.name.toLowerCase().includes(q)) : null;
+  const PEEK = 4;
+  const scopeLabel = scope === 'all' ? 'Whole video' : scope === 'caption' ? 'Selected caption' : 'Time range';
+  const soundLabel = sound === 'template' ? 'Template sound' : sound === 'none' ? 'Silent' : SFX.find((x) => x.id === sound)?.label;
+
   return (
     <div>
-      <Section title="Apply to">
+      <div className="sticky top-0 z-10 flex flex-col gap-2 border-b bg-sidebar px-3 pt-3 pb-2">
+        <div className="relative">
+          <Search className="pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+          <Input className="h-8 pl-7 text-xs" placeholder={`Search ${groups.reduce((n, g) => n + g.list.length, 0)} templates`} value={query} onChange={(e) => setQuery(e.target.value)} aria-label="Search templates" />
+        </div>
+        <div className="-mx-3 flex gap-1.5 overflow-x-auto px-3 pb-0.5 [scrollbar-width:none]">
+          {[{ id: 'all' as Cat, title: 'All' }, ...groups.filter((g) => g.list.length).map((g) => ({ id: g.id, title: g.title.replace(' templates', '').replace(' styles', '').replace('Creative stacks', 'Creative') }))].map((c) => (
+            <button key={c.id} type="button" onClick={() => { setCat(c.id); setQuery(''); }}
+              className={cn('shrink-0 rounded-full border px-2.5 py-1 text-[11px] transition-colors', cat === c.id && !q ? 'border-primary bg-primary text-primary-foreground' : 'border-border bg-muted/40 text-muted-foreground hover:text-foreground')}>{c.title}</button>
+          ))}
+        </div>
+      </div>
+
+      <Section title="Apply options" collapsible defaultOpen={false}
+        right={<span className="truncate text-[11px] text-muted-foreground">{scopeLabel} · {soundLabel} · {speed.toFixed(2)}×</span>}>
         <Segmented fill size="sm" value={scope} onChange={setScope}
           options={[{ value: 'all', label: 'Whole video' }, { value: 'caption', label: 'Selected caption' }, { value: 'range', label: 'Time range' }]} />
         {scope === 'caption' && <p className="text-[11px] text-muted-foreground">{selectedCaption ? 'The selected caption gets the template you click.' : 'Click a caption on the timeline, then pick a template.'}</p>}
@@ -191,7 +229,7 @@ export function TemplatesPanel() {
             <SelectContent>
               <SelectItem value="template">Template's sound</SelectItem>
               <SelectItem value="none">None</SelectItem>
-              {SFX.map((s) => <SelectItem key={s.id} value={s.id}>{s.label}</SelectItem>)}
+              {SFX.map((x) => <SelectItem key={x.id} value={x.id}>{x.label}</SelectItem>)}
             </SelectContent>
           </Select>
           {sound !== 'none' && sound !== 'template' && <Button size="icon-xs" variant="ghost" aria-label="Preview sound" onClick={() => void playSfx(sound)}><Volume /></Button>}
@@ -199,47 +237,42 @@ export function TemplatesPanel() {
         <Row label="Animation speed" hint="Multiplies the template's own speed when you apply it or add it as a layer. Fine-tune a single template with the pencil.">
           <Slider value={speed} min={0.25} max={3} step={0.05} format={(v) => `${v.toFixed(2)}×`} onChange={setSpeed} />
         </Row>
+        <p className="text-[11px] text-muted-foreground">Hover a card to preview its motion. Click to style captions, drag it onto the timeline or press + Layer for its own text layer. The pencil edits it.</p>
       </Section>
-      <Section title="Creative text">
-        <p className="text-[11px] text-muted-foreground">Stacked, arched and neon lines with a big key word. Hover to preview the entrance, drag one onto the timeline to add it as a text layer, or click to style captions. The speaker icon marks the matching sound.</p>
-        <div className="grid grid-cols-2 gap-2">{CREATIVE_TEMPLATES.map((t) => <Card key={t.id} t={t} />)}</div>
-      </Section>
-      <Section title="Motion titles">
-        <p className="text-[11px] text-muted-foreground">Kinetic letters, glitch, neon flicker, wipes, whips and elastic bounces. Hover to preview; the pencil opens every setting: fonts, colours, curve, line looks and motion.</p>
-        <div className="grid grid-cols-2 gap-2">{MOTION_TEMPLATES.map((t) => <Card key={t.id} t={t} />)}</div>
-      </Section>
-      <Section title="Text presets">
-        <p className="text-[11px] text-muted-foreground">Clean rounded type with a soft glow, one preset per motion: slide, scale, bounce, typewriter and an accent word. Edit colours, glow and font with the pencil.</p>
-        <div className="grid grid-cols-2 gap-2">{PRESET_TEMPLATES.map((t) => <Card key={t.id} t={t} />)}</div>
-      </Section>
-      <Section title="Text scenes">
-        <p className="text-[11px] text-muted-foreground">Neon-glow single-row titles from the Elfko scene pack: typed-on, blur slides, zoom-through, dark glow and two-tone. Letters shade from white to the glow colour.</p>
-        <div className="grid grid-cols-2 gap-2">{SCENE_TEMPLATES.map((t) => <Card key={t.id} t={t} />)}</div>
-      </Section>
-      <Section title="Apple style">
-        <p className="text-[11px] text-muted-foreground">Apple-website type: Apple Intelligence gradient, titanium, words brightening as you read, and keynote headlines.</p>
-        <div className="grid grid-cols-2 gap-2">{APPLE_TEMPLATES.map((t) => <Card key={t.id} t={t} />)}</div>
-      </Section>
-      <Section title="Premiere pack import">
-        <p className="text-[11px] text-muted-foreground">Add a text transition pack you own: .mogrt, .prfpset or .prproj give the pack's own keyframes; a preview video (mp4, mov, webm) is measured and is approximate. .aep is binary, so use its preview video. Each text animation becomes an editable template in My templates.</p>
-        <Button size="sm" variant="secondary" disabled={!!packStatus} onClick={() => packRef.current?.click()}><Upload />{packStatus ?? 'Choose pack files'}</Button>
-        <input ref={packRef} type="file" multiple accept={PACK_ACCEPT} hidden onChange={(e) => { const f = Array.from(e.target.files ?? []); if (f.length) void importPack(f); e.target.value = ''; }} />
-        {packWarnings.length > 0 && <ul className="flex flex-col gap-1 text-[11px] text-muted-foreground">{packWarnings.map((w, i) => <li key={i}>• {w}</li>)}</ul>}
-      </Section>
-      <Section title="Save current look">
+
+      {found ? (
+        <Section title={`${found.length} result${found.length === 1 ? '' : 's'}`}>
+          {found.length ? <div className="grid grid-cols-2 gap-2">{found.map((t) => card(t))}</div> : <p className="text-xs text-muted-foreground">No template named “{query}”.</p>}
+        </Section>
+      ) : visible.map((g) => {
+        const peek = cat === 'all' && g.list.length > PEEK;
+        return (
+          <section key={g.id} className="border-b px-3 py-3">
+            <div className="mb-2 flex items-baseline justify-between gap-2">
+              <div className="min-w-0">
+                <h3 className="truncate text-xs font-medium">{g.title} <span className="font-normal text-muted-foreground">{g.list.length}</span></h3>
+                <p className="truncate text-[11px] text-muted-foreground">{g.desc}</p>
+              </div>
+              {g.id === 'mine' && <Button variant="ghost" size="xs" onClick={exportAll}><Download />Export</Button>}
+              {peek && <Button variant="ghost" size="xs" onClick={() => setCat(g.id)}>See all<ChevronRight /></Button>}
+            </div>
+            <div className="grid grid-cols-2 gap-2">{(peek ? g.list.slice(0, PEEK) : g.list).map((t) => card(t))}</div>
+          </section>
+        );
+      })}
+
+      <Section title="Library" collapsible defaultOpen={false}>
         <div className="flex gap-1.5">
-          <Input className="h-7 text-xs" placeholder="Template name" value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && save()} />
+          <Input className="h-7 text-xs" placeholder="Name the current caption look" value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && save()} />
           <Button size="sm" onClick={save}><Save />Save</Button>
         </div>
-      </Section>
-      {custom.length > 0 && (
-        <Section title="My templates" right={<Button variant="ghost" size="xs" onClick={exportAll}><Download />Export</Button>}>
-          <div className="grid grid-cols-2 gap-2">{custom.map((t) => <Card key={t.id} t={t} />)}</div>
-        </Section>
-      )}
-      <Section title="Templates" right={<Button variant="ghost" size="xs" onClick={() => importRef.current?.click()}><Upload />Import</Button>}>
-        <p className="text-[11px] text-muted-foreground">Hover to preview motion. Click to style captions, or drag one onto the timeline (or press + Layer) to add it as its own text layer. Your caption position is kept.</p>
-        <div className="grid grid-cols-2 gap-2">{BUILTIN_TEMPLATES.map((t) => <Card key={t.id} t={t} />)}</div>
+        <div className="flex flex-wrap gap-1.5">
+          <Button size="sm" variant="secondary" disabled={!!packStatus} onClick={() => packRef.current?.click()}><Upload />{packStatus ?? 'Import Premiere pack'}</Button>
+          <Button size="sm" variant="secondary" onClick={() => importRef.current?.click()}><Upload />Import templates (.json)</Button>
+        </div>
+        <p className="text-[11px] text-muted-foreground">Premiere packs you own: .mogrt, .prfpset or .prproj give the pack's own keyframes; a preview video is measured and approximate. .aep is binary, so use its preview video.</p>
+        {packWarnings.length > 0 && <ul className="flex flex-col gap-1 text-[11px] text-muted-foreground">{packWarnings.map((w, i) => <li key={i}>• {w}</li>)}</ul>}
+        <input ref={packRef} type="file" multiple accept={PACK_ACCEPT} hidden onChange={(e) => { const f = Array.from(e.target.files ?? []); if (f.length) void importPack(f); e.target.value = ''; }} />
         <input ref={importRef} type="file" accept=".json" hidden onChange={(e) => { const f = e.target.files?.[0]; if (f) importFile(f); e.target.value = ''; }} />
       </Section>
     </div>

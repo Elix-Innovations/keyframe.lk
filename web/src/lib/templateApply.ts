@@ -52,7 +52,14 @@ export async function applyTemplate(tpl: Template, captions: Caption[] | 'all', 
   const project = st.project;
   if (!project) return;
   const hit = captions === 'all' ? project.captions : captions;
-  if (!hit.length) { st.notify('There are no captions to style yet.', 'info'); return; }
+  if (!hit.length) {
+    // "Whole video" with no captions yet still sets the project look, so the template shows on captions you add later.
+    if (captions === 'all') {
+      st.update((p) => ({ ...p, templateId: t.id, style: { ...t.style, layout: { ...t.style.layout, x: p.style.layout.x, y: p.style.layout.y } } }));
+      st.notify(`Set “${t.name}” as the caption style. It shows on captions you add; drag it onto the timeline to add it as a text layer now.`, 'success');
+    } else st.notify('There are no captions to style yet.', 'info');
+    return;
+  }
   const ids = new Set(hit.map((c) => c.id));
   // Keep the user's caption position; take everything else from the template.
   const keep = (p: Project, s: CaptionStyle): CaptionStyle => ({ ...s, layout: { ...s.layout, x: p.style.layout.x, y: p.style.layout.y } });

@@ -1,5 +1,5 @@
 import { nanoid } from 'nanoid';
-import type { Ease, EffectInstance, LaneState, Project, TransitionId, VideoFilters, VideoKeyframe, VideoLayer } from '../types';
+import type { Ease, EffectInstance, LaneState, MatteSettings, Project, RegionBlur, TransitionId, VideoFilters, VideoKeyframe, VideoLayer } from '../types';
 
 export const NEUTRAL_FILTERS: VideoFilters = { brightness: 100, contrast: 100, saturate: 100, hue: 0, blur: 0, grayscale: 0, sepia: 0, vignette: 0 };
 
@@ -108,6 +108,15 @@ export const EASES: { id: Ease; label: string }[] = [
   { id: 'easeInOut', label: 'Ease in-out' }, { id: 'hold', label: 'Hold' },
 ];
 
+export const DEFAULT_MATTE: MatteSettings = {
+  mode: 'none', keyColor: '#00FF00', similarity: 40, smoothness: 12, spill: 50,
+  edge: 1, shift: -2, threshold: 50, invert: false, background: 'transparent', bgColor: '#000000', bgBlur: 24,
+};
+
+export const newRegionBlur = (): RegionBlur => ({ id: nanoid(6), shape: 'ellipse', look: 'blur', x: 50, y: 40, w: 30, h: 22, amount: 28, feather: 30, invert: false });
+
+export const hasMatte = (l?: Pick<VideoLayer, 'matte'>) => !!l?.matte && l.matte.mode !== 'none';
+
 export const migrateVideo = (v?: Partial<VideoLayer>): VideoLayer => ({
   ...DEFAULT_VIDEO, ...v,
   filters: { ...NEUTRAL_FILTERS, ...v?.filters },
@@ -117,6 +126,8 @@ export const migrateVideo = (v?: Partial<VideoLayer>): VideoLayer => ({
   effects: v?.effects ?? [],
   crop: { ...DEFAULT_VIDEO.crop!, ...v?.crop },
   base: { ...DEFAULT_VIDEO.base!, ...v?.base },
+  matte: v?.matte ? { ...DEFAULT_MATTE, ...v.matte } : undefined,
+  regionBlurs: v?.regionBlurs ?? undefined,
 });
 
 /** A preset applied at `strength` (0..100): each slider moves that far from neutral toward the preset. */
@@ -134,7 +145,7 @@ export function blendFilters(preset: Partial<VideoFilters>, strength: number): V
 export function hasClipFx(fx?: VideoLayer): boolean {
   if (!fx) return false;
   const l = migrateVideo(fx);
-  return l.effects.length > 0 || !isNeutral(l.filters) || l.transitionIn.id !== 'none' || l.transitionOut.id !== 'none' || hasCrop(l.crop) || !!l.rot90 || !!l.flipH || !!l.flipV;
+  return l.effects.length > 0 || !isNeutral(l.filters) || l.transitionIn.id !== 'none' || l.transitionOut.id !== 'none' || hasCrop(l.crop) || !!l.rot90 || !!l.flipH || !!l.flipV || hasMatte(l) || !!l.regionBlurs?.length;
 }
 
 export const hasCrop = (c?: { l: number; t: number; r: number; b: number }) => !!c && (c.l > 0 || c.t > 0 || c.r > 0 || c.b > 0);

@@ -13,7 +13,7 @@ import type {
 
 const MODEL = 'claude-opus-5';
 /** Gemini model for the text/JSON AI features (transcription has its own GEMINI_MODEL). */
-const geminiAiModel = () => process.env.GEMINI_AI_MODEL || 'gemini-2.5-flash';
+const geminiAiModel = () => process.env.GEMINI_AI_MODEL || 'gemini-3.5-flash';
 
 export const hasAnthropicCredentials = () =>
   !!(process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN);

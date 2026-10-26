@@ -1,5 +1,5 @@
 import type {
-  BrollPlanRequest, BrollPlanResponse, DescriptionRequest, DescriptionResponse, EmphasisRequest, EmphasisResponse,
+  MotionScene, BrollPlanRequest, BrollPlanResponse, DescriptionRequest, DescriptionResponse, EmphasisRequest, EmphasisResponse,
   HealthResponse, HookRequest, HookResponse, MusicMoodRequest, MusicMoodResponse, MusicSearchResponse, SfxSearchResponse, ProofreadRequest, ProofreadResponse, TranscribeResponse, UsageResponse,
 } from '../types';
 
@@ -59,7 +59,33 @@ export const ai = {
   proofread: (b: ProofreadRequest) => json<ProofreadResponse & { warning?: string }>('/api/ai/proofread', b),
   broll: (b: BrollPlanRequest) => json<BrollPlanResponse>('/api/ai/broll', b),
   musicMood: (b: MusicMoodRequest) => json<MusicMoodResponse>('/api/ai/music-mood', b),
+  /** Claude writes a motion graphic / transition scene. Slow (10-40 s), so it can be cancelled. */
+  motion: (b: MotionRequest, signal?: AbortSignal) => json<MotionResponse>('/api/ai/motion', b, signal),
 };
+
+export interface MotionRequest {
+  prompt: string;
+  role: 'graphic' | 'transition' | 'background';
+  duration?: number;
+  frame: { w: number; h: number };
+  palette?: string[];
+  fonts?: { english?: string; sinhala?: string };
+  base?: MotionScene;
+}
+export interface MotionResponse { scene: MotionScene; via: 'claude-cli' | 'claude' | 'gemini'; costUsd: number | null; ms: number }
+
+export interface ClaudeStatus {
+  cli: { found: boolean; version: string | null; loggedIn: boolean; account?: { email?: string; plan?: string; method?: string }; error?: string };
+  api: boolean;
+  gemini: boolean;
+}
+/** Is the Claude Code CLI installed and signed in on this computer? */
+export async function claudeStatus(refresh = false): Promise<ClaudeStatus | null> {
+  try {
+    const res = await fetch(`/api/claude/status${refresh ? '?refresh=1' : ''}`);
+    return res.ok ? ((await res.json()) as ClaudeStatus) : null;
+  } catch { return null; }
+}
 
 export async function usage(): Promise<UsageResponse> {
   const res = await fetch('/api/usage').catch(() => null);
@@ -88,4 +114,29 @@ export async function musicSearch(params: { q?: string; mood?: string; genre?: s
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new ApiError(res.status, (data as { error?: string }).error ?? `Music search failed (${res.status})`);
   return data as MusicSearchResponse;
+}
+
+export type KeyName = 'GEMINI_API_KEY' | 'ELEVENLABS_API_KEY' | 'OPENAI_API_KEY' | 'ANTHROPIC_API_KEY';
+export type KeyStatus = Record<KeyName, { set: boolean; hint: string }>;
+
+export async function getKeys(): Promise<KeyStatus | null> {
+  try {
+    const res = await fetch('/api/keys');
+    return res.ok ? ((await res.json()) as KeyStatus) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Set (string) or remove (null) keys on the server; saved to server/.env. Returns the masked status. */
+export async function saveKeys(keys: Partial<Record<KeyName, string | null>>): Promise<KeyStatus> {
+  let res: Response;
+  try {
+    res = await fetch('/api/keys', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(keys) });
+  } catch {
+    throw new ApiError(0, 'Could not reach the Keyframe.lk server. Is it running? (cd server && npm run dev)');
+  }
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new ApiError(res.status, (data as { error?: string }).error ?? `Request failed (${res.status})`);
+  return data as KeyStatus;
 }

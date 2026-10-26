@@ -3,7 +3,7 @@ import { useEditor } from '@/store';
 import { exportExtension, type AlphaFormat, type ExportOptions, type ScreenColor } from '@/lib/exporter';
 import { DEFAULT_SAVE_PREFS, canPickFolder, formatName, loadSavePrefs, pickFolder, saveFile, storeSavePrefs, type SavePrefs } from '@/lib/savePrefs';
 import { outputSize } from '@/render/compose';
-import { captionsToASS, captionsToSRT, captionsToVTT, wordsToPlainText } from '@/lib/srt';
+import { captionsToASS, captionsToCapCutASS, captionsToCapCutSRT, captionsToSRT, captionsToVTT, wordsToPlainText } from '@/lib/srt';
 import { getFont } from '@/lib/fonts';
 import { pause } from '@/lib/player';
 import { Captions, Clapperboard, FileText, X } from '@/components/icons';
@@ -166,15 +166,22 @@ export function ExportPanel() {
           : 'Rendered on your device with the same engine as the preview — what you see is exactly what you get. No upload, no credits.'}</p>
       </Section>
       <Section title="Subtitle files">
+        <div className="text-xs font-medium text-muted-foreground">Without style (text and timing only)</div>
         <div className="grid grid-cols-2 gap-1.5">
           <Button variant="outline" size="sm" disabled={!project.captions.length} onClick={() => text(captionsToSRT(project.captions), 'srt')}><Captions />SRT (Unicode)</Button>
           <Button variant="outline" size="sm" disabled={!project.captions.length} onClick={() => text(captionsToSRT(project.captions, { legacyFM: true }), 'fm.srt')}><Captions />SRT (Legacy FM)</Button>
           <Button variant="outline" size="sm" disabled={!project.captions.length} onClick={() => text(captionsToVTT(project.captions), 'vtt', 'text/vtt')}>WebVTT</Button>
-          <Button variant="outline" size="sm" disabled={!project.captions.length}
-            onClick={() => text(captionsToASS(project.captions, project.style, outputSize(project), { fontFamily: getFont(project.style.text.sinhalaFont).family }), 'ass')}>ASS (styled)</Button>
+          <Button variant="outline" size="sm" disabled={!project.captions.length} onClick={() => text(captionsToCapCutSRT(project.captions), 'capcut.srt', 'application/x-subrip')}><Captions />CapCut SRT</Button>
           <Button variant="outline" size="sm" className="col-span-2" disabled={!project.captions.length} onClick={() => text(wordsToPlainText(project.captions), 'txt')}><FileText />Plain transcript (.txt)</Button>
         </div>
-        <p className="text-xs text-muted-foreground">ASS keeps colors, highlight and position for Premiere, DaVinci, CapCut and VLC.</p>
+        <div className="mt-1 text-xs font-medium text-muted-foreground">With style (colours, font, highlight, position)</div>
+        <div className="grid grid-cols-2 gap-1.5">
+          <Button variant="outline" size="sm" disabled={!project.captions.length}
+            onClick={() => text(captionsToASS(project.captions, project.style, outputSize(project), { fontFamily: getFont(project.style.text.sinhalaFont).family }), 'ass')}>ASS (styled)</Button>
+          <Button variant="outline" size="sm" disabled={!project.captions.length}
+            onClick={() => text(captionsToCapCutASS(project.captions, project.style, outputSize(project), { fontFamily: getFont(project.style.text.sinhalaFont).family }), 'capcut.ass')}>CapCut ASS</Button>
+        </div>
+        <p className="text-xs text-muted-foreground">ASS keeps colors, highlight and position for Premiere, DaVinci and VLC. For CapCut use the CapCut files: in CapCut choose Captions → Local captions (or Import captions) and pick the .srt. CapCut ASS is one plain line per caption.</p>
       </Section>
     </div>
   );

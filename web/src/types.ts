@@ -22,6 +22,8 @@ export interface ScriptOverrides {
   bold?: boolean;
   italic?: boolean;
   letterSpacing?: number;
+  /** Absolute font size for this script; falls back to the base `fontSize`. `sizeScale` still multiplies it. */
+  fontSize?: number;
   sizeScale?: number; // multiplier on base font size, e.g. English often needs 0.9
   strokeWidth?: number;
   strokeColor?: string;
@@ -87,6 +89,11 @@ export interface HighlightStyle {
   boxColor: string;
   boxRadius: number;
   boxPadding: number;
+  /** Per-side box margins; each falls back to `boxPadding` (top/bottom: half of it) when unset. */
+  boxPadTop?: number;
+  boxPadBottom?: number;
+  boxPadLeft?: number;
+  boxPadRight?: number;
   scale: number; // active word scale, 1 = none
 }
 
@@ -170,6 +177,8 @@ export interface CreativeLayout {
   splitHold?: boolean;
   /** Idle motion after the entrance. */
   loop?: TextLoop;
+  /** Speed of the idle loop, 1 = normal. */
+  loopSpeed?: number;
 }
 
 /** Everything that defines the look of captions. A template is a named CaptionStyle. */
@@ -204,6 +213,8 @@ export interface Word {
   end: number;
   emphasize?: boolean;
   style?: WordStyle;
+  /** Starts a new line (typed Enter in the caption text). */
+  br?: boolean;
 }
 
 export interface Caption {
@@ -324,6 +335,51 @@ export interface VideoKeyframe {
 /** Crop as % of the source frame removed from each edge. */
 export interface Crop { l: number; t: number; r: number; b: number }
 
+/** Background removal for a video clip: a colour key (green / blue screen) or an AI person cut-out. */
+export interface MatteSettings {
+  mode: 'none' | 'chroma' | 'ai';
+  /** AI cut-out engine: 'precise' (MODNet matting, fine hair detail, slower) or 'fast' (MediaPipe, real time, soft edges). */
+  engine?: 'precise' | 'fast';
+  /** Chroma key: the colour to remove. */
+  keyColor: string;
+  /** Chroma key: how far from the key colour still counts as background, 0..100. */
+  similarity: number;
+  /** Chroma key: width of the soft edge, 0..100. */
+  smoothness: number;
+  /** Chroma key: how much of the key colour's tint to remove from edges, 0..100. */
+  spill: number;
+  /** Precise engine: remove small stray blobs the model mistook for a person (default on). */
+  cleanup?: boolean;
+  /** Soft edge on the cut-out, px at 1080 wide. */
+  edge: number;
+  /** AI cut-out: grow (+) or shrink (−) the mask, px at 1080 wide. */
+  shift: number;
+  /** AI cut-out: how sure the model must be before a pixel is kept, 0..100 (higher cuts more). */
+  threshold: number;
+  /** Keep the background and remove the subject instead. */
+  invert: boolean;
+  /** What shows where the background was: the layers below, a flat colour, or the same shot blurred. */
+  background: 'transparent' | 'color' | 'blur';
+  bgColor: string;
+  /** Blur of the background, px at 1080 wide. */
+  bgBlur: number;
+}
+
+/** A blurred (or mosaic) rectangle / ellipse on a clip, e.g. to hide a face or a licence plate. */
+export interface RegionBlur {
+  id: string;
+  shape: 'rect' | 'ellipse';
+  look: 'blur' | 'pixelate';
+  /** Centre and size, % of the source frame. */
+  x: number; y: number; w: number; h: number;
+  /** Blur px at 1080 wide, or mosaic block px. */
+  amount: number;
+  /** Soft edge of the area, 0..100. */
+  feather: number;
+  /** Blur everything outside the area instead. */
+  invert: boolean;
+}
+
 export interface VideoLayer {
   filters: VideoFilters;
   presetId: string | null;
@@ -340,6 +396,10 @@ export interface VideoLayer {
   transitionOut: { id: TransitionId; duration: number };
   keyframes: VideoKeyframe[];
   effects: EffectInstance[];
+  /** Background removal / replacement. */
+  matte?: MatteSettings;
+  /** Blurred or mosaic areas. */
+  regionBlurs?: RegionBlur[];
   speed: number;
   hidden: boolean;
 }
@@ -375,6 +435,8 @@ export interface Clip {
   height?: number;
   /** Filters, effects, transitions, crop, transform and keyframes of this video clip. Keyframe times are relative to the clip start. */
   fx?: VideoLayer;
+  /** A layer made from a cut-out (subject only): it keeps the main video's framing and can have overlays placed behind it. */
+  cutout?: boolean;
   /** Video track: 0 is the main track, higher numbers are overlays drawn on top. */
   track?: number;
 }
@@ -405,7 +467,9 @@ export type OverlayBlend = 'normal' | 'screen' | 'multiply' | 'overlay' | 'light
 
 export interface OverlayItem {
   id: string;
-  kind: 'text' | 'sticker' | 'image';
+  kind: 'text' | 'sticker' | 'image' | 'motion';
+  /** Motion graphic or transition: the scene this layer plays (its time starts when the layer starts). */
+  scene?: MotionScene;
   /** Text content, or the emoji / symbol of a sticker. */
   text: string;
   /** Image overlays: key into the blob store. */
@@ -416,6 +480,8 @@ export interface OverlayItem {
   duration: number;
   /** Overlay track, 0 is the lowest. */
   track: number;
+  /** Painted just before this video track, so it sits behind that layer (e.g. behind a cut-out subject) and above the layers under it. Absent = in front of everything. */
+  behind?: number;
   /** Centre, % of the frame. */
   x: number;
   y: number;
@@ -635,4 +701,56 @@ export interface UsageResponse {
   byDay: Record<string, { requests: number; costUsd: number }>;
   recent: UsageRecord[];
   prices: { tokens: Record<string, { in: number; audioIn?: number; out: number }>; perMinute: Record<string, number> };
+}
+
+// ---- Motion graphics: a small declarative scene format drawn by the editor's own canvas renderer ----
+
+/** Easing name: linear, in / out / inOut (+ Cubic, Expo), outBack, inBack, outElastic, outBounce, spring, or "bezier(x1,y1,x2,y2)". */
+export type SceneEase = string;
+export interface SceneKey<T> { t: number; v: T; ease?: SceneEase }
+/** A value, or keyframes (times are seconds from the start of the scene) with the easing of the segment that starts at each key. */
+export type SceneProp<T> = T | { keys: SceneKey<T>[] };
+
+export interface SceneNode {
+  type: 'rect' | 'ellipse' | 'line' | 'text' | 'group';
+  name?: string;
+  /** Seconds in the scene when the node appears / disappears (default: the whole scene). */
+  start?: number; end?: number;
+  /** Position of the node's anchor in design units: the frame is 1080 wide and `scene.frame.h` tall. */
+  x?: SceneProp<number>; y?: SceneProp<number>;
+  /** Size of a rect / ellipse / clipped group. */
+  w?: SceneProp<number>; h?: SceneProp<number>;
+  /** Which point of the box sits at (x, y): 0..1 across and down, default 0.5 (centre). 0,0 = top-left corner. */
+  ax?: number; ay?: number;
+  rotation?: SceneProp<number>; scale?: SceneProp<number>; scaleX?: SceneProp<number>; scaleY?: SceneProp<number>;
+  opacity?: SceneProp<number>;
+  /** Rect corner radius. */
+  radius?: SceneProp<number>;
+  fill?: SceneProp<string>;
+  gradient?: { angle: number; stops: { p: number; c: string }[] };
+  stroke?: string; strokeWidth?: SceneProp<number>;
+  blur?: SceneProp<number>;
+  shadow?: { color: string; blur: number; x?: number; y?: number };
+  blend?: 'normal' | 'screen' | 'multiply' | 'overlay' | 'lighter' | 'difference' | 'soft-light';
+  /** Line: end point (the start is x, y) and how much of it is drawn, 0..1. */
+  x2?: SceneProp<number>; y2?: SceneProp<number>; trim?: SceneProp<number>; cap?: 'round' | 'butt';
+  /** Text. */
+  text?: string; size?: SceneProp<number>; font?: string; weight?: number; letterSpacing?: number; align?: 'left' | 'center' | 'right'; italic?: boolean;
+  /** Text: how much of it is shown, 0..1 (type-on). */
+  reveal?: SceneProp<number>;
+  /** Group. */
+  children?: SceneNode[]; clip?: boolean;
+}
+
+export interface MotionScene {
+  v: 1;
+  name: string;
+  /** Seconds. */
+  duration: number;
+  role: 'graphic' | 'transition' | 'background';
+  /** A flat colour behind everything in the scene (usually empty so the video shows through). */
+  bg?: string | null;
+  /** Design frame: width 1080, height depends on the project's aspect ratio. */
+  frame?: { w: number; h: number };
+  layers: SceneNode[];
 }

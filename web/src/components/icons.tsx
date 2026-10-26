@@ -14,7 +14,9 @@ import {
   TextFontIcon, TextIcon, TextItalicIcon, Tick02Icon, TranslateIcon, Undo02Icon,
   UnfoldMoreIcon, Upload04Icon, Video01Icon, WaveIcon, ZoomInAreaIcon, ZoomOutAreaIcon,
 } from '@hugeicons/core-free-icons';
-import { StarIcon } from '@hugeicons/core-free-icons';
+import { StarIcon, ClipboardIcon, PictureInPictureIcon } from '@hugeicons/core-free-icons';
+export const ClipboardPaste = make(ClipboardIcon, 'ClipboardPaste');
+export const PictureInPicture = make(PictureInPictureIcon, 'PictureInPicture');
 import { ArrowDown01Icon, ArrowRight02Icon, Coins01Icon, ComputerIcon, GridViewIcon, Menu01Icon, Search01Icon, SecurityCheckIcon, Moon02Icon, Sun03Icon } from '@hugeicons/core-free-icons';
 
 type IconData = Parameters<typeof HugeiconsIcon>[0]['icon'];

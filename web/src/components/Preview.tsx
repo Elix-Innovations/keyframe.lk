@@ -19,13 +19,20 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Keys } from './ShortcutsDialog';
+import { SinhalaInput } from './SinhalaInput';
+import { retimeWordsWithBreaks, wordsToText } from '../lib/segment';
+import { matteHints, onSegmenterChange } from '../render/matte';
 import { snapBox, unionBox, type Box, type Guide } from '../lib/previewSnap';
+import { migrateVideo, newKeyframe, transformAt, type Transform } from '../lib/videoFx';
 
 type Drag =
   | { kind: 'move'; x0: number; y0: number; items: { id: string; x: number; y: number }[]; box0: Box; others: Box[] }
   | { kind: 'caption'; dx: number; dy: number; captionId: string | null; shownId: string | null; w: number; h: number; moved: boolean; others: Box[] }
   | { kind: 'scale'; id: string; cx: number; cy: number; d0: number; s0: number }
   | { kind: 'rotate'; id: string; cx: number; cy: number; r0: number; a0: number }
+  | { kind: 'cmove'; id: string; x0: number; y0: number; pose0: Transform; box0: Box; others: Box[] }
+  | { kind: 'cscale'; id: string; cx: number; cy: number; d0: number; pose0: Transform }
+  | { kind: 'crot'; id: string; cx: number; cy: number; a0: number; pose0: Transform }
   | { kind: 'marquee'; x0: number; y0: number; x1: number; y1: number; moved: boolean; base: string[] };
 
 /** The four corner knobs of a selected overlay, in its own (rotated) coordinates. */
@@ -57,6 +64,7 @@ export function Preview() {
   const selOverlay = useEditor((s) => s.selectedOverlayId);
   const selExtra = useEditor((s) => s.extraOverlayIds);
   const selCaption = useEditor((s) => s.selectedCaptionId);
+  const selClip = useEditor((s) => s.selectedClipId);
   const [magnet, setMagnetState] = useState(() => { try { return localStorage.getItem('kf-magnet') !== '0'; } catch { return true; } });
   const setMagnet = (v: boolean) => { setMagnetState(v); try { localStorage.setItem('kf-magnet', v ? '1' : '0'); } catch { /* private mode */ } };
   const guidesRef = useRef<Guide[]>([]);
@@ -64,6 +72,8 @@ export function Preview() {
   magnetRef.current = magnet;
   const brollRef = useRef(new Map<string, ImageBitmap>());
   const [tick, force] = useState(0);
+  /** Caption being typed over the preview (double-click). */
+  const [edit, setEdit] = useState<{ id: string; draft: string } | null>(null);
 
   // Load a hidden video element per source file. If one is gone (failed save, cleared site data), offer to re-attach it.
   const [missing, setMissing] = useState<string | null>(null); // asset id that could not be loaded
@@ -84,6 +94,7 @@ export function Preview() {
     return () => { cancelled = true; };
   }, [assetKey]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => onVideoFrame(() => force((n) => n + 1)), []);
+  useEffect(() => onSegmenterChange(() => force((n) => n + 1)), []); // redraw when the AI cut-out model finishes loading
 
   const relinkRef = useRef<HTMLInputElement>(null);
   const relink = async (file: File, handle?: FileSystemFileHandle) => {
@@ -146,6 +157,7 @@ export function Preview() {
     const ctx = canvas.getContext('2d')!;
     let raf = 0;
     const draw = () => {
+      matteHints.playing = playing;
       const t = currentTime();
       const p = useEditor.getState().project!;
       const frameFor = (clip: Clip) => {
@@ -160,9 +172,9 @@ export function Preview() {
       bboxRef.current = res.bbox;
       hitsRef.current = hits;
       const stNow = useEditor.getState();
-      const picked = [stNow.selectedOverlayId, ...stNow.extraOverlayIds];
+      const picked = [stNow.selectedOverlayId, ...stNow.extraOverlayIds, ...(stNow.selectedOverlayId ? [] : [stNow.selectedClipId])];
       for (const h of hits.filter((x) => picked.includes(x.id))) {
-        const primary = h.id === stNow.selectedOverlayId;
+        const primary = h.id === (stNow.selectedOverlayId ?? stNow.selectedClipId);
         ctx.save();
         ctx.translate(h.cx, h.cy);
         ctx.rotate((h.rot * Math.PI) / 180);
@@ -216,7 +228,7 @@ export function Preview() {
     };
     draw();
     return () => cancelAnimationFrame(raf);
-  }, [box.w, box.h, playing, project, time, hover, loaded, tick, selOverlay, selExtra, selCaption]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [box.w, box.h, playing, project, time, hover, loaded, tick, selOverlay, selExtra, selCaption, selClip]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Selecting and dragging in the preview: click an item to select it, shift / ⌘ / Ctrl-click to add more, drag on empty
   // space to box-select, drag to move (the magnet sticks centres and edges to the frame and to other items; hold Alt to
@@ -235,7 +247,25 @@ export function Preview() {
     return Math.abs(lx) <= h.w / 2 + pad && Math.abs(ly) <= h.h / 2 + pad;
   };
   /** Topmost overlay under a canvas point. */
-  const overlayAt = (x: number, y: number, dpr: number) => [...hitsRef.current].reverse().find((h) => inside(h, x, y, 6 * dpr)) ?? null;
+  const overlayAt = (x: number, y: number, dpr: number) => [...hitsRef.current].reverse().find((h) => inside(h, x, y, 6 * dpr) && (!h.solidAt || h.solidAt(x, y))) ?? null;
+  /** The pose a video layer has at the playhead (its keyframes, or its static transform). */
+  const poseOf = (id: string): Transform | null => {
+    const c = useEditor.getState().project?.clips?.find((v) => v.id === id);
+    if (!c) return null;
+    const l = migrateVideo(c.fx);
+    return { ...transformAt(l.keyframes, Math.max(0, currentTime() - c.start), l.base!) };
+  };
+  /** Move / scale / rotate a video layer: its static transform, or a keyframe at the playhead when it has keyframes. */
+  const setPose = (id: string, pose: Transform) => {
+    const st = useEditor.getState();
+    st.setClips((cs) => cs.map((c) => {
+      if (c.id !== id) return c;
+      const l = migrateVideo(c.fx), lt = Math.max(0, currentTime() - c.start);
+      if (!l.keyframes.length) return { ...c, fx: { ...l, base: pose } };
+      const near = l.keyframes.find((k) => Math.abs(k.t - lt) < 0.05);
+      return { ...c, fx: { ...l, keyframes: near ? l.keyframes.map((k) => (k === near ? { ...k, ...pose } : k)) : [...l.keyframes, newKeyframe(Number(lt.toFixed(2)), pose)] } };
+    }), `clip-pose-${id}`);
+  };
   const onCaption = (x: number, y: number) => { const b = bboxRef.current; return !!b && x >= b.x - 20 && x <= b.x + b.w + 20 && y >= b.y - 20 && y <= b.y + b.h + 20; };
   const boxOf = (h: OverlayHit): Box => ({ cx: h.cx, cy: h.cy, w: h.w, h: h.h });
   const snapOn = (e: React.PointerEvent) => magnetRef.current && !e.altKey;
@@ -249,6 +279,14 @@ export function Preview() {
     const hits = hitsRef.current;
 
     // Knobs of the one selected overlay: rotate, then resize.
+    // A selected video layer (e.g. the cut-out layer) has the same knobs.
+    const selClipHit = !picked.length && st.selectedClipId ? hits.find((h) => h.clipId && h.id === st.selectedClipId) : undefined;
+    if (selClipHit) {
+      const pose0 = poseOf(selClipHit.id);
+      const knob = pose0 ? knobAt(selClipHit, x, y, dpr) : null;
+      if (pose0 && knob === 'rotate') { drag.current = { kind: 'crot', id: selClipHit.id, cx: selClipHit.cx, cy: selClipHit.cy, a0: Math.atan2(y - selClipHit.cy, x - selClipHit.cx), pose0 }; capture(); return; }
+      if (pose0 && knob === 'scale') { drag.current = { kind: 'cscale', id: selClipHit.id, cx: selClipHit.cx, cy: selClipHit.cy, d0: Math.hypot(x - selClipHit.cx, y - selClipHit.cy) || 1, pose0 }; capture(); return; }
+    }
     const only = picked.length === 1 ? hits.find((h) => h.id === picked[0]) : undefined;
     const o = only && st.project?.overlays?.find((v) => v.id === only.id);
     if (only && o) {
@@ -258,6 +296,14 @@ export function Preview() {
     }
 
     const oh = overlayAt(x, y, dpr);
+    if (oh?.clipId) { // a video layer: select it and drag its transform
+      const pose0 = poseOf(oh.id);
+      if (!pose0) return;
+      if (st.selectedClipId !== oh.id) { st.selectClip(oh.id); st.setPanel('clip'); }
+      drag.current = { kind: 'cmove', id: oh.id, x0: x, y0: y, pose0, box0: boxOf(oh), others: hits.filter((h) => !h.clipId).map(boxOf) };
+      capture();
+      return;
+    }
     if (oh) {
       const multi = e.shiftKey || e.metaKey || e.ctrlKey;
       if (multi) { // add to / take out of the selection
@@ -268,7 +314,7 @@ export function Preview() {
       const ids = picked.includes(oh.id) ? picked : [oh.id];
       const items = (st.project?.overlays ?? []).filter((v) => ids.includes(v.id)).map((v) => ({ id: v.id, x: v.x, y: v.y }));
       const group = hits.filter((h) => ids.includes(h.id)).map(boxOf);
-      const others = [...hits.filter((h) => !ids.includes(h.id)).map(boxOf)];
+      const others = [...hits.filter((h) => !ids.includes(h.id) && !h.clipId).map(boxOf)];
       const bb = bboxRef.current;
       if (bb) others.push({ cx: bb.x + bb.w / 2, cy: bb.y + bb.h / 2, w: bb.w, h: bb.h });
       drag.current = { kind: 'move', x0: x, y0: y, items, box0: unionBox(group), others };
@@ -325,6 +371,22 @@ export function Preview() {
         st.setStyle((s) => ({ ...s, layout: { ...s.layout, ...pos } }), 'drag-caption');
       }
       force((n) => n + 1);
+    } else if (d.kind === 'cmove') {
+      let dx = x - d.x0, dy = y - d.y0;
+      guidesRef.current = [];
+      if (snapOn(e)) {
+        const sn = snapBox({ ...d.box0, cx: d.box0.cx + dx, cy: d.box0.cy + dy }, d.others, W, H, thr);
+        dx += sn.dx; dy += sn.dy; guidesRef.current = sn.guides;
+      }
+      setPose(d.id, { ...d.pose0, x: Math.round((d.pose0.x + (dx / W) * 100) * 10) / 10, y: Math.round((d.pose0.y + (dy / H) * 100) * 10) / 10 });
+      force((n) => n + 1);
+    } else if (d.kind === 'cscale') {
+      setPose(d.id, { ...d.pose0, scale: Math.min(8, Math.max(0.1, Math.round(d.pose0.scale * (Math.hypot(x - d.cx, y - d.cy) / d.d0) * 100) / 100)) });
+    } else if (d.kind === 'crot') {
+      let rot = d.pose0.rotation + ((Math.atan2(y - d.cy, x - d.cx) - d.a0) * 180) / Math.PI;
+      rot = ((rot + 540) % 360) - 180;
+      if (snapOn(e)) for (const a of [-180, -135, -90, -45, 0, 45, 90, 135, 180]) if (Math.abs(rot - a) < 4) rot = a;
+      setPose(d.id, { ...d.pose0, rotation: Math.round(rot * 10) / 10 });
     } else if (d.kind === 'scale') {
       const scale = Math.min(8, Math.max(0.1, Math.round(d.s0 * (Math.hypot(x - d.cx, y - d.cy) / d.d0) * 100) / 100));
       st.setOverlays((l) => l.map((o) => (o.id === d.id ? { ...o, scale } : o)), `ovl-scale-${d.id}`);
@@ -339,7 +401,7 @@ export function Preview() {
       if (!d.moved && Math.hypot(x - d.x0, y - d.y0) > 4 * dpr) d.moved = true;
       if (d.moved) {
         const l = Math.min(d.x0, x), r = Math.max(d.x0, x), t = Math.min(d.y0, y), b = Math.max(d.y0, y);
-        const hit = hitsRef.current.filter((h) => h.cx + h.w / 2 >= l && h.cx - h.w / 2 <= r && h.cy + h.h / 2 >= t && h.cy - h.h / 2 <= b).map((h) => h.id);
+        const hit = hitsRef.current.filter((h) => !h.clipId && h.cx + h.w / 2 >= l && h.cx - h.w / 2 <= r && h.cy + h.h / 2 >= t && h.cy - h.h / 2 <= b).map((h) => h.id);
         const ids = [...new Set([...d.base, ...hit.reverse()])];
         const cur = [st.selectedOverlayId, ...st.extraOverlayIds].filter(Boolean).join();
         if (ids.join() !== cur) st.setOverlaySelection(ids);
@@ -347,6 +409,29 @@ export function Preview() {
       }
       force((n) => n + 1);
     }
+  };
+
+  const startEdit = (e: React.MouseEvent) => {
+    const r = canvasRef.current!.getBoundingClientRect();
+    const dpr = canvasRef.current!.width / r.width;
+    const x = (e.clientX - r.left) * dpr, y = (e.clientY - r.top) * dpr;
+    const id = shownRef.current;
+    if (!id || !onCaption(x, y)) return;
+    const c = useEditor.getState().project?.captions.find((v) => v.id === id);
+    if (!c) return;
+    if (useEditor.getState().playing) togglePlay();
+    useEditor.getState().select(id);
+    setEdit({ id, draft: wordsToText(c.words) });
+  };
+  const commitEdit = (save: boolean) => {
+    const cur = edit;
+    setEdit(null);
+    if (!cur || !save) return;
+    const st = useEditor.getState();
+    const c = st.project?.captions.find((v) => v.id === cur.id);
+    if (!c || cur.draft === wordsToText(c.words)) return;
+    if (!cur.draft.trim()) return;
+    st.setCaptions(st.project!.captions.map((v) => (v.id === c.id ? { ...c, words: retimeWordsWithBreaks(c.words, cur.draft, c.start, c.end) } : v)));
   };
 
   const onUp = () => {
@@ -369,7 +454,18 @@ export function Preview() {
       <div ref={wrapRef} className="checker relative flex min-h-0 flex-1 items-center justify-center">
         <div className="relative" style={{ width: box.w, height: box.h }}>
           <canvas ref={canvasRef} className={`h-full w-full rounded-lg shadow-2xl shadow-black/30 ring-1 ring-border ${hover ? 'cursor-move' : 'cursor-pointer'}`}
-            onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerLeave={() => setHover(false)} onPointerCancel={onUp} />
+            onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerLeave={() => setHover(false)} onPointerCancel={onUp} onDoubleClick={startEdit} />
+          {edit && bboxRef.current && (() => {
+            const k = box.w / (canvasRef.current?.width || 1), b = bboxRef.current;
+            const w = Math.max(b.w * k + 24, 200);
+            return (
+              <SinhalaInput autoFocus rows={Math.max(1, edit.draft.split('\n').length)} value={edit.draft} onChange={(draft) => setEdit({ ...edit, draft })}
+                onFocus={(e) => e.currentTarget.select()} onBlur={() => commitEdit(true)}
+                onKeyDown={(e) => { if (e.key === 'Escape') { e.preventDefault(); commitEdit(false); } else if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); commitEdit(true); } e.stopPropagation(); }}
+                className="sinhala absolute z-10 resize-none rounded-lg border-2 border-primary bg-black/75 p-2 text-center text-lg leading-snug text-white shadow-2xl outline-none"
+                style={{ width: w, left: Math.min(Math.max(0, (b.x + b.w / 2) * k - w / 2), box.w - w), top: Math.max(0, (b.y + b.h / 2) * k - 28) }} />
+            );
+          })()}
           {safeZone && (
             <div className="pointer-events-none absolute inset-0">
               <div className="absolute inset-x-0 top-0 h-[12%] bg-destructive/15" />

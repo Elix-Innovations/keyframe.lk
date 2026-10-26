@@ -1,13 +1,20 @@
-import type { Caption, CaptionStyle, OverlayItem, Project } from '../types';
+import type { Caption, CaptionStyle, OverlayItem, Project, Word } from '../types';
 import { cssFamily, ensureFonts, getFont } from '../lib/fonts';
 import { unicodeToFM } from '../lib/fm';
 import { laneOf } from '../lib/videoFx';
 import { overlayClock, overlayPose, overlaysAt } from '../lib/overlays';
 import { IDENTITY, transformAt } from '../lib/videoFx';
 import { renderCaptionAt, type Ctx2D } from './captions';
+import { drawScene } from './scene';
 
 /** Where an overlay was painted, in canvas pixels, so the preview can select and drag it. `w` and `h` are before rotation. */
-export interface OverlayHit { id: string; cx: number; cy: number; w: number; h: number; rot: number }
+export interface OverlayHit {
+  id: string; cx: number; cy: number; w: number; h: number; rot: number;
+  /** Set for a video layer (the id is the clip's): the preview moves its transform instead of an overlay's position. */
+  clipId?: string;
+  /** Video layers with a cut-out: is the subject (not the empty area) under this canvas point? */
+  solidAt?: (x: number, y: number) => boolean;
+}
 
 export const overlayLane = (track: number) => (track === 0 ? 'overlay' : `overlay:${track}`);
 
@@ -140,10 +147,16 @@ function bodyOf(ctx: Ctx2D, o: OverlayItem, W: number, H: number, project: Proje
 function drawTemplateOverlay(ctx: Ctx2D, W: number, H: number, o: OverlayItem, t: number, hits?: OverlayHit[]) {
   const style = o.tpl!.style;
   void ensureFonts([style.text.sinhalaFont, style.text.englishFont, ...(style.creative?.lines.map((l) => l.font) ?? [])]);
-  const words = (o.text.trim() || 'Text').split(/\s+/).map((text, i) => ({ id: `${o.id}-${i}`, text, start: o.start, end: o.start + o.duration }));
+  // *Starred* words are the emphasised ones; nothing is picked automatically, so a plain line is not coloured by guesswork.
+  const raw = (o.text.trim() || 'Text').split(/\s+/);
+  const parts = raw.map((w) => w.replace(/^\*+|\*+$/g, '') || w);
+  const creative = !!style.creative;
+  // A plain caption template keeps its display mode (word by word, highlight, box, emphasis): spread the words over the layer so they play out.
+  const step = creative ? 0 : (o.duration / parts.length) * 0.85;
+  const words: Word[] = parts.map((text, i) => ({ id: `${o.id}-${i}`, text, start: o.start + i * step, end: i === parts.length - 1 ? o.start + o.duration : o.start + (i + 1) * step, ...(!creative && /^\*[^*]+\*?$|^[^*]+\*$/.test(raw[i]) ? { emphasize: true } : {}) }));
   const caption: Caption = { id: o.id, start: o.start, end: o.start + o.duration, words };
   const look: CaptionStyle = {
-    ...style, displayMode: 'natural', wordsPerChunk: 0,
+    ...style, ...(creative ? { displayMode: 'natural' as const, wordsPerChunk: 0 } : {}),
     text: { ...style.text, fontSize: style.text.fontSize * o.scale, opacity: style.text.opacity * o.opacity },
     layout: { ...style.layout, x: o.x, y: o.y },
   };
@@ -158,11 +171,29 @@ function drawTemplateOverlay(ctx: Ctx2D, W: number, H: number, o: OverlayItem, t
 export function drawOverlays(
   ctx: Ctx2D, W: number, H: number, project: Project, t: number,
   images: Map<string, ImageBitmap | HTMLImageElement> | undefined, hits?: OverlayHit[],
+  /** Draw only the overlays this accepts, and record them in `drawn`: used to paint overlays that sit behind a video layer. */
+  only?: (o: OverlayItem) => boolean, drawn?: Set<string>,
 ) {
   const list = project.overlays;
   if (!list?.length) return;
   for (const o of overlaysAt(list, t)) {
+    if (only && !only(o)) continue;
+    drawn?.add(o.id);
     if (laneOf(project, overlayLane(o.track)).hidden) continue;
+    if (o.kind === 'motion' && o.scene) {
+      // A motion graphic / transition: the scene's own clock starts with the layer; the layer's position, size, rotation and opacity move it as a whole.
+      ctx.save();
+      ctx.globalAlpha *= Math.max(0, Math.min(1, o.opacity));
+      if (o.blend && o.blend !== 'normal') ctx.globalCompositeOperation = o.blend;
+      const cx = W / 2 + ((o.x - 50) / 100) * W, cy = H / 2 + ((o.y - 50) / 100) * H;
+      ctx.translate(cx, cy);
+      if (o.rotation) ctx.rotate((o.rotation * Math.PI) / 180);
+      ctx.scale(o.scale, o.scale);
+      ctx.translate(-W / 2, -H / 2);
+      drawScene(ctx, W, H, o.scene, Math.max(0, (t - o.start) * (o.speed ?? 1)), { fonts: { english: project.style.text.englishFont, sinhala: project.style.text.sinhalaFont } });
+      ctx.restore();
+      continue;
+    }
     if (o.tpl) { drawTemplateOverlay(ctx, W, H, o, t, hits); continue; }
     const body = bodyOf(ctx, o, W, H, project, o.assetId ? images?.get(o.assetId) : undefined);
     if (!body) continue;

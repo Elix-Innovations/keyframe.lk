@@ -105,11 +105,27 @@ export function makeOverlay(o: OverlayInit, list: OverlayItem[]): OverlayItem {
   return item;
 }
 
+/**
+ * An image overlay from a B-roll-style placement. "Full" sizes the image to cover the frame (`frame` and `img` give the shapes when known;
+ * otherwise it spans the frame's short side), "pip" is a card.
+ */
+export function brollOverlay(
+  b: { assetId: string; start: number; end: number; mode?: 'fullscreen' | 'pip'; note?: string },
+  list: OverlayItem[], frame?: { w: number; h: number }, img?: { w: number; h: number },
+): OverlayItem {
+  const o = makeOverlay({ kind: 'image', text: b.note ?? 'Image', assetId: b.assetId, imgW: img?.w, imgH: img?.h, start: b.start, duration: b.end - b.start }, list);
+  if (b.mode === 'pip') return o;
+  const fw = frame?.w || 1080, fh = frame?.h || 1920;
+  const ia = img ? img.w / img.h : 1;
+  const cover = Math.max(fw, fh * ia); // drawn width that covers the frame
+  return { ...o, scale: cover / Math.min(fw, fh) / 0.7, animIn: { id: 'fade', duration: 0.2 } };
+}
+
 export const overlayEnd = (o: OverlayItem) => o.start + o.duration;
 export const overlaysAt = (list: OverlayItem[], t: number) =>
   list.filter((o) => t >= o.start - 1e-6 && t < overlayEnd(o) - 1e-6).sort((a, b) => a.track - b.track);
 
-export const overlayLabel = (o: OverlayItem) => (o.kind === 'image' ? 'Image' : o.text.replace(/\s+/g, ' ').trim().slice(0, 24) || 'Text');
+export const overlayLabel = (o: OverlayItem) => (o.kind === 'motion' ? o.scene?.name ?? 'Motion' : o.kind === 'image' ? 'Image' : o.text.replace(/\s+/g, ' ').trim().slice(0, 24) || 'Text');
 
 /** Fill in fields that older saved overlays may lack. */
 export const withOverlayDefaults = (o: OverlayItem): OverlayItem => ({ ...base(), ...o });

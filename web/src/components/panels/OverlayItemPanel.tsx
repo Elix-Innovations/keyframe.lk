@@ -3,6 +3,9 @@ import { Copy, Scissors, Trash2 } from '@/components/icons';
 import { useEditor } from '@/store';
 import type { OverlayItem } from '@/types';
 import { adjEnd } from '@/lib/adj';
+import { ai } from '@/lib/api';
+import { outputSize } from '@/render/compose';
+import { videoClips } from '@/lib/clips';
 import { ANIM_IN, BLENDS, LOOPS, TEXT_PRESETS } from '@/lib/overlays';
 import { EASES, IDENTITY, newKeyframe, transformAt } from '@/lib/videoFx';
 import { currentTime, seek } from '@/lib/player';
@@ -17,6 +20,7 @@ import { FontImport } from '../FontImport';
 import { findTemplate } from '@/lib/templateApply';
 import { overlayOps } from '../OverlayLane';
 import { TemplateEditor } from './TemplateEditor';
+import { DisplayControls } from './DisplayPanel';
 import { nanoid } from 'nanoid';
 import * as db from '@/lib/db';
 
@@ -33,6 +37,36 @@ const animOptions = (o: OverlayItem, which: 'in' | 'out'): PickerOption[] => ANI
 }));
 const loopOptions = (o: OverlayItem): PickerOption[] => LOOPS.map((l) => ({ id: l.id, label: l.label, spec: { ...sampleBase(o), loop: l.id } }));
 
+/** A motion graphic / transition layer: its name and length, and asking Claude to change it. */
+function MotionEdit({ o, patch }: { o: OverlayItem; patch: (p: Partial<OverlayItem>, key?: string) => void }) {
+  const project = useEditor((s) => s.project)!;
+  const notify = useEditor((s) => s.notify);
+  const [prompt, setPrompt] = useState('');
+  const [busy, setBusy] = useState(false);
+  const scene = o.scene;
+  if (!scene) return null;
+  const change = async () => {
+    if (!prompt.trim() || busy) return;
+    setBusy(true);
+    try {
+      const out = outputSize(project);
+      const r = await ai.motion({ prompt: prompt.trim(), role: scene.role, frame: { w: 1080, h: Math.round((1080 * out.height) / out.width) }, base: scene, fonts: { english: project.style.text.englishFont, sinhala: project.style.text.sinhalaFont } });
+      patch({ scene: r.scene, duration: r.scene.duration });
+      setPrompt('');
+      notify('Updated the scene.', 'success');
+    } catch (e) { notify((e as Error).message, 'error'); } finally { setBusy(false); }
+  };
+  return (
+    <Section title={scene.role === 'transition' ? 'Transition' : scene.role === 'background' ? 'Background' : 'Motion graphic'}>
+      <Row label="Name"><Input className="h-7 text-xs" value={scene.name} onChange={(e) => patch({ scene: { ...scene, name: e.target.value } }, 'sname')} /></Row>
+      <Row label="Length"><span className="font-mono text-xs">{scene.duration.toFixed(2)}s</span></Row>
+      <Textarea className="min-h-16 text-sm" value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder="Ask Claude to change it: make it faster, use pink, add a line under the name…" />
+      <Button size="sm" disabled={busy || !prompt.trim()} onClick={() => void change()}>{busy ? 'Claude is working…' : 'Change with Claude'}</Button>
+      <p className="text-[11px] text-muted-foreground">Move, resize and trim it with the Layout and Timing tabs. Layout → Depth puts it behind a cut-out layer.</p>
+    </Section>
+  );
+}
+
 /** The selected text, sticker or image overlay: content, look, position, animation and timing. */
 export function OverlayItemPanel() {
   const o = useEditor((s) => s.project!.overlays?.find((x) => x.id === s.selectedOverlayId) ?? null);
@@ -40,25 +74,29 @@ export function OverlayItemPanel() {
   const custom = useEditor((s) => s.customTemplates);
   const setCustom = useEditor((s) => s.setCustomTemplates);
   const notify = useEditor((s) => s.notify);
+  const clipsAll = useEditor((s) => s.project!.clips) ?? [];
   const total = useEditor((s) => s.project!.duration);
   const [script, setScript] = useState<'sinhala' | 'english'>('sinhala');
-  const [tab, setTab] = useState<'edit' | 'style' | 'layout' | 'motion' | 'timing'>('edit');
+  const [tab, setTab] = useState<'edit' | 'style' | 'display' | 'layout' | 'motion' | 'timing'>('edit');
   if (!o) return <Section title="Overlay"><Empty icon={<Scissors />} title="Nothing selected">Select a text, sticker or image on the timeline or in the preview to change it.</Empty></Section>;
   const patch = (p: Partial<OverlayItem>, key?: string) => setOverlays((l) => l.map((x) => (x.id === o.id ? { ...x, ...p } : x)), key && `ovl-${key}-${o.id}`);
   const alignPicked = (pos: { x?: number; y?: number }) => {
     const ids = new Set([o.id, ...useEditor.getState().extraOverlayIds]);
     setOverlays((l) => l.map((x) => (ids.has(x.id) ? { ...x, ...pos } : x)));
   };
+  // Video layers an overlay can sit behind: every video track above the main one (cut-out layers are named for what they are).
+  const layers = [...new Map(videoClips(clipsAll).filter((c) => (c.track ?? 0) > 0).map((c) => [c.track ?? 0, { track: c.track ?? 0, name: c.cutout ? `cut-out (Overlay ${c.track})` : `Overlay ${c.track}` }])).values()];
   const text = o.kind === 'text' && !o.tpl; // template layers take their look from the template
   return (
     <div>
       <div className="sticky top-0 z-10 border-b bg-sidebar px-3 py-2">
         <Segmented fill size="sm" value={tab} onChange={setTab}
-          options={[{ value: 'edit', label: text ? 'Text' : 'Edit' }, ...(o.tpl ? [{ value: 'style' as const, label: 'Style' }] : []), { value: 'layout', label: 'Layout' }, { value: 'motion', label: 'Motion' }, { value: 'timing', label: 'Timing' }]} />
+          options={[{ value: 'edit', label: text ? 'Text' : 'Edit' }, ...(o.tpl ? [{ value: 'style' as const, label: 'Style' }, ...(o.tpl.style.creative ? [] : [{ value: 'display' as const, label: 'Display' }])] : []), { value: 'layout', label: 'Layout' }, { value: 'motion', label: 'Motion' }, { value: 'timing', label: 'Timing' }]} />
       </div>
-      {tab === 'edit' && <>
-      <Section title={text ? 'Text' : o.kind === 'sticker' ? 'Sticker' : 'Image'}>
-        {o.tpl && <p className="text-[11px] text-muted-foreground">Text template layer. Edit the words below; size, position, rotation and timing work like any text. Use Timing → “Whole video” to cover the entire video.</p>}
+      {tab === 'edit' && o.kind === 'motion' && <MotionEdit o={o} patch={patch} />}
+      {tab === 'edit' && o.kind !== 'motion' && <>
+      <Section title={text ? 'Text' : o.tpl ? 'Template text' : o.kind === 'sticker' ? 'Sticker' : 'Image'}>
+        {o.tpl && <p className="text-[11px] text-muted-foreground">Text template layer. Edit the words below (put *stars* around a word to emphasise it); size, position, rotation and timing work like any text. Use Timing → “Whole video” to cover the entire video.</p>}
         {o.kind !== 'image' && (
           <Textarea className="sinhala min-h-16 text-sm" value={o.text} placeholder={text ? 'Type your text' : 'Emoji or symbol'} onChange={(e) => patch({ text: e.target.value }, 'text')} />
         )}
@@ -111,8 +149,21 @@ export function OverlayItemPanel() {
       </Section>
       <TemplateEditor style={o.tpl.style} onStyle={(style, key) => patch({ tpl: { ...o.tpl!, style }, y: style.layout.y }, key)} />
       </>}
+      {tab === 'display' && o.tpl && <>
+      <DisplayControls style={o.tpl.style} preview
+        setStyle={(fn, key) => patch({ tpl: { ...o.tpl!, style: fn(o.tpl!.style) } }, key && `tpl-${key}`)} />
+      </>}
       {tab === 'layout' && <>
       <Section title="Position">
+        <Row label="Depth" hint="Behind a cut-out layer, the text or image passes behind the subject. In front is the default.">
+          <Select value={o.behind === undefined ? 'front' : String(o.behind)} onValueChange={(v) => patch({ behind: v === 'front' ? undefined : Number(v) })}>
+            <SelectTrigger size="sm" className="w-44"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="front">In front of everything</SelectItem>
+              {layers.map((l) => <SelectItem key={l.track} value={String(l.track)}>Behind {l.name}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </Row>
         <Row label="Align to frame" hint="Centres this item, and every other item picked in the preview, on the frame.">
           <Button size="xs" variant="secondary" onClick={() => alignPicked({ x: 50 })}>Centre ↔</Button>
           <Button size="xs" variant="secondary" onClick={() => alignPicked({ y: 50 })}>Centre ↕</Button>

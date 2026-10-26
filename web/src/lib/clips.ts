@@ -1,5 +1,6 @@
 import { nanoid } from 'nanoid';
 import type { Clip, Project } from '../types';
+import { DEFAULT_MATTE, migrateVideo } from './videoFx';
 
 /** Pure clip logic: no React, no storage. Every function returns new arrays and never mutates its input. */
 
@@ -280,4 +281,22 @@ export function copyClipTo(clips: Clip[], id: string, start: number, track = 0):
   const vtrack = freeVideoTrack(clips, start, c.duration, track);
   const copies = group.map((g) => ({ ...g, id: nanoid(8), start: start + (g.start - c.start), linkId: g.linkId ? l : undefined, track: g.kind === 'video' ? vtrack : g.track }));
   return { clips: [...clips, ...copies], id: copies.find((x) => x.kind === c.kind)!.id };
+}
+
+/**
+ * Make a layer from a clip's cut-out: the video only (no audio, no link) on the first free overlay track above it, with the same
+ * timing, framing, grade and keyframes and the AI cut-out switched on. The original clip stays underneath as the full-frame
+ * background (its own cut-out is switched off), so overlays can be placed between the two or in front of both.
+ */
+export function createCutoutLayer(clips: Clip[], id: string): { clips: Clip[]; id: string | null } {
+  const c = clips.find((x) => x.id === id);
+  if (!c || c.kind !== 'video') return { clips, id: null };
+  const track = freeVideoTrack(clips, c.start, c.duration, trackOf(c) + 1);
+  const fx = migrateVideo(c.fx);
+  const matte = { ...DEFAULT_MATTE, ...fx.matte, mode: 'ai' as const, engine: fx.matte?.engine ?? ('precise' as const), background: 'transparent' as const, invert: false };
+  const layer: Clip = {
+    ...JSON.parse(JSON.stringify(c)), id: nanoid(8), name: `${c.name} · cut-out`, linkId: undefined, track, cutout: true,
+    fx: { ...JSON.parse(JSON.stringify(fx)), matte, transitionIn: { id: 'none', duration: 0.5 }, transitionOut: { id: 'none', duration: 0.5 }, keyframes: fx.keyframes.map((k) => ({ ...k, id: nanoid(8) })), effects: fx.effects.map((e) => ({ ...e, id: nanoid(8) })) },
+  };
+  return { clips: [...clips.map((x) => (x.id === c.id ? { ...x, fx: { ...fx, matte: undefined } } : x)), layer], id: layer.id };
 }

@@ -102,6 +102,13 @@ export const BUILTIN_TEMPLATES: Template[] = [
     highlight: { fill: solid('#F5C518'), scale: 1.04 },
     layout: { y: 62, maxWidth: 82 },
   }),
+  // Facebook-reel look: white bold text, the spoken word sits on a rounded yellow box with dark text.
+  T('reel-yellow-box', 'Reel Yellow Box', {
+    displayMode: 'box-highlight', wordsPerChunk: 4, animation: 'pop',
+    text: { sinhalaFont: 'fm-emanee', englishFont: 'poppins', english: en(0.98), fontSize: 62, strokeWidth: 0, shadowPreset: 'soft' },
+    highlight: { boxColor: '#FFD83D', boxRadius: 12, boxPadding: 12, boxPadTop: 4, boxPadBottom: 4, boxPadLeft: 12, boxPadRight: 12, fill: solid('#1A1A1A'), scale: 1 },
+    layout: { y: 69, maxWidth: 80 },
+  }),
   T('clean-pop', 'Clean Pop', {
     text: { sinhalaFont: 'noto-sans-sinhala-semibold', englishFont: 'poppins', english: en(0.98) },
   }),

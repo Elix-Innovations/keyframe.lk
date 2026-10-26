@@ -5,6 +5,7 @@ import type { AdjClip, Caption, CaptionStyle, Clip, OverlayItem, Project, Projec
 import { DEFAULT_STYLE } from './lib/style';
 import { segmentWords, normalizeCaptions } from './lib/segment';
 import { migrateVideo } from './lib/videoFx';
+import { brollOverlay } from './lib/overlays';
 import { clipsFromLegacy, withClips } from './lib/clips';
 import * as db from './lib/db';
 
@@ -35,6 +36,14 @@ export function migrateProject(p: Project): Project {
       tracks: a.tracks ?? [],
     },
   };
+  // B-roll images are now ordinary image overlays, with every layer control.
+  if (migrated.broll?.length) {
+    const frame = { w: migrated.videoWidth || 1080, h: migrated.videoHeight || 1920 };
+    const list = [...(migrated.overlays ?? [])];
+    for (const b of migrated.broll) list.push(brollOverlay(b, list, frame));
+    migrated.overlays = list;
+    migrated.broll = [];
+  }
   const withC = migrated.clips ? migrated : withClips(migrated, clipsFromLegacy(migrated));
   // Filters, effects, transitions and keyframes used to be project-wide; they now live on each video clip.
   const legacy = p.video;
@@ -138,10 +147,10 @@ interface EditorState {
 }
 
 export type PanelId =
-  | 'media' | 'captions' | 'overlays' | 'sounds' | 'transitions' | 'effects' | 'filters' | 'templates'
+  | 'media' | 'captions' | 'overlays' | 'sounds' | 'transitions' | 'effects' | 'filters' | 'templates' | 'motion'
   | 'style' | 'display' | 'animation' | 'layout' | 'clip' | 'adjust' | 'layer' | 'overlay' | 'audio' | 'ai' | 'export' | 'usage';
 /** Left pane tabs (library) and right pane tabs (inspector), in shortcut order (keys 1-9 pick the first nine). */
-export const LEFT_PANELS: PanelId[] = ['media', 'captions', 'overlays', 'sounds', 'transitions', 'effects', 'filters', 'templates'];
+export const LEFT_PANELS: PanelId[] = ['media', 'captions', 'overlays', 'sounds', 'transitions', 'effects', 'filters', 'templates', 'motion'];
 export const RIGHT_PANELS: PanelId[] = ['style', 'display', 'animation', 'layout', 'clip', 'adjust', 'layer', 'overlay', 'audio', 'ai', 'export'];
 export const PANELS: PanelId[] = [...LEFT_PANELS, ...RIGHT_PANELS, 'usage'];
 

@@ -14,6 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Row, Section, Segmented, Slider } from '../controls';
 import { useState } from 'react';
 import { TargetBar, useLayer } from './EffectsPanel';
+import { BackgroundSection, BlurSection } from './MattePanel';
 import { cropForAspect, hasCrop } from '@/lib/videoFx';
 import { FlipHorizontalIcon, RotateLeft01Icon, RotateRight01Icon } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react';
@@ -128,7 +129,7 @@ export function ClipPanel() {
   const { layer, set, clip } = useLayer();
   const selected = useEditor((s) => s.project!.clips?.find((c) => c.id === s.selectedClipId) ?? null);
   const time = useEditor((s) => s.time);
-  const [tab, setTab] = useState<'clip' | 'crop' | 'transform' | 'keys'>('clip');
+  const [tab, setTab] = useState<'clip' | 'bg' | 'blur' | 'crop' | 'transform' | 'keys'>('clip');
   if (selected?.kind === 'audio') return <div><SelectedClip />{selected.fromVideo && <NoiseRemoval />}</div>;
   const sorted = [...layer.keyframes].sort((a, b) => a.t - b.t);
   const local = Math.max(0, Math.min(time - (clip?.start ?? 0), clip?.duration ?? 0));
@@ -136,10 +137,12 @@ export function ClipPanel() {
   return (
     <div>
       <div className="sticky top-0 z-10 border-b bg-sidebar px-3 py-2">
-        <Segmented fill size="sm" value={tab} onChange={setTab} options={[{ value: 'clip', label: 'Clip' }, { value: 'crop', label: 'Crop' }, { value: 'transform', label: 'Transform' }, { value: 'keys', label: `Keyframes${sorted.length ? ` ${sorted.length}` : ''}` }]} />
+        <Segmented fill size="sm" value={tab} onChange={setTab} options={[{ value: 'clip', label: 'Clip' }, { value: 'bg', label: 'Cut-out' }, { value: 'blur', label: 'Blur' }, { value: 'crop', label: 'Crop' }, { value: 'transform', label: 'Transform' }, { value: 'keys', label: `Keyframes${sorted.length ? ` ${sorted.length}` : ''}` }]} />
       </div>
       {tab === 'clip' && <SelectedClip />}
-      {tab !== 'clip' && <TargetBar pick={(l) => ({ crop: l.crop, flipH: l.flipH, flipV: l.flipV, rot90: l.rot90, base: l.base, keyframes: l.keyframes })} label="crop, transform and keyframes" />}
+      {tab === 'bg' && <BackgroundSection />}
+      {tab === 'blur' && <BlurSection />}
+      {(tab === 'crop' || tab === 'transform' || tab === 'keys') && <TargetBar pick={(l) => ({ crop: l.crop, flipH: l.flipH, flipV: l.flipV, rot90: l.rot90, base: l.base, keyframes: l.keyframes })} label="crop, transform and keyframes" />}
       {(tab === 'crop' || tab === 'transform') && <CropAndTransform part={tab} />}
       {tab === 'keys' && (
         <Section title="Keyframes" right={

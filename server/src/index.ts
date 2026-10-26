@@ -2,13 +2,16 @@
  * Keyframe.lk API server (Hono on Node).
  *
  * Routes (all under /api):
+ *   GET/PUT /api/keys          -> API key status (masked) / set or clear keys, saved to server/.env
  *   GET  /api/health           -> HealthResponse
+ *   GET  /api/claude/status    -> { cli: { found, version, loggedIn, account }, api, gemini }  (Claude Code login check)
  *   POST /api/transcribe       -> TranscribeResponse
  *   POST /api/ai/emphasis      -> EmphasisResponse
  *   POST /api/ai/hook          -> HookResponse
  *   POST /api/ai/description   -> DescriptionResponse
  *   POST /api/ai/proofread     -> ProofreadResponse
  *   POST /api/ai/broll         -> BrollPlanResponse
+ *   POST /api/ai/motion        -> { scene, via, costUsd, ms }  (motion graphics / transitions; see motion.ts)
  *   POST /api/ai/music-mood    -> MusicMoodResponse
  *   GET  /api/usage            -> UsageResponse (request count + estimated cost); DELETE resets it
  *   GET  /api/music/search     -> MusicSearchResponse (Jamendo; configured:false without JAMENDO_CLIENT_ID)
@@ -62,6 +65,9 @@ import {
   suggestMusicMood,
 } from './ai.js';
 import { hasMusicLibrary, musicFile, musicSearch } from './music.js';
+import { claudeStatus } from './claudeCli.js';
+import { getKeys, putKeys } from './keys.js';
+import { generateMotion, motionRequest } from './motion.js';
 import { sfxFile, sfxSearch } from './sfx.js';
 import { cancelProRes, finishProRes, proResFrames, startProRes } from './prores.js';
 import { HttpError } from './errors.js';
@@ -87,7 +93,7 @@ app.use(
   '/api/*',
   cors({
     origin: (origin) => (/^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/.test(origin) ? origin : null),
-    allowMethods: ['GET', 'POST', 'DELETE', 'OPTIONS'],
+    allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowHeaders: ['Content-Type', 'Range'],
     exposeHeaders: ['Content-Length', 'Content-Range', 'Accept-Ranges'],
     maxAge: 600,
@@ -140,6 +146,15 @@ async function readJson<S extends z.ZodType>(c: Context, schema: S): Promise<z.i
 // ---------------------------------------------------------------------------
 // Routes
 // ---------------------------------------------------------------------------
+
+/** Is the Claude Code CLI installed and signed in (the "connect your Claude account" check)? */
+app.get('/api/claude/status', async (c) => {
+  const status = await claudeStatus(c.req.query('refresh') === '1');
+  return c.json({ cli: status, api: !!(process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN), gemini: !!process.env.GEMINI_API_KEY });
+});
+
+app.get('/api/keys', getKeys);
+app.put('/api/keys', putKeys);
 
 app.get('/api/health', async (c) => {
   const body: HealthResponse = {
@@ -206,6 +221,12 @@ app.delete('/api/usage', (c) => { resetUsage(); return c.json({ ok: true }); });
 app.post('/api/ai/broll', async (c) => {
   requireAi();
   return c.json(await planBroll(await readJson(c, brollRequest)));
+});
+
+/** Motion graphics / transitions: Claude (signed-in CLI, API key or Gemini) writes a scene the editor draws. */
+app.post('/api/ai/motion', async (c) => {
+  const body = await readJson(c, motionRequest);
+  return c.json(await generateMotion(body, c.req.raw.signal));
 });
 
 app.post('/api/ai/music-mood', async (c) => {

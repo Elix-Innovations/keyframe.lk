@@ -1,3 +1,4 @@
+import { copySelection, cutSelection, hasClipboard, pasteAtPlayhead, pasteAttributes } from '@/lib/clipboard';
 import { memo, useRef } from 'react';
 import type { OverlayItem } from '@/types';
 import { useEditor } from '@/store';
@@ -108,6 +109,10 @@ export const OverlayBlock = memo(function OverlayBlock({ item, pps, pad, top, he
       <ContextMenuContent className="w-52">
         <ContextMenuItem disabled={!canSplit} onClick={() => overlayOps.splitAtPlayhead(item.id)}><Scissors />Split at playhead<ContextMenuShortcut>S</ContextMenuShortcut></ContextMenuItem>
         <ContextMenuItem onClick={() => overlayOps.duplicate(item.id)}><Copy />Duplicate</ContextMenuItem>
+        <ContextMenuItem onClick={() => copySelection()}><Copy />Copy<ContextMenuShortcut>⌘C</ContextMenuShortcut></ContextMenuItem>
+        <ContextMenuItem onClick={() => cutSelection()}>Cut<ContextMenuShortcut>⌘X</ContextMenuShortcut></ContextMenuItem>
+        <ContextMenuItem disabled={!hasClipboard()} onClick={() => pasteAtPlayhead(false)}>Paste at playhead<ContextMenuShortcut>⌘V</ContextMenuShortcut></ContextMenuItem>
+        <ContextMenuItem disabled={!hasClipboard()} onClick={() => pasteAttributes()}>Paste look only<ContextMenuShortcut>⇧⌘V</ContextMenuShortcut></ContextMenuItem>
         <ContextMenuSeparator />
         <ContextMenuItem variant="destructive" onClick={() => overlayOps.remove(item.id)}><Trash2 />Delete<ContextMenuShortcut>Del</ContextMenuShortcut></ContextMenuItem>
       </ContextMenuContent>

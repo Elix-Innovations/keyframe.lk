@@ -15,6 +15,7 @@ import type { UsageRecord, UsageResponse } from './types.js';
 interface TokenPrice { in: number; audioIn?: number; out: number }
 
 const TOKEN_PRICES: Record<string, TokenPrice> = {
+  'gemini-3.5-flash': { in: 0.3, audioIn: 1.0, out: 2.5 },
   'gemini-2.5-flash': { in: 0.3, audioIn: 1.0, out: 2.5 },
   'gemini-2.5-flash-lite': { in: 0.1, audioIn: 0.3, out: 0.4 },
   'gemini-2.5-pro': { in: 1.25, out: 10 },

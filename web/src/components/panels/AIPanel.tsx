@@ -1,19 +1,19 @@
-import { useRef, useState } from 'react';
-import { nanoid } from 'nanoid';
-import type { BrollItem, HookTemplateId } from '@/types';
+import { useEffect, useRef, useState } from 'react';
+import type { HookTemplateId } from '@/types';
+import { brollOverlay } from '@/lib/overlays';
 import { useEditor } from '@/store';
-import { ai } from '@/lib/api';
+import { ai, claudeStatus, type ClaudeStatus } from '@/lib/api';
 import { heuristicEmphasis } from '@/lib/emphasis';
 import { HOOK_TEMPLATES } from '@/render/captions';
 import * as db from '@/lib/db';
 import { imageThumb } from '@/lib/media';
 import { currentTime } from '@/lib/player';
-import { formatClock } from '@/lib/srt';
-import { Copy, ImagePlus, Sparkles, WandSparkles, X } from '@/components/icons';
+import { Copy, ImagePlus, Sparkles, WandSparkles } from '@/components/icons';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { ApiKeys } from '../ApiKeys';
 import { Row, Section, Segmented, Slider, Spinner, Toggle } from '../controls';
 
 type Tab = 'emphasis' | 'hook' | 'broll' | 'description';
@@ -99,8 +99,12 @@ function Broll() {
   const { busy, run } = useBusy();
   const input = useRef<HTMLInputElement>(null);
   const [pool, setPool] = useState<{ assetId: string; thumb: string }[]>([]);
-  const setItem = (id: string, patch: Partial<BrollItem>, key?: string) =>
-    update((p) => ({ ...p, broll: p.broll.map((b) => (b.id === id ? { ...b, ...patch } : b)) }), key);
+  const addBroll = (items: { assetId: string; start: number; end: number; note?: string }[]) =>
+    update((p) => {
+      const list = [...(p.overlays ?? [])];
+      for (const b of items) list.push(brollOverlay({ ...b, mode: 'fullscreen' }, list, { w: p.videoWidth || 1080, h: p.videoHeight || 1920 }));
+      return { ...p, overlays: list };
+    });
 
   const addFiles = async (files: FileList) => {
     const added: { assetId: string; thumb: string }[] = [];
@@ -112,12 +116,12 @@ function Broll() {
   };
   const placeAtPlayhead = (assetId: string) => {
     const t = currentTime();
-    update((p) => ({ ...p, broll: [...p.broll, { id: nanoid(8), assetId, start: t, end: t + 2.5, mode: 'fullscreen' }] }));
+    addBroll([{ assetId, start: t, end: t + 2.5 }]);
   };
   const placeWithAI = () => run('broll', async () => {
     const segments = project.captions.map((c, index) => ({ index, start: c.start, end: c.end, text: c.words.map((w) => w.text).join(' ') }));
     const r = await ai.broll({ segments, images: pool.map((p) => ({ id: p.assetId, dataUrl: p.thumb })) });
-    update((p) => ({ ...p, broll: [...p.broll, ...r.placements.map((pl) => ({ id: nanoid(8), assetId: pl.imageId, start: pl.start, end: pl.end, mode: 'fullscreen' as const, note: pl.reason }))] }));
+    addBroll(r.placements.map((pl) => ({ assetId: pl.imageId, start: pl.start, end: pl.end, note: pl.reason })));
     notify(`Placed ${r.placements.length} images.`, 'success');
   });
 
@@ -140,17 +144,7 @@ function Broll() {
           </Button>
         </>
       )}
-      {project.broll.map((b) => (
-        <div key={b.id} className="flex flex-col gap-1.5 rounded-xl border bg-muted/30 p-2.5">
-          <div className="flex items-center gap-2 text-xs">
-            <span className="font-mono text-muted-foreground">{formatClock(b.start, true)}</span>
-            <Segmented size="sm" value={b.mode} onChange={(mode) => setItem(b.id, { mode })} options={[{ value: 'fullscreen', label: 'Full' }, { value: 'pip', label: 'Card' }]} />
-            <Button variant="ghost" size="icon-xs" className="ml-auto hover:text-destructive" aria-label="Remove" onClick={() => update((p) => ({ ...p, broll: p.broll.filter((x) => x.id !== b.id) }))}><X /></Button>
-          </div>
-          <Row label="Length"><Slider value={b.end - b.start} min={0.5} max={8} step={0.1} onChange={(d) => setItem(b.id, { end: b.start + d }, `broll-${b.id}`)} format={(v) => `${v.toFixed(1)}s`} /></Row>
-          {b.note && <p className="text-xs text-muted-foreground">{b.note}</p>}
-        </div>
-      ))}
+      <p className="text-xs text-muted-foreground">Placed images are image layers on the timeline: drag, trim, resize and right-click them like any overlay.</p>
     </Section>
   );
 }
@@ -183,11 +177,48 @@ function Description() {
   );
 }
 
+/** Is this computer signed in to Claude (Claude Code CLI), or is an API key set? Motion graphics use the signed-in account. */
+function ClaudeConnection() {
+  const [status, setStatus] = useState<ClaudeStatus | null | undefined>(undefined);
+  const [checking, setChecking] = useState(false);
+  const check = async (refresh = false) => { setChecking(true); setStatus(await claudeStatus(refresh)); setChecking(false); };
+  useEffect(() => { void check(); }, []);
+  const cli = status?.cli;
+  const ok = !!cli?.found && !!cli.loggedIn;
+  return (
+    <Section title="Claude connection" right={<Button size="xs" variant="ghost" disabled={checking} onClick={() => void check(true)}>{checking ? <Spinner className="size-3" /> : 'Check'}</Button>}>
+      {status === undefined && <p className="text-xs text-muted-foreground">Checking…</p>}
+      {status === null && <p className="text-xs text-destructive">The Keyframe.lk server is not running. Start it with <code>cd server &amp;&amp; npm run dev</code>.</p>}
+      {status && (
+        <div className="flex flex-col gap-2 text-xs">
+          <div className="flex items-center gap-2">
+            <span className={cn('size-2 shrink-0 rounded-full', ok ? 'bg-ok' : 'bg-warn')} />
+            <span className="font-medium">{ok ? 'Connected to your Claude account' : cli?.found ? 'Claude Code is not signed in' : 'Claude Code is not installed'}</span>
+          </div>
+          {ok && <p className="text-muted-foreground">{cli!.account?.email}{cli!.account?.plan ? ` · ${cli!.account.plan}` : ''} · {cli!.version}. Motion graphics and transitions are written with this account; nothing is stored in the app.</p>}
+          {!ok && (
+            <div className="flex flex-col gap-1.5 rounded-lg bg-muted/50 p-2 text-muted-foreground">
+              {!cli?.found && <p>1. Install Claude Code, then restart the server:</p>}
+              {!cli?.found && <code className="rounded bg-background px-1.5 py-1 text-[11px] text-foreground">npm install -g @anthropic-ai/claude-code</code>}
+              <p>{cli?.found ? '1.' : '2.'} Sign in with your Claude account: open a terminal and run</p>
+              <code className="rounded bg-background px-1.5 py-1 text-[11px] text-foreground">claude</code>
+              <p>then press Check. Prefer an API key? Add an Anthropic key below.</p>
+            </div>
+          )}
+          <p className="text-muted-foreground">{status.api ? 'An API key is also set (used for captions AI).' : 'Caption AI features (emphasis, hook, B-roll) use an Anthropic or Gemini key.'}</p>
+          <ApiKeys only={['ANTHROPIC_API_KEY', 'GEMINI_API_KEY']} />
+        </div>
+      )}
+    </Section>
+  );
+}
+
 export function AIPanel() {
   const [tab, setTab] = useState<Tab>('emphasis');
   const project = useEditor((s) => s.project)!;
   return (
     <div>
+      <ClaudeConnection />
       <div className="px-3 pt-3">
         <Tabs value={tab} onValueChange={(v) => setTab(v as Tab)}>
           <TabsList className="w-full">

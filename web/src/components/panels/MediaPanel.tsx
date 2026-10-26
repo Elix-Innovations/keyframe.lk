@@ -7,6 +7,7 @@ import { imageThumb, importMedia, kindOf, type MediaKind } from '@/lib/importMed
 import { probeVideo } from '@/lib/media';
 import { seek } from '@/lib/player';
 import { clipOps } from '../ClipLane';
+import { overlayOps } from '../OverlayLane';
 import { DRAG_MIME } from '@/lib/timelineGeo';
 import { formatClock } from '@/lib/srt';
 import { cn } from '@/lib/utils';
@@ -31,12 +32,14 @@ export function MediaPanel() {
   const [thumbs, setThumbs] = useState<Record<string, string>>({});
   const input = useRef<HTMLInputElement>(null);
 
-  const brollIds = project.broll.map((b) => b.assetId).join('|');
+  const images = (project.overlays ?? []).filter((o) => o.kind === 'image' && o.assetId);
+  const brollIds = images.map((o) => o.assetId).join('|');
   useEffect(() => {
     let live = true;
-    for (const b of project.broll) {
-      if (thumbs[b.assetId]) continue;
-      getBlob(b.assetId).then((blob) => blob && imageThumb(blob, 160)).then((u) => { if (live && u) setThumbs((t) => ({ ...t, [b.assetId]: u })); }).catch(() => {});
+    for (const o of images) {
+      const id = o.assetId!;
+      if (thumbs[id]) continue;
+      getBlob(id).then((blob) => blob && imageThumb(blob, 160)).then((u) => { if (live && u) setThumbs((t) => ({ ...t, [id]: u })); }).catch(() => {});
     }
     return () => { live = false; };
   }, [brollIds]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -58,9 +61,9 @@ export function MediaPanel() {
       out.push({ id: c.id, kind: c.kind, name: c.name, duration: c.duration, thumb: c.kind === 'video' ? thumbs[c.assetId] ?? project.thumbnail ?? undefined : undefined, at: c.start, assetId: c.assetId, source: 'clip' });
     }
     for (const t of project.audio.tracks) out.push({ id: t.id, kind: 'audio', name: t.name, duration: t.duration, at: t.start, assetId: t.assetId, source: 'track' });
-    for (const b of project.broll) out.push({ id: b.id, kind: 'image', name: b.note || 'Image', duration: b.end - b.start, thumb: thumbs[b.assetId], at: b.start, assetId: b.assetId, source: 'broll' });
+    for (const o of images) out.push({ id: o.id, kind: 'image', name: o.text || 'Image', duration: o.duration, thumb: thumbs[o.assetId!], at: o.start, assetId: o.assetId!, source: 'broll' });
     return out;
-  }, [project.clips, project.thumbnail, project.audio.tracks, project.broll, thumbs]);
+  }, [project.clips, project.thumbnail, project.audio.tracks, project.overlays, thumbs]);
 
   const counts: Record<Filter, number> = { all: items.length, video: 0, audio: 0, image: 0 };
   for (const i of items) counts[i.kind]++;
@@ -82,7 +85,7 @@ export function MediaPanel() {
   const remove = (i: Item) => {
     if (i.source === 'clip') clipOps.remove(i.id);
     else if (i.kind === 'audio') update((p) => ({ ...p, audio: { ...p.audio, tracks: p.audio.tracks.filter((t) => t.id !== i.id) } }));
-    else if (i.kind === 'image') update((p) => ({ ...p, broll: p.broll.filter((b) => b.id !== i.id) }));
+    else if (i.kind === 'image') overlayOps.remove(i.id);
   };
 
   return (
@@ -122,7 +125,7 @@ export function MediaPanel() {
               )}
               {i.kind === 'image' && (
                 <Button variant="secondary" size="icon-xs" aria-label="Add again at playhead" className="absolute left-1 top-1 opacity-0 group-hover:opacity-100"
-                  onClick={() => update((p) => { const b = p.broll.find((x) => x.id === i.id)!; const at = useEditor.getState().time; return { ...p, broll: [...p.broll, { ...b, id: `${b.id}-${Date.now().toString(36)}`, start: at, end: at + (b.end - b.start) }] }; })}><Plus /></Button>
+                  onClick={() => { overlayOps.duplicate(i.id); }}><Plus /></Button>
               )}
             </div>
           ))}

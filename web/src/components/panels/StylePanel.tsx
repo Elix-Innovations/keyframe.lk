@@ -45,6 +45,12 @@ export function StylePanel() {
               options={[{ value: 'none', label: 'Aa' }, { value: 'upper', label: 'ABC' }, { value: 'lower', label: 'abc' }, { value: 'title', label: 'Abc' }]} />
           </Row>
           <Row label="Size"><Slider value={t.fontSize} min={20} max={160} onChange={(fontSize) => setText({ fontSize }, 'size')} /></Row>
+          {(['sinhala', 'english'] as const).map((sc) => (
+            <Row key={sc} label={sc === 'sinhala' ? 'Sinhala size' : 'English size'} hint="Set separately from the main size">
+              <Slider value={Math.round((t[sc].fontSize ?? t.fontSize) * (t[sc].sizeScale ?? 1))} min={20} max={200}
+                onChange={(fontSize) => setText({ [sc]: { ...t[sc], fontSize, sizeScale: 1 } }, `size-${sc}`)} />
+            </Row>
+          ))}
           <Row label="Letter spacing"><Slider value={t.letterSpacing} min={-6} max={20} step={0.5} onChange={(letterSpacing) => setText({ letterSpacing }, 'ls')} /></Row>
           <Row label="Word spacing" hint="Space between words"><Slider value={t.wordSpacing ?? 1} min={0.2} max={4} step={0.05} onChange={(wordSpacing) => setText({ wordSpacing }, 'ws')} format={(v) => `${Math.round(v * 100)}%`} /></Row>
           <Row label="Line height"><Slider value={t.lineHeight} min={0.8} max={2} step={0.05} onChange={(lineHeight) => setText({ lineHeight }, 'lh')} format={(v) => v.toFixed(2)} /></Row>
@@ -101,7 +107,7 @@ export function StylePanel() {
               <Section title={target === 'sinhala' ? 'Sinhala words' : 'English words'} right={
                 <Button variant="ghost" size="xs" onClick={() => setStyle((s) => ({ ...s, text: { ...s.text, [target]: {} } }))}><RotateCcw />Reset</Button>
               }>
-                <Row label="Size"><Slider value={ov.sizeScale ?? 1} min={0.6} max={1.6} step={0.02} onChange={(sizeScale) => setOv({ sizeScale }, 'ov-size')} format={(v) => `${Math.round(v * 100)}%`} /></Row>
+                <Row label="Font size" hint="Independent of the main Size"><Slider value={Math.round((ov.fontSize ?? t.fontSize) * (ov.sizeScale ?? 1))} min={20} max={200} onChange={(fontSize) => setOv({ fontSize, sizeScale: 1 }, 'ov-size')} /></Row>
                 <Row label="Letter spacing"><Slider value={ov.letterSpacing ?? t.letterSpacing} min={-6} max={20} step={0.5} onChange={(letterSpacing) => setOv({ letterSpacing }, 'ov-ls')} /></Row>
                 <Row label="Own color"><Toggle checked={!!ov.fill} onChange={(on) => setOv({ fill: on ? t.fill : undefined }, 'ov-fill')} /></Row>
                 {ov.fill && <FillEditor value={ov.fill} onChange={(fill) => setOv({ fill }, 'ov-fillv')} />}

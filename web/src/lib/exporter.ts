@@ -7,6 +7,7 @@ import { renderSoundtrack } from '../audio/render';
 import { isSimple, sourceTimeAt, videoClips } from './clips';
 import type { Project } from '../types';
 import { composeFrame, outputSize } from '../render/compose';
+import { requireSegmenter, warmMattes } from '../render/matte';
 import { getBlob } from './db';
 import { ensureFonts } from './fonts';
 import { projectFontIds } from './util';
@@ -51,6 +52,7 @@ export async function loadBrollImages(p: Project) {
  * and passes the original audio through untouched.
  */
 export async function exportVideo(project: Project, opts: ExportOptions): Promise<Blob> {
+  await requireSegmenter([...(project.clips ?? []), { fx: project.video }]); // the AI cut-out needs its model before the first frame
   const first = videoClips(project.clips ?? [])[0];
   if (!first) throw new Error('This project has no video.');
   const file = await getBlob(first.assetId);
@@ -87,7 +89,8 @@ export async function exportVideo(project: Project, opts: ExportOptions): Promis
       processedWidth: width,
       processedHeight: height,
       // Screen exports still walk the source frames, so frame rate, length and caption timing match a normal export exactly.
-      process: (sample) => {
+      process: async (sample) => {
+        await warmMattes(project.clips ?? [], sample.timestamp + ((project.clips ?? [])[0]?.start ?? 0), (id) => ((project.clips ?? [])[0]?.id === id ? { draw: (x, dx, dy, dw, dh) => sample.draw(x, dx, dy, dw, dh), w: sample.displayWidth || width, h: sample.displayHeight || height } : null));
         if (screen) composeFrame(ctx, width, height, project, sample.timestamp, null, { background: screen, hideBroll: true });
         else composeFrame(ctx, width, height, project, sample.timestamp, (c, dx, dy, dw, dh) => sample.draw(c, dx, dy, dw, dh), { brollImages: broll });
         return canvas;
@@ -311,6 +314,7 @@ async function exportProRes(project: Project, file: Blob, opts: ExportOptions): 
  * Audio is the mixed timeline soundtrack (time-stretched clips, music, effects).
  */
 async function exportClips(project: Project, opts: ExportOptions): Promise<Blob> {
+  await requireSegmenter([...(project.clips ?? []), { fx: project.video }]);
   const screen = opts.screen ? SCREEN_COLORS[opts.screen] : null;
   const alpha = opts.screen === 'transparent';
   const withAudio = !screen || opts.screenAudio !== false;
@@ -379,6 +383,7 @@ async function exportClips(project: Project, opts: ExportOptions): Promise<Blob>
         const got = (await r.gen.next()).value ?? null;
         frames.set(id, got?.canvas ?? null);
       }
+      await warmMattes(project.clips ?? [], t, (id) => { const src = frames.get(id); return src ? { draw: (x, dx, dy, dw, dh) => x.drawImage(src, dx, dy, dw, dh), w: src.width, h: src.height } : null; });
       if (screen) composeFrame(ctx, width, height, project, t, null, { background: screen, hideBroll: true });
       else {
         composeFrame(ctx, width, height, project, t, null, {

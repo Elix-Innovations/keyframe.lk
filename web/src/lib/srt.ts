@@ -165,7 +165,7 @@ export function cuesToCaptions(cues: Cue[], opts: { legacyFM?: boolean } = {}): 
 // ---- Export ----------------------------------------------------------------
 
 function captionText(c: Caption): string {
-  return c.words.map((w) => w.text).join(' ');
+  return c.words.map((w, i) => (i === 0 ? '' : w.br ? '\n' : ' ') + w.text).join('');
 }
 
 export function wordsToPlainText(captions: Caption[]): string {
@@ -179,6 +179,36 @@ export function captionsToSRT(captions: Caption[], opts: { legacyFM?: boolean } 
       return `${i + 1}\n${formatSRTTime(c.start)} --> ${formatSRTTime(c.end)}\n${opts.legacyFM ? unicodeToFM(t) : t}\n`;
     })
     .join('\n');
+}
+
+/**
+ * Captions cleaned for CapCut's importer: sorted, empty cues dropped, text on one
+ * line, no overlaps (CapCut stacks overlapping cues on extra tracks), and a
+ * minimum duration so zero-length cues are not discarded.
+ */
+export function capcutCues(captions: Caption[], opts: { legacyFM?: boolean } = {}): Cue[] {
+  const MIN = 0.1;
+  const cues = [...captions]
+    .sort((a, b) => a.start - b.start)
+    .map((c) => {
+      const t = captionText(c).split('\n').map((l) => l.replace(/\s+/g, ' ').trim()).filter(Boolean).join('\n');
+      return { start: Math.max(0, c.start), end: c.end, text: opts.legacyFM ? unicodeToFM(t) : t };
+    })
+    .filter((c) => c.text);
+  for (let i = 0; i < cues.length; i++) {
+    const next = cues[i + 1];
+    if (next && cues[i].end > next.start) cues[i].end = next.start;
+    if (cues[i].end - cues[i].start < MIN) cues[i].end = cues[i].start + MIN;
+    if (next && cues[i].end > next.start) next.start = cues[i].end;
+  }
+  return cues;
+}
+
+/** SRT for CapCut: Unicode text, CRLF line endings, strictly sequential cues. */
+export function captionsToCapCutSRT(captions: Caption[], opts: { legacyFM?: boolean } = {}): string {
+  return capcutCues(captions, opts)
+    .map((c, i) => `${i + 1}\r\n${formatSRTTime(c.start)} --> ${formatSRTTime(c.end)}\r\n${c.text.replace(/\r?\n/g, '\r\n')}\r\n`)
+    .join('\r\n');
 }
 
 export function captionsToVTT(captions: Caption[]): string {
@@ -294,6 +324,8 @@ export function captionsToASS(
     return `{\\c${inlineColor(fillColor(hl.fill))}${box}${sc}}${wordText(w)}{\\r}`;
   };
 
+  /** Words joined by spaces, or an ASS line break where the word starts a new line. */
+  const joinW = (ws: Word[], f: (w: Word) => string) => ws.map((w, i) => (i === 0 ? '' : w.br ? '\\N' : ' ') + f(w)).join('');
   const events: string[] = [];
   const push = (start: number, end: number, text: string) => {
     if (end - start <= 0 || !text) return;
@@ -315,7 +347,7 @@ export function captionsToASS(
           const chunkStart = Math.floor(i / n) * n;
           const chunk = ws.slice(chunkStart, chunkStart + n);
           const s = i === 0 ? firstStart : ws[i].start;
-          push(s, until(i), chunk.map((w) => (w === ws[i] ? activeWord(w) : plainWord(w))).join(' '));
+          push(s, until(i), joinW(chunk, (w) => (w === ws[i] ? activeWord(w) : plainWord(w))));
         }
         break;
       }
@@ -324,21 +356,39 @@ export function captionsToASS(
         const n = style.wordsPerChunk > 0 ? style.wordsPerChunk : ws.length;
         for (let i = 0; i < ws.length; i += n) {
           const s = i === 0 ? firstStart : ws[i].start;
-          push(s, until(Math.min(ws.length, i + n) - 1), ws.slice(i, i + n).map(plainWord).join(' '));
+          push(s, until(Math.min(ws.length, i + n) - 1), joinW(ws.slice(i, i + n), plainWord));
         }
         break;
       }
       case 'word-appear': {
         for (let i = 0; i < ws.length; i++) {
           const s = i === 0 ? firstStart : ws[i].start;
-          push(s, until(i), ws.slice(0, i + 1).map(plainWord).join(' '));
+          push(s, until(i), joinW(ws.slice(0, i + 1), plainWord));
         }
         break;
       }
       default:
-        push(c.start, c.end, ws.map(plainWord).join(' '));
+        push(c.start, c.end, joinW(ws, plainWord));
     }
   }
 
   return header.join('\n') + '\n' + events.join('\n') + '\n';
+}
+
+/** ASS for CapCut: one plain event per caption (no per-word timing tricks or override tags it ignores). */
+export function captionsToCapCutASS(
+  captions: Caption[],
+  style: CaptionStyle,
+  size: { width: number; height: number },
+  opts: { fontFamily?: string } = {},
+): string {
+  const cues = capcutCues(captions);
+  const flat: Caption[] = cues.map((c, i) => ({
+    id: String(i),
+    start: c.start,
+    end: c.end,
+    words: [{ id: `w${i}`, text: c.text, start: c.start, end: c.end }],
+  }));
+  const plain: CaptionStyle = { ...style, displayMode: 'natural', emphasis: { ...style.emphasis, enabled: false } };
+  return captionsToASS(flat, plain, size, opts).replace(/\r?\n/g, '\r\n');
 }

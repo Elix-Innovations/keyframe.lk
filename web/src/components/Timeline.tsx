@@ -1,6 +1,7 @@
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { nanoid } from 'nanoid';
-import { ChevronLeft, ChevronRight, Copy, Plus, Crosshair, Merge, Pencil, Play, Redo2, Scissors, Trash2, Type, Undo2, ZoomIn, ZoomOut } from '@/components/icons';
+import { ClipboardPaste, PictureInPicture, WandSparkles, ChevronLeft, ChevronRight, Copy, Plus, Crosshair, Merge, Pencil, Play, Redo2, Scissors, Trash2, Type, Undo2, ZoomIn, ZoomOut } from '@/components/icons';
+import { clipboardKind, copySelection, hasClipboard, onClipboardChange, pasteAtPlayhead, pasteAttributes, copyCaptionStyle, pasteCaptionStyle } from '@/lib/clipboard';
 import { Eye, EyeOff, Layers, Link, Lock, Magnet, Ripple, Unlock, Volume, VolumeOff } from '@/components/icons-audio';
 import type { Caption, LaneGroup, MusicTrack } from '@/types';
 import { WAVEFORM_RATE } from '@/types';
@@ -219,6 +220,10 @@ function CaptionMenu({ c, children }: { c: Caption; children: React.ReactNode })
           st().setCaptions([...all(), copy]);
         }}><Copy />Duplicate after</ContextMenuItem>
         <ContextMenuSeparator />
+        <ContextMenuItem onClick={() => copyCaptionStyle(c.id)}><Copy />Copy style<ContextMenuShortcut>⌘C</ContextMenuShortcut></ContextMenuItem>
+        <ContextMenuItem onClick={() => pasteCaptionStyle([c.id])}><ClipboardPaste />Paste style<ContextMenuShortcut>⇧⌘V</ContextMenuShortcut></ContextMenuItem>
+        <ContextMenuItem onClick={() => pasteCaptionStyle(all().map((x) => x.id))}><ClipboardPaste />Paste style to all captions</ContextMenuItem>
+        <ContextMenuSeparator />
         <ContextMenuItem onClick={() => st().setCaptions(shiftCaptions(all(), [c.id], -0.1))}><ChevronLeft />Nudge −100 ms</ContextMenuItem>
         <ContextMenuItem onClick={() => st().setCaptions(shiftCaptions(all(), [c.id], 0.1))}><ChevronRight />Nudge +100 ms</ContextMenuItem>
         <ContextMenuSeparator />
@@ -378,6 +383,10 @@ export function Timeline() {
 
   const selOverlay = useEditor((s) => s.selectedOverlayId);
   const selTrack = useEditor((s) => s.selectedTrackId);
+  const selAdj = useEditor((s) => s.selectedAdjId);
+  const [, bump] = useState(0);
+  useEffect(() => onClipboardChange(() => bump((n) => n + 1)), []);
+  const hasClip = hasClipboard(), clipKind = clipboardKind();
   const splitHere = () => {
     if (selTrack && trackOps.splitAtPlayhead()) return;
     if (selOverlay && overlayOps.splitAtPlayhead()) return;
@@ -450,6 +459,10 @@ export function Timeline() {
         <Tool label="Redo" disabled={!canRedo} onClick={() => useEditor.getState().redo()}><Redo2 /></Tool>
         <span className="mx-1 h-5 w-px bg-border" />
         <Tool label="Split at playhead (S)" onClick={splitHere}><Scissors /></Tool>
+        <Tool label="Copy selected (⌘C)" disabled={!sel && !selectedClip && !selOverlay && !selTrack && !selAdj} onClick={() => copySelection()}><Copy /></Tool>
+        <Tool label="Paste at playhead (⌘V)" disabled={!hasClip} onClick={() => pasteAtPlayhead(false)}><ClipboardPaste /></Tool>
+        <Tool label="Paste a copied video clip as an overlay window (⌥⌘V)" disabled={clipKind !== 'clip'} onClick={() => pasteAtPlayhead(true)}><PictureInPicture /></Tool>
+        <Tool label="Paste only the look: filters, cut-out, blur, effects, style (⇧⌘V)" disabled={!hasClip} onClick={() => pasteAttributes()}><WandSparkles /></Tool>
         <Tool label="Delete selected (Del)" disabled={!sel && !selectedClip && !selOverlay && !selTrack} onClick={() => { if (selTrack) trackOps.remove(selTrack); else if (selOverlay) overlayOps.remove(selOverlay); else if (selectedClip) clipOps.remove(selectedClip.id); else if (sel) { setCaptions(project.captions.filter((c) => c.id !== sel.id)); select(null); } }}><Trash2 /></Tool>
         <Tool label={selectedClip?.linkId ? 'Unlink video and audio' : 'Link selected clip with its audio / video'} disabled={!selectedClip}
           active={!!selectedClip?.linkId} onClick={() => { if (selectedClip) { if (selectedClip.linkId) clipOps.unlink(selectedClip.id); else clipOps.link(selectedClip.id); } }}><Link /></Tool>

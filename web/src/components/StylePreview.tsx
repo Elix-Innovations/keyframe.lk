@@ -9,7 +9,7 @@ const SAMPLE: Caption = {
   end: 3,
   words: [
     { id: 'a', text: 'මේක', start: 0, end: 0.4 },
-    { id: 'b', text: 'සුපිරි', start: 0.4, end: 0.8, emphasize: true },
+    { id: 'b', text: 'සුපිරි', start: 0.4, end: 0.8 },
     { id: 'c', text: 'style', start: 0.8, end: 1.2 },
     { id: 'd', text: 'එකක්', start: 1.2, end: 1.8 },
   ],
