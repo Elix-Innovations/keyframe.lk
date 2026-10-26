@@ -92,8 +92,29 @@ export const sceneFontIds = (scene: MotionScene): string[] => {
 
 export const sceneFrame = (scene: MotionScene) => scene.frame ?? { w: 1080, h: 1920 };
 
+let aside: HTMLCanvasElement | OffscreenCanvas | null = null;
+function scratch(W: number, H: number) {
+  if (!aside) aside = typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(W, H) : document.createElement('canvas');
+  if (aside.width !== W) aside.width = W;
+  if (aside.height !== H) aside.height = H;
+  return aside;
+}
+
 /** Draw the scene at time `t` (seconds from its start) into a W×H canvas. Everything outside the scene's shapes stays transparent. */
 export function drawScene(ctx: Ctx2D, W: number, H: number, scene: MotionScene, t: number, opts: SceneOptions = {}) {
+  const adj = scene.adjust;
+  if (adj && (adj.hue || (adj.sat ?? 1) !== 1 || (adj.bri ?? 1) !== 1 || (adj.con ?? 1) !== 1 || (adj.speed ?? 1) !== 1)) {
+    // Draw the plain scene aside, then lay it down through a colour filter (the nodes use ctx.filter for blur themselves).
+    const aside = scratch(W, H);
+    const actx = aside.getContext('2d') as Ctx2D;
+    actx.clearRect(0, 0, W, H);
+    drawScene(actx, W, H, { ...scene, adjust: undefined }, t * (adj.speed ?? 1), opts);
+    ctx.save();
+    if ('filter' in ctx) (ctx as { filter: string }).filter = `hue-rotate(${adj.hue ?? 0}deg) saturate(${adj.sat ?? 1}) brightness(${adj.bri ?? 1}) contrast(${adj.con ?? 1})`;
+    ctx.drawImage(aside as CanvasImageSource, 0, 0);
+    ctx.restore();
+    return;
+  }
   void ensureFonts([...sceneFontIds(scene), opts.fonts?.english, opts.fonts?.sinhala]);
   const frame = sceneFrame(scene);
   const s = W / frame.w;

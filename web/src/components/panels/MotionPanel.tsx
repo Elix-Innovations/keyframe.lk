@@ -103,6 +103,7 @@ export function MotionPanel() {
   const frame = useFrame();
   const [role, setRole] = useState<Role>('graphic');
   const [tab, setTab] = useState<'library' | 'create'>('library');
+  const [hue, setHue] = useState(0);
   const [prompt, setPrompt] = useState('');
   const [duration, setDuration] = useState(0);
   const [busy, setBusy] = useState(false);
@@ -122,7 +123,7 @@ export function MotionPanel() {
   }, [busy]);
 
   const persist = (list: MotionScene[]) => { setSaved(list); void kvSet(SAVED_KEY, list).catch(() => undefined); };
-  const library = useMemo(() => MOTION_LIBRARY.filter((e) => e.role === role).map((e) => ({ e, scene: e.build(frame) })), [role, frame]);
+  const library = useMemo(() => MOTION_LIBRARY.filter((e) => e.role === role).map((e) => { const sc = e.build(frame); return { e, scene: role === 'background' && hue ? { ...sc, adjust: { hue } } : sc }; }), [role, frame, hue]);
   const connected = status?.cli.found && status.cli.loggedIn;
   const palette = useMemo(() => [...new Set([project.style.text.fill.color, project.style.highlight.fill.color, project.style.highlight.boxColor, project.style.emphasis.fill.color])].filter(Boolean) as string[], [project.style]);
 
@@ -151,6 +152,7 @@ export function MotionPanel() {
             <p className="text-[11px] text-muted-foreground">
               {role === 'transition' ? 'Plays over a cut between two clips. “At cut” centres it on the nearest cut.' : role === 'background' ? 'Animated backgrounds. Add one, then drag it below a cut-out layer on the timeline.' : 'Animated graphics that play over your video. Hover to preview; they are layers you can move, resize and trim.'}
             </p>
+            {role === 'background' && <Row label="Hue"><Slider value={hue} min={-180} max={180} format={(v) => `${v}°`} onChange={setHue} /></Row>}
             <div className="grid grid-cols-4 gap-1.5">
               {library.map(({ e, scene }) => (
                 <SceneCard key={e.id} scene={scene} sub={e.note.length > 22 ? `${scene.duration.toFixed(1)}s` : e.note}

@@ -417,10 +417,6 @@ const stars: LibraryEntry['build'] = (f) => scene('Starfield', 10, 'background',
   }),
 ], '#050714');
 
-const rings: LibraryEntry['build'] = (f, accent = '#7C3AED') => scene('Pulse rings', 4, 'background', f, [0, 1, 2, 3].map((i): SceneNode => ({
-  type: 'ellipse', name: `ring ${i + 1}`, x: f.w / 2, y: f.h / 2, w: f.w * 0.5, h: f.w * 0.5, stroke: accent, strokeWidth: 8, blend: 'screen', scale: keys(k(i, 0.2, 'out'), k(i + 4, 3.4)), opacity: keys(k(i, 0.9), k(i + 4, 0)),
-})), '#0b0716');
-
 const waves: LibraryEntry['build'] = (f) => scene('Soft waves', 8, 'background', f, [['#7dd3fc', 0.55, 0], ['#38bdf8', 0.65, 1], ['#2563eb', 0.78, 2]].map(([c, y, i], j): SceneNode => ({
   type: 'ellipse', name: `wave ${j + 1}`, w: f.w * 2.2, h: f.h * 0.5, fill: c as string, opacity: 0.85, x: keys(k(0, f.w * (0.2 + (i as number) * 0.3), 'inOut'), k(4, f.w * (0.8 - (i as number) * 0.3), 'inOut'), k(8, f.w * (0.2 + (i as number) * 0.3))), y: keys(k(0, f.h * (y as number), 'inOut'), k(4, f.h * ((y as number) + 0.04), 'inOut'), k(8, f.h * (y as number))),
 })), '#e0f2fe');
@@ -461,12 +457,8 @@ const SOLIDS: [string, string][] = [['Black', '#000000'], ['White', '#ffffff'], 
 const BG_ENTRIES: LibraryEntry[] = [
   ...SOLIDS.map(([n, c]): LibraryEntry => ({ id: `solid-${n.toLowerCase()}`, name: n, role: 'background', note: 'Solid colour', build: solid(n, c) })),
   { id: 'bg-cycle-pop', name: 'Colour change', role: 'background', note: 'Solid colour that changes', build: cycle('Colour change', ['#ff5f8f', '#ffb86b', '#4de3c1', '#6a7bff']) },
-  { id: 'bg-cycle-pastel', name: 'Pastel change', role: 'background', note: 'Soft colour change', build: cycle('Pastel change', ['#ffd1dc', '#c7f0d8', '#cfe3ff', '#fff3b0'], 10) },
-  { id: 'bg-cycle-neon', name: 'Neon change', role: 'background', note: 'Neon colour change', build: cycle('Neon change', ['#ff2bd6', '#22d3ee', '#7cff4d', '#ffe14d'], 6) },
   { id: 'bg-cycle-beat', name: 'Beat flash', role: 'background', note: 'Hard colour cuts', build: (f) => scene('Beat flash', 4, 'background', f, [{ type: 'rect', name: 'colour', x: f.w / 2, y: f.h / 2, w: f.w + 4, h: f.h + 4, fill: keys(k(0, '#ff3d6e', 'linear'), k(0.99, '#ff3d6e', 'linear'), k(1, '#ffd23d', 'linear'), k(1.99, '#ffd23d', 'linear'), k(2, '#3dd6ff', 'linear'), k(2.99, '#3dd6ff', 'linear'), k(3, '#8b5cf6', 'linear'), k(4, '#8b5cf6', 'linear')) as SceneProp<string> }]) },
   { id: 'bg-sunset', name: 'Sunset gradient', role: 'background', note: 'Peach to violet', build: grad('Sunset gradient', 160, [[0, '#ffb26b'], [0.5, '#ff5f8f'], [1, '#5b3df5']]) },
-  { id: 'bg-ocean', name: 'Ocean gradient', role: 'background', note: 'Teal to deep blue', build: grad('Ocean gradient', 160, [[0, '#2dd4bf'], [1, '#1e3a8a']]) },
-  { id: 'bg-peach', name: 'Peach gradient', role: 'background', note: 'Soft warm blend', build: grad('Peach gradient', 135, [[0, '#ffecd2'], [1, '#fcb69f']]) },
   { id: 'bg-night', name: 'Night gradient', role: 'background', note: 'Dark blue to black', build: grad('Night gradient', 180, [[0, '#1b2a5a'], [1, '#05060d']]) },
   { id: 'bg-aurora', name: 'Aurora', role: 'background', note: 'Northern lights ribbons', build: aurora },
   { id: 'bg-mesh', name: 'Mesh gradient', role: 'background', note: 'Soft moving colour mesh', build: mesh },
@@ -474,13 +466,301 @@ const BG_ENTRIES: LibraryEntry[] = [
   { id: 'bg-synth', name: 'Synthwave grid', role: 'background', note: 'Retro sun and neon grid', build: synthGrid },
   { id: 'bg-bokeh', name: 'Bokeh', role: 'background', note: 'Floating soft lights', build: bokeh },
   { id: 'bg-stars', name: 'Starfield', role: 'background', note: 'Twinkling night sky', build: stars },
-  { id: 'bg-rings', name: 'Pulse rings', role: 'background', note: 'Rings pulse outward', build: rings },
   { id: 'bg-waves', name: 'Soft waves', role: 'background', note: 'Layered blue waves', build: waves },
   { id: 'bg-halftone', name: 'Halftone pop', role: 'background', note: 'Pulsing dot grid', build: halftone },
   { id: 'bg-checker', name: 'Scrolling checker', role: 'background', note: 'Moving checkerboard', build: checker },
   { id: 'bg-spotlight', name: 'Spotlight', role: 'background', note: 'Sweeping stage lights', build: spotlight },
   { id: 'bg-ripple', name: 'Liquid ripple', role: 'background', note: 'Wobbling colour layers', build: ripple },
   { id: 'bg-film', name: 'Film vignette', role: 'background', note: 'Warm cinematic glow', build: vignetteWarm },
+];
+
+// ---- Trending reel backgrounds ----
+
+const sunburst = (name: string, a: string, b: string, bg: string, n = 18): LibraryEntry['build'] => (f) => {
+  const R = Math.hypot(f.w, f.h);
+  return scene(name, 8, 'background', f, Array.from({ length: n / 2 }, (_, i): SceneNode => ({
+    type: 'rect', name: `wedge ${i + 1}`, x: f.w / 2, y: f.h / 2, w: R * 1.2, h: R * 0.16, rotation: keys(k(0, (i / (n / 2)) * 180), k(8, (i / (n / 2)) * 180 + 360)), fill: i % 2 ? b : a,
+  })), bg);
+};
+
+const memphis: LibraryEntry['build'] = (f) => {
+  const cols = ['#ff5f8f', '#ffd23d', '#3dd6ff', '#7c5cff', '#4de3a1'], nodes: SceneNode[] = [];
+  for (let i = 0; i < 22; i++) {
+    const x = rnd(i + 1) * f.w, y = rnd(i + 2) * f.h, sz = 50 + rnd(i + 3) * 90, c = cols[i % cols.length], kind = i % 4, rot = rnd(i + 4) * 90;
+    const drift = keys(k(0, y, 'inOut'), k(5, y + 70, 'inOut'), k(10, y));
+    const spin = keys(k(0, rot), k(10, rot + (i % 2 ? 90 : -90)));
+    nodes.push(kind === 0 ? { type: 'ellipse', name: `dot ${i}`, x, y: drift, w: sz, h: sz, fill: c }
+      : kind === 1 ? { type: 'ellipse', name: `ring ${i}`, x, y: drift, w: sz, h: sz, stroke: c, strokeWidth: 10 }
+      : kind === 2 ? { type: 'rect', name: `bar ${i}`, x, y: drift, w: sz * 1.6, h: 14, radius: 7, fill: c, rotation: spin }
+      : { type: 'rect', name: `sq ${i}`, x, y: drift, w: sz * 0.7, h: sz * 0.7, stroke: c, strokeWidth: 9, rotation: spin });
+  }
+  return scene('Memphis pop', 10, 'background', f, nodes, '#fff6e8');
+};
+
+const vaporwave: LibraryEntry['build'] = (f) => scene('Vaporwave', 8, 'background', f, [
+  { type: 'rect', name: 'sky', x: f.w / 2, y: f.h / 2, w: f.w + 4, h: f.h + 4, gradient: { angle: 180, stops: [{ p: 0, c: '#ff71ce' }, { p: 0.55, c: '#b967ff' }, { p: 1, c: '#01cdfe' }] } },
+  { type: 'ellipse', name: 'sun', x: f.w / 2, y: keys(k(0, f.h * 0.42, 'inOut'), k(4, f.h * 0.38, 'inOut'), k(8, f.h * 0.42)), w: f.w * 0.62, h: f.w * 0.62, gradient: { angle: 180, stops: [{ p: 0, c: '#fffb96' }, { p: 1, c: '#ff71ce' }] } },
+  ...Array.from({ length: 6 }, (_, i): SceneNode => ({ type: 'rect', name: `slat ${i + 1}`, x: f.w / 2, y: f.h * 0.42 + f.w * 0.12 + i * 34, w: f.w * 0.7, h: 6 + i * 4, fill: '#b967ff' })),
+  { type: 'rect', name: 'water', x: f.w / 2, y: f.h * 0.82, w: f.w + 4, h: f.h * 0.36, gradient: { angle: 180, stops: [{ p: 0, c: '#05ffa1' }, { p: 1, c: '#01cdfe' }] }, opacity: 0.35, blend: 'screen' },
+], '#2a1050');
+
+const chrome: LibraryEntry['build'] = (f) => scene('Liquid chrome', 8, 'background', f, [
+  { type: 'ellipse', name: 'metal a', x: keys(k(0, f.w * 0.3, 'inOut'), k(4, f.w * 0.7, 'inOut'), k(8, f.w * 0.3)), y: f.h * 0.35, w: f.w * 1.2, h: f.w * 0.8, gradient: { angle: 120, stops: [{ p: 0, c: '#ffffff' }, { p: 0.35, c: '#7f8fa6' }, { p: 0.6, c: '#e8eef5' }, { p: 1, c: '#3b4252' }] }, blur: 24 },
+  { type: 'ellipse', name: 'metal b', x: keys(k(0, f.w * 0.75, 'inOut'), k(4, f.w * 0.25, 'inOut'), k(8, f.w * 0.75)), y: f.h * 0.72, w: f.w * 1.3, h: f.w * 0.9, gradient: { angle: 60, stops: [{ p: 0, c: '#dfe6ee' }, { p: 0.4, c: '#58627a' }, { p: 0.7, c: '#ffffff' }, { p: 1, c: '#2b3040' }] }, blur: 28 },
+  { type: 'ellipse', name: 'tint', x: f.w / 2, y: f.h / 2, w: f.w, h: f.h, fill: '#8b5cf6', blur: 160, blend: 'soft-light', opacity: 0.6 },
+], '#10131c');
+
+const tunnel: LibraryEntry['build'] = (f) => {
+  const D = 3, n = 6;
+  return scene('Neon tunnel', D, 'background', f, Array.from({ length: n }, (_, i): SceneNode => ({
+    type: 'rect', name: `frame ${i + 1}`, x: f.w / 2, y: f.h / 2, w: f.w * 0.5, h: f.h * 0.5, radius: 24, stroke: ['#ff2bd6', '#22d3ee'][i % 2], strokeWidth: 8, blend: 'lighter', blur: 2,
+    scale: keys(k(0, 0.1 + i * 0.6, 'in'), k(D, 0.1 + (i + 1) * 0.6)), opacity: keys(k(0, 0.2), k(D * 0.4, 1), k(D, 0)),
+  })), '#05030f');
+};
+
+const glitter: LibraryEntry['build'] = (f) => scene('Glitter', 6, 'background', f, [
+  ...Array.from({ length: 60 }, (_, i): SceneNode => {
+    const s = 6 + rnd(i + 9) * 14, t0 = rnd(i + 5) * 3;
+    return { type: 'rect', name: `glint ${i + 1}`, x: rnd(i + 1) * f.w, y: rnd(i + 2) * f.h, w: s, h: s, rotation: 45, fill: ['#fff7c2', '#ffd1f0', '#d1f0ff'][i % 3], blend: 'lighter', scale: keys(k(t0, 0, 'inOut'), k(t0 + 0.4, 1, 'inOut'), k(t0 + 0.9, 0, 'inOut'), k(t0 + 3, 1, 'inOut'), k(t0 + 3.6, 0)), };
+  }),
+], '#2d0f3a');
+
+const grain: LibraryEntry['build'] = (f) => scene('Grainy gradient', 8, 'background', f, [
+  { type: 'ellipse', name: 'orb a', x: keys(k(0, f.w * 0.25, 'inOut'), k(4, f.w * 0.7, 'inOut'), k(8, f.w * 0.25)), y: f.h * 0.3, w: f.w * 1.2, h: f.w * 1.2, fill: '#ff7a3d', blur: 120 },
+  { type: 'ellipse', name: 'orb b', x: keys(k(0, f.w * 0.8, 'inOut'), k(4, f.w * 0.3, 'inOut'), k(8, f.w * 0.8)), y: f.h * 0.75, w: f.w * 1.3, h: f.w * 1.3, fill: '#5b3df5', blur: 130 },
+  ...Array.from({ length: 140 }, (_, i): SceneNode => ({ type: 'rect', name: `grain ${i}`, x: rnd(i + 1) * f.w, y: rnd(i + 2) * f.h, w: 3, h: 3, fill: i % 2 ? '#ffffff' : '#000000', opacity: 0.22 })),
+], '#1a0f2e');
+
+const matrix: LibraryEntry['build'] = (f) => scene('Code rain', 6, 'background', f, Array.from({ length: 14 }, (_, i): SceneNode => {
+  const x = (i + 0.5) * (f.w / 14), d = rnd(i + 3) * 2, L = 280 + rnd(i + 8) * 420;
+  return { type: 'rect', name: `drop ${i + 1}`, x, y: keys(k(d - 2, -L), k(d + 4, f.h + L)), w: 6, h: L, gradient: { angle: 180, stops: [{ p: 0, c: 'rgba(0,255,120,0)' }, { p: 1, c: '#46ff9a' }] }, blend: 'lighter', blur: 1 };
+}), '#02100a');
+
+const confettiBg: LibraryEntry['build'] = (f) => {
+  const cols = ['#ff5f8f', '#ffd23d', '#3dd6ff', '#7cf29c', '#a78bfa'];
+  return scene('Falling confetti', 6, 'background', f, Array.from({ length: 34 }, (_, i): SceneNode => {
+    const x = rnd(i + 1) * f.w, d = rnd(i + 7) * 3;
+    return { type: 'rect', name: `bit ${i + 1}`, x: keys(k(0, x), k(6, x + (rnd(i + 20) - 0.5) * 180)), y: keys(k(d - 3, -60), k(d + 3, f.h + 60)), w: 16 + rnd(i + 3) * 14, h: 26 + rnd(i + 4) * 20, radius: 3, fill: cols[i % 5], rotation: keys(k(0, 0), k(6, (rnd(i + 9) - 0.5) * 900)) };
+  }), '#17122e');
+};
+
+const hearts: LibraryEntry['build'] = (f) => scene('Floating hearts', 8, 'background', f, Array.from({ length: 14 }, (_, i): SceneNode => {
+  const x = rnd(i + 1) * f.w, d = rnd(i + 5) * 4, sz = 70 + rnd(i + 3) * 90;
+  return { type: 'text', name: `heart ${i + 1}`, text: '♥', x: keys(k(d, x), k(d + 6, x + (rnd(i + 20) - 0.5) * 200)), y: keys(k(d, f.h + 100), k(d + 6, -100)), size: sz, fill: ['#ff5f8f', '#ff8fb1', '#ffc2d4'][i % 3], opacity: keys(k(d, 0), k(d + 1, 0.9), k(d + 5, 0.9), k(d + 6, 0)), scale: keys(k(d, 0.8, 'inOut'), k(d + 3, 1.15, 'inOut'), k(d + 6, 0.9)) };
+}), '#3a0f24');
+
+const duotone: LibraryEntry['build'] = (f) => scene('Duotone split', 6, 'background', f, [
+  { type: 'rect', name: 'left', x: keys(k(0, f.w * 0.3, 'inOut'), k(3, f.w * 0.4, 'inOut'), k(6, f.w * 0.3)), y: f.h / 2, w: f.w * 0.9, h: f.h * 1.4, rotation: 12, fill: '#ff5f8f' },
+  { type: 'rect', name: 'right', x: keys(k(0, f.w * 0.9, 'inOut'), k(3, f.w * 0.8, 'inOut'), k(6, f.w * 0.9)), y: f.h / 2, w: f.w * 0.9, h: f.h * 1.4, rotation: 12, fill: '#3dd6ff' },
+], '#ffd23d');
+
+const cloudsBg: LibraryEntry['build'] = (f) => scene('Dreamy clouds', 12, 'background', f, [
+  ...Array.from({ length: 6 }, (_, i): SceneNode => ({ type: 'ellipse', name: `cloud ${i + 1}`, w: f.w * (0.7 + rnd(i) * 0.5), h: f.h * 0.14, fill: '#ffffff', blur: 40, opacity: 0.85, x: keys(k(0, -f.w * 0.2 + rnd(i + 4) * f.w * 0.6), k(12, f.w * 0.5 + rnd(i + 4) * f.w * 0.7)), y: f.h * (0.12 + i * 0.15) })),
+], '#a5d8ff');
+
+const BG2: LibraryEntry[] = [
+  { id: 'bg-sunburst', name: 'Retro sunburst', role: 'background', note: 'Spinning rays', build: sunburst('Retro sunburst', '#ffd23d', '#ff5f8f', '#ff9a3d') },
+  { id: 'bg-memphis', name: 'Memphis pop', role: 'background', note: '90s shapes floating', build: memphis },
+  { id: 'bg-vapor', name: 'Vaporwave', role: 'background', note: 'Pastel retro sunset', build: vaporwave },
+  { id: 'bg-chrome', name: 'Liquid chrome', role: 'background', note: 'Y2K metallic blobs', build: chrome },
+  { id: 'bg-tunnel', name: 'Neon tunnel', role: 'background', note: 'Zooming neon frames', build: tunnel },
+  { id: 'bg-glitter', name: 'Glitter', role: 'background', note: 'Twinkling sparkles', build: glitter },
+  { id: 'bg-grain', name: 'Grainy gradient', role: 'background', note: 'Noisy orange and violet', build: grain },
+  { id: 'bg-code', name: 'Code rain', role: 'background', note: 'Falling green streaks', build: matrix },
+  { id: 'bg-confetti', name: 'Falling confetti', role: 'background', note: 'Party confetti', build: confettiBg },
+  { id: 'bg-hearts', name: 'Floating hearts', role: 'background', note: 'Rising hearts', build: hearts },
+  { id: 'bg-duotone', name: 'Duotone split', role: 'background', note: 'Pink and cyan slabs', build: duotone },
+  { id: 'bg-clouds', name: 'Dreamy clouds', role: 'background', note: 'Drifting soft clouds', build: cloudsBg },
+];
+
+// ---- Studio backdrops: dark colour, soft light pool, fine ribs, glowing arcs, orbiting dots, light beams and dust. ----
+
+const sway = (v: number, amp: number, D = 8, d = 0): SceneProp<number> => keys(k(d, v - amp, 'inOut'), k(D / 2 + d, v + amp, 'inOut'), k(D + d, v - amp));
+/** Floating light specks that drift upward and twinkle. */
+const dust = (f: { w: number; h: number }, n: number, c = '#ffffff', D = 8): SceneNode[] => Array.from({ length: n }, (_, i): SceneNode => {
+  const x = rnd(i + 1) * f.w, y = rnd(i + 2) * f.h, s = 4 + rnd(i + 3) * 9;
+  return { type: 'ellipse', name: `dust ${i + 1}`, x: sway(x, 30 + rnd(i) * 40, D, rnd(i + 6)), y: keys(k(0, y), k(D, y - 120 - rnd(i + 8) * 160)), w: s, h: s, fill: c, blur: s > 8 ? 3 : 0, blend: 'lighter', opacity: keys(k(0, 0), k(1 + rnd(i + 4) * 2, 0.8, 'inOut'), k(D / 2 + rnd(i + 5), 0.15, 'inOut'), k(D - 1, 0.7, 'inOut'), k(D, 0)) };
+});
+const ribs = (f: { w: number; h: number }, a = 0.2): SceneNode[] => Array.from({ length: 70 }, (_, i): SceneNode => ({ type: 'rect', name: `rib ${i}`, x: (i + 0.5) * (f.w / 70), y: f.h / 2, w: 2.5, h: f.h + 4, fill: '#000', opacity: a }));
+const vignette = (f: { w: number; h: number }, a = 0.8): SceneNode => ({ type: 'ellipse', name: 'vignette', x: f.w / 2, y: f.h / 2, w: f.w * 2.1, h: f.h * 1.5, gradient: { angle: 0, stops: [{ p: 0.4, c: 'rgba(0,0,0,0)' }, { p: 1, c: `rgba(0,0,0,${a})` }] } });
+
+/** Ribbed spotlight: coloured base, a light pool that breathes, a slow light sweep, dust and fine vertical ribs. */
+const ribbed = (name: string, base: string, light: string, hot: string): LibraryEntry['build'] => (f) => scene(name, 8, 'background', f, [
+  { type: 'ellipse', name: 'light', x: f.w / 2, y: keys(k(0, f.h * 0.5, 'inOut'), k(4, f.h * 0.4, 'inOut'), k(8, f.h * 0.5)), w: f.w * 1.6, h: f.h * 1.0, fill: light, blur: 140, opacity: keys(k(0, 0.9), k(4, 1, 'inOut'), k(8, 0.9)) },
+  { type: 'ellipse', name: 'hot', x: f.w / 2, y: f.h * 0.45, w: f.w * 0.7, h: f.h * 0.4, fill: hot, blur: 120, blend: 'screen', opacity: keys(k(0, 0.5), k(4, 0.8, 'inOut'), k(8, 0.5)) },
+  { type: 'rect', name: 'sweep', x: keys(k(0, -f.w * 0.3, 'inOut'), k(8, f.w * 1.3)), y: f.h / 2, w: f.w * 0.35, h: f.h * 1.6, rotation: 18, fill: '#ffffff', blur: 70, blend: 'soft-light', opacity: 0.55 },
+  ...ribs(f), vignette(f), ...dust(f, 18, hot),
+], base);
+
+/** Dark colour with bold glowing arcs in opposite corners that slowly breathe and rotate their rings. */
+const cornerArcs = (name: string, base: string, light: string, line: string): LibraryEntry['build'] => (f) => {
+  const ring = (id: string, cx: number, cy: number, d: number, w: number, o: number, ph: number): SceneNode[] => [
+    { type: 'ellipse', name: `${id} glow`, x: sway(cx, 24, 8, ph), y: sway(cy, 30, 8, ph), w: d, h: d, stroke: line, strokeWidth: w * 3, blur: 14, opacity: o * 0.5, blend: 'screen' },
+    { type: 'ellipse', name: id, x: sway(cx, 24, 8, ph), y: sway(cy, 30, 8, ph), w: d, h: d, stroke: line, strokeWidth: w, opacity: o },
+  ];
+  return scene(name, 8, 'background', f, [
+    { type: 'ellipse', name: 'glow', x: f.w / 2, y: f.h * 0.5, w: f.w * 1.3, h: f.h * 0.75, fill: light, blur: 150, opacity: keys(k(0, 0.7), k(4, 0.95, 'inOut'), k(8, 0.7)) },
+    { type: 'ellipse', name: 'disc top', x: f.w * 0.88, y: f.h * 0.02, w: f.w * 1.1, h: f.w * 1.1, fill: light, blur: 30, opacity: 0.35, blend: 'screen' },
+    { type: 'ellipse', name: 'disc bottom', x: f.w * 0.12, y: f.h * 0.98, w: f.w * 1.1, h: f.w * 1.1, fill: light, blur: 30, opacity: 0.35, blend: 'screen' },
+    ...ring('arc top a', f.w * 0.88, f.h * 0.02, f.w * 1.1, 4, 0.95, 0), ...ring('arc top b', f.w * 0.88, f.h * 0.02, f.w * 0.82, 2.5, 0.55, 0.5), ...ring('arc top c', f.w * 0.88, f.h * 0.02, f.w * 1.4, 2, 0.35, 1),
+    ...ring('arc bot a', f.w * 0.12, f.h * 0.98, f.w * 1.1, 4, 0.95, 1), ...ring('arc bot b', f.w * 0.12, f.h * 0.98, f.w * 0.82, 2.5, 0.55, 1.5), ...ring('arc bot c', f.w * 0.12, f.h * 0.98, f.w * 1.4, 2, 0.35, 2),
+    ...ribs(f, 0.1), vignette(f, 0.7), ...dust(f, 10, line),
+  ], base);
+};
+
+/** Studio sweep with a bold arc and dots that travel along it with glowing trails. */
+const orbitDots = (name: string, base: string, dot: string, hi = '#ffffff'): LibraryEntry['build'] => (f) => {
+  const D = 8, cx = f.w * 0.04, cy = f.h * 0.88;
+  const dotAt = (R: number, off: number, size: number): SceneNode[] => {
+    const pt = (u: number) => { const a = (-100 + 95 * (u % 1)) * (Math.PI / 180); return [cx + Math.cos(a) * R, cy + Math.sin(a) * R]; };
+    const xs = Array.from({ length: 17 }, (_, i) => k((i / 16) * D, pt(i / 16 + off)[0], 'linear'));
+    const ys = Array.from({ length: 17 }, (_, i) => k((i / 16) * D, pt(i / 16 + off)[1], 'linear'));
+    return [{ type: 'ellipse', name: `halo ${R}`, w: size * 2.4, h: size * 2.4, fill: dot, blur: 16, opacity: 0.35, x: keys(...xs), y: keys(...ys) }, { type: 'ellipse', name: `dot ${R}`, w: size, h: size, fill: dot, x: keys(...xs), y: keys(...ys) }];
+  };
+  return scene(name, D, 'background', f, [
+    { type: 'ellipse', name: 'light', x: f.w / 2, y: f.h * 0.42, w: f.w * 1.5, h: f.h * 0.85, fill: hi, blur: 130 },
+    { type: 'ellipse', name: 'shadow', x: f.w * 0.9, y: f.h * 0.96, w: f.w * 0.9, h: f.h * 0.4, fill: '#000', blur: 120, opacity: 0.22 },
+    ...[0.62, 0.84, 1.06].map((m, i): SceneNode => ({ type: 'ellipse', name: `arc ${i}`, x: cx, y: cy, w: f.w * m * 2, h: f.w * m * 2, stroke: dot, strokeWidth: 3.5 - i * 0.7, opacity: 0.85 - i * 0.2 })),
+    ...dotAt(f.w * 0.62, 0, 44), ...dotAt(f.w * 0.62, 0.45, 30), ...dotAt(f.w * 0.84, 0.2, 38), ...dotAt(f.w * 1.06, 0.7, 26),
+    vignette(f, 0.22),
+  ], base);
+};
+
+/** Big pointed fronds fanning from both lower corners, swaying in the light. */
+const leafCorner = (name: string, base: string, leaf: string, tip: string): LibraryEntry['build'] => (f) => {
+  const fan = (side: 1 | -1): SceneNode[] => Array.from({ length: 8 }, (_, i): SceneNode => {
+    const a = 14 + i * 9, base0 = side === 1 ? 180 + a : -a;
+    return { type: 'group', name: `frond ${side}${i}`, x: side === 1 ? f.w * 1.04 : -f.w * 0.04, y: f.h * 1.02, rotation: keys(k(0, base0 - 3, 'inOut'), k(4, base0 + 3, 'inOut'), k(8, base0 - 3)), children: [
+      { type: 'ellipse', name: 'blade', x: f.w * 0.26, y: 0, w: f.w * 0.62, h: 70 - i * 3, gradient: { angle: 0, stops: [{ p: 0, c: leaf }, { p: 1, c: tip }] }, opacity: 0.96 - i * 0.05 },
+    ] };
+  });
+  return scene(name, 8, 'background', f, [
+    { type: 'ellipse', name: 'light', x: f.w / 2, y: f.h * 0.42, w: f.w * 1.5, h: f.h * 0.85, fill: '#ffffff', blur: 130 },
+    ...fan(1), ...fan(-1), vignette(f, 0.2),
+  ], base);
+};
+
+/** Dark satin curtain: soft vertical folds with a light that shimmers across them. */
+const satin = (name: string, base: string, fold: string): LibraryEntry['build'] => (f) => scene(name, 8, 'background', f, [
+  ...Array.from({ length: 7 }, (_, i): SceneNode => ({ type: 'rect', name: `fold ${i + 1}`, x: ((i + 0.5) * f.w) / 7, y: f.h / 2, w: f.w / 5.5, h: f.h + 4, gradient: { angle: 90, stops: [{ p: 0, c: 'rgba(0,0,0,0.55)' }, { p: 0.5, c: fold }, { p: 1, c: 'rgba(0,0,0,0.55)' }] }, opacity: keys(k(0, 0.6), k(2 + i * 0.4, 1, 'inOut'), k(8, 0.6)) })),
+  { type: 'rect', name: 'shimmer', x: keys(k(0, -f.w * 0.3, 'inOut'), k(8, f.w * 1.3)), y: f.h / 2, w: f.w * 0.3, h: f.h * 1.6, rotation: 12, fill: '#ffffff', blur: 80, blend: 'soft-light', opacity: 0.6 },
+  vignette(f, 0.7), ...dust(f, 14, fold),
+], base);
+
+/** Soft diagonal light beams crossing a dark colour. */
+const beams = (name: string, base: string, c1: string, c2: string): LibraryEntry['build'] => (f) => scene(name, 8, 'background', f, [
+  ...[[0.2, c1, 24], [0.55, c2, 24], [0.85, c1, 24]].map(([x, c, r], i): SceneNode => ({ type: 'rect', name: `beam ${i + 1}`, x: sway(f.w * (x as number), 120, 8, i * 0.8), y: f.h * 0.4, w: f.w * 0.22, h: f.h * 1.8, rotation: r as number, fill: c as string, blur: 60, blend: 'screen', opacity: keys(k(0, 0.35), k(3 + i, 0.7, 'inOut'), k(8, 0.35)) })),
+  { type: 'ellipse', name: 'floor glow', x: f.w / 2, y: f.h * 1.02, w: f.w * 1.5, h: f.h * 0.35, fill: c2, blur: 100, opacity: 0.55, blend: 'screen' },
+  vignette(f, 0.55), ...dust(f, 22, '#ffffff'),
+], base);
+
+/** Concentric glowing rings pulsing out from the middle of a dark colour. */
+const glassRings = (name: string, base: string, c: string): LibraryEntry['build'] => (f) => scene(name, 6, 'background', f, [
+  { type: 'ellipse', name: 'core', x: f.w / 2, y: f.h / 2, w: f.w * 0.9, h: f.w * 0.9, fill: c, blur: 130, opacity: keys(k(0, 0.55), k(3, 0.85, 'inOut'), k(6, 0.55)) },
+  ...Array.from({ length: 6 }, (_, i): SceneNode => ({ type: 'ellipse', name: `ring ${i + 1}`, x: f.w / 2, y: f.h / 2, w: f.w * 0.5, h: f.w * 0.5, stroke: '#ffffff', strokeWidth: 3, blend: 'screen', scale: keys(k(0, 0.3 + i * 0.5, 'out'), k(6, 0.3 + (i + 1) * 0.5)), opacity: keys(k(0, 0.15 + (i % 3) * 0.2), k(3, 0.7, 'inOut'), k(6, 0.15 + (i % 3) * 0.2)) })),
+  vignette(f, 0.6), ...dust(f, 12, c, 6),
+], base);
+
+const BG3: LibraryEntry[] = [
+  { id: 'bg-ribbed', name: 'Ribbed spotlight', role: 'background', note: 'Spotlight, ribs and dust', build: ribbed('Ribbed spotlight', '#2a2200', '#c9a800', '#ffe14d') },
+  { id: 'bg-arcs', name: 'Glowing arcs', role: 'background', note: 'Glowing corner arcs', build: cornerArcs('Glowing arcs', '#021c0a', '#0f7a30', '#a8ffc4') },
+  { id: 'bg-orbit', name: 'Orbit dots', role: 'background', note: 'Arcs with travelling dots', build: orbitDots('Orbit dots', '#bfe8d4', '#0b3b2a', '#f2fff9') },
+  { id: 'bg-leaf', name: 'Leaf fans', role: 'background', note: 'Fronds from both corners', build: leafCorner('Leaf fans', '#d4d4d4', '#14822f', '#59d27a') },
+  { id: 'bg-satin', name: 'Satin curtain', role: 'background', note: 'Curtain folds and shimmer', build: satin('Satin curtain', '#14030a', '#a31f4a') },
+  { id: 'bg-beams', name: 'Light beams', role: 'background', note: 'Stage beams and dust', build: beams('Light beams', '#07041a', '#ff3cac', '#22d3ee') },
+  { id: 'bg-glass-rings', name: 'Glass rings', role: 'background', note: 'Pulsing rings', build: glassRings('Glass rings', '#040a22', '#2f6bff') },
+];
+
+
+// ---- Grid backgrounds (still trending): lines scroll by exactly one cell so they loop forever. ----
+
+type F = { w: number; h: number };
+/** Lines of a grid, drifting by one cell over `D` seconds. `dx`/`dy` are -1, 0 or 1. */
+const gridLines = (f: F, cell: number, c: string, width: number, o: number, D: number, dx: number, dy: number, glow = 0): SceneNode => {
+  const nx = Math.ceil(f.w / cell) + 3, ny = Math.ceil(f.h / cell) + 3;
+  const children: SceneNode[] = [
+    ...Array.from({ length: nx }, (_, i): SceneNode => ({ type: 'line', name: `v${i}`, x: i * cell - cell, y: -cell, x2: i * cell - cell, y2: ny * cell, stroke: c, strokeWidth: width, opacity: o, blur: glow })),
+    ...Array.from({ length: ny }, (_, i): SceneNode => ({ type: 'line', name: `h${i}`, x: -cell, y: i * cell - cell, x2: nx * cell, y2: i * cell - cell, stroke: c, strokeWidth: width, opacity: o, blur: glow })),
+  ];
+  return { type: 'group', name: 'grid', x: keys(k(0, 0), k(D, dx * cell)), y: keys(k(0, 0), k(D, dy * cell)), children };
+};
+const gridGlow = (f: F, a: string, b: string): SceneNode[] => [
+  { type: 'ellipse', name: 'glow a', x: sway(f.w * 0.3, 60, 8), y: sway(f.h * 0.3, 80, 8, 1), w: f.w * 1.1, h: f.w * 1.1, fill: a, blur: 150, opacity: 0.8 },
+  { type: 'ellipse', name: 'glow b', x: sway(f.w * 0.75, 60, 8, 2), y: sway(f.h * 0.75, 80, 8), w: f.w * 1.1, h: f.w * 1.1, fill: b, blur: 150, opacity: 0.7 },
+];
+
+const blueprint: LibraryEntry['build'] = (f) => scene('Blueprint grid', 6, 'background', f, [
+  gridLines(f, 40, '#ffffff', 1, 0.16, 6, 1, 1), gridLines(f, 200, '#ffffff', 2, 0.32, 6, 1, 1),
+  { type: 'ellipse', name: 'light', x: f.w / 2, y: f.h * 0.45, w: f.w * 1.4, h: f.h * 0.8, fill: '#3b82f6', blur: 140, opacity: 0.55, blend: 'screen' },
+  vignette(f, 0.55),
+], '#0a2a6b');
+
+const paper: LibraryEntry['build'] = (f) => scene('Graph paper', 6, 'background', f, [
+  gridLines(f, 36, '#4a7bd8', 1, 0.28, 6, 0, 1), gridLines(f, 180, '#4a7bd8', 2, 0.4, 6, 0, 1), vignette(f, 0.12),
+], '#f7f4ea');
+
+const cyberGrid: LibraryEntry['build'] = (f) => scene('Cyber grid', 6, 'background', f, [
+  ...gridGlow(f, '#7c3aed', '#06b6d4'),
+  gridLines(f, 90, '#9ae6ff', 2, 0.5, 6, 0, 1, 1.5),
+  { type: 'rect', name: 'scan', x: f.w / 2, y: keys(k(0, -f.h * 0.1), k(6, f.h * 1.1)), w: f.w + 4, h: 160, gradient: { angle: 180, stops: [{ p: 0, c: 'rgba(120,220,255,0)' }, { p: 0.5, c: 'rgba(120,220,255,0.45)' }, { p: 1, c: 'rgba(120,220,255,0)' }] }, blend: 'screen' },
+  vignette(f, 0.7),
+], '#05030f');
+
+const dotGrid: LibraryEntry['build'] = (f) => {
+  const cell = 72, nx = Math.ceil(f.w / cell) + 1, ny = Math.ceil(f.h / cell) + 1, nodes: SceneNode[] = [];
+  for (let r = 0; r < ny; r++) for (let c = 0; c < nx; c++) {
+    const d = (Math.hypot(c - nx / 2, r - ny / 2) / Math.hypot(nx / 2, ny / 2)) * 2.4;
+    nodes.push({ type: 'ellipse', name: `d${r}-${c}`, x: c * cell + cell / 2, y: r * cell + cell / 2, w: 12, h: 12, fill: '#ffffff', opacity: keys(k(0, 0.18), k(d, 0.9, 'inOut'), k(d + 1.2, 0.18, 'inOut'), k(6, 0.18)), scale: keys(k(0, 0.7), k(d, 1.6, 'inOut'), k(d + 1.2, 0.7, 'inOut'), k(6, 0.7)) });
+  }
+  return scene('Dot grid wave', 6, 'background', f, [...gridGlow(f, '#2f6bff', '#8b3df0'), ...nodes, vignette(f, 0.6)], '#070a1c');
+};
+
+const crosshair: LibraryEntry['build'] = (f) => {
+  const cell = 120, nx = Math.ceil(f.w / cell) + 1, ny = Math.ceil(f.h / cell) + 1, nodes: SceneNode[] = [];
+  for (let r = 0; r < ny; r++) for (let c = 0; c < nx; c++) {
+    const x = c * cell + cell / 2, y = r * cell + cell / 2, d = rnd(r * 17 + c * 5) * 4;
+    nodes.push({ type: 'group', name: `x${r}-${c}`, x, y, opacity: keys(k(0, 0.25), k(d, 0.95, 'inOut'), k(d + 1, 0.25, 'inOut'), k(6, 0.25)), children: [{ type: 'rect', name: 'h', w: 22, h: 2, fill: '#ffffff' }, { type: 'rect', name: 'v', w: 2, h: 22, fill: '#ffffff' }] });
+  }
+  return scene('Crosshair grid', 6, 'background', f, [{ type: 'ellipse', name: 'glow', x: f.w / 2, y: f.h * 0.5, w: f.w * 1.4, h: f.h * 0.9, fill: '#e11d48', blur: 150, opacity: 0.55 }, ...nodes, vignette(f, 0.65)], '#12050a');
+};
+
+const tileFlash: LibraryEntry['build'] = (f) => {
+  const cell = 135, nx = Math.ceil(f.w / cell), ny = Math.ceil(f.h / cell), tiles: SceneNode[] = [];
+  for (let r = 0; r < ny; r++) for (let c = 0; c < nx; c++) {
+    const n = r * 31 + c * 7, d = rnd(n) * 5;
+    tiles.push({ type: 'rect', name: `t${r}-${c}`, x: c * cell + cell / 2, y: r * cell + cell / 2, w: cell - 6, h: cell - 6, radius: 8, fill: ['#22d3ee', '#a78bfa', '#f472b6'][n % 3], opacity: keys(k(0, 0), k(d, 0), k(d + 0.4, 0.55, 'out'), k(d + 1.6, 0, 'in'), k(6, 0)) });
+  }
+  return scene('Flashing tiles', 6, 'background', f, [gridLines(f, cell, '#ffffff', 2, 0.14, 6, 0, 0), ...tiles, vignette(f, 0.5)], '#0b0f23');
+};
+
+const perspective: LibraryEntry['build'] = (f) => {
+  const hz = f.h * 0.38, D = 4, vl = 12, hl = 12, nodes: SceneNode[] = [];
+  for (let i = -vl; i <= vl; i++) nodes.push({ type: 'line', name: `v${i}`, x: f.w / 2, y: hz, x2: f.w / 2 + i * f.w * 0.32, y2: f.h, stroke: '#7ae7ff', strokeWidth: 2.5, opacity: 0.8, blur: 1 });
+  for (let i = 0; i < hl; i++) {
+    const y = (u: number) => hz + (f.h - hz) * (((i + u) / hl) ** 2.1);
+    nodes.push({ type: 'line', name: `h${i}`, x: 0, x2: f.w, y: keys(k(0, y(0)), k(D, y(1))), y2: keys(k(0, y(0)), k(D, y(1))), stroke: '#7ae7ff', strokeWidth: 2.5, opacity: keys(k(0, ((i / hl) ** 1.5) * 0.9), k(D, (((i + 1) / hl) ** 1.5) * 0.9)), blur: 1 });
+  }
+  return scene('Perspective floor', D, 'background', f, [
+    { type: 'ellipse', name: 'horizon', x: f.w / 2, y: hz, w: f.w * 1.6, h: f.h * 0.25, fill: '#a855f7', blur: 120, blend: 'screen', opacity: 0.8 }, ...nodes,
+    { type: 'rect', name: 'sky', x: f.w / 2, y: hz / 2, w: f.w + 4, h: hz, gradient: { angle: 180, stops: [{ p: 0, c: '#05030f' }, { p: 1, c: 'rgba(5,3,15,0)' }] } },
+  ], '#0a0618');
+};
+
+const tiltGrid: LibraryEntry['build'] = (f) => scene('Tilted grid', 8, 'background', f, [
+  ...gridGlow(f, '#f97316', '#ec4899'),
+  { type: 'group', name: 'tilt', x: f.w / 2, y: f.h / 2, rotation: keys(k(0, -14, 'inOut'), k(4, 14, 'inOut'), k(8, -14)), children: [{ ...gridLines({ w: f.w * 1.8, h: f.h * 1.5 }, 110, '#ffffff', 2, 0.35, 8, 1, 1), x: keys(k(0, -f.w * 0.9), k(8, -f.w * 0.9 + 110)), y: keys(k(0, -f.h * 0.75), k(8, -f.h * 0.75 + 110)) }] },
+  vignette(f, 0.5),
+], '#1a0a1f');
+
+const BG_GRIDS: LibraryEntry[] = [
+  { id: 'bg-blueprint', name: 'Blueprint grid', role: 'background', note: 'Drafting grid on blue', build: blueprint },
+  { id: 'bg-graph', name: 'Graph paper', role: 'background', note: 'Notebook grid, slow scroll', build: paper },
+  { id: 'bg-cyber', name: 'Cyber grid', role: 'background', note: 'Neon grid with a scan line', build: cyberGrid },
+  { id: 'bg-dotgrid', name: 'Dot grid wave', role: 'background', note: 'Dots pulse outward', build: dotGrid },
+  { id: 'bg-cross', name: 'Crosshair grid', role: 'background', note: 'Blinking + marks', build: crosshair },
+  { id: 'bg-tiles', name: 'Flashing tiles', role: 'background', note: 'Tiles light up at random', build: tileFlash },
+  { id: 'bg-floor', name: 'Perspective floor', role: 'background', note: 'Grid rushing to the horizon', build: perspective },
+  { id: 'bg-tilt', name: 'Tilted grid', role: 'background', note: 'Swinging grid, warm glow', build: tiltGrid },
 ];
 
 export const MOTION_LIBRARY: LibraryEntry[] = [
@@ -520,4 +800,7 @@ export const MOTION_LIBRARY: LibraryEntry[] = [
   { id: 'countdown', name: 'Countdown 3-2-1', role: 'graphic', note: 'Big 3, 2, 1', build: countdown },
   { id: 'glow-bg', name: 'Glow background', role: 'background', note: 'Drifting colour orbs on dark', build: glow },
   ...BG_ENTRIES,
+  ...BG2,
+  ...BG3,
+  ...BG_GRIDS,
 ];

@@ -780,6 +780,19 @@ export interface SceneNode {
   children?: SceneNode[]; clip?: boolean;
 }
 
+export interface SceneAdjust {
+  /** Degrees, -180..180. */
+  hue?: number;
+  /** 0..2, 1 = unchanged. */
+  sat?: number;
+  /** 0.4..1.8, 1 = unchanged. */
+  bri?: number;
+  /** 0.5..1.8, 1 = unchanged. */
+  con?: number;
+  /** Playback speed, 0.25..3. */
+  speed?: number;
+}
+
 export interface MotionScene {
   v: 1;
   name: string;
@@ -788,6 +801,8 @@ export interface MotionScene {
   role: 'graphic' | 'transition' | 'background';
   /** A flat colour behind everything in the scene (usually empty so the video shows through). */
   bg?: string | null;
+  /** Whole-scene look: colour shift, tone and speed, applied when the scene is drawn. Defaults are neutral. */
+  adjust?: SceneAdjust;
   /** Design frame: width 1080, height depends on the project's aspect ratio. */
   frame?: { w: number; h: number };
   layers: SceneNode[];

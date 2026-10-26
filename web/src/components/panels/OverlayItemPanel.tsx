@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Copy, Scissors, Trash2 } from '@/components/icons';
 import { useEditor } from '@/store';
-import type { OverlayItem } from '@/types';
+import type { MotionScene, OverlayItem } from '@/types';
 import { adjEnd } from '@/lib/adj';
 import { ai } from '@/lib/api';
 import { outputSize } from '@/render/compose';
@@ -40,6 +40,7 @@ function MotionEdit({ o, patch }: { o: OverlayItem; patch: (p: Partial<OverlayIt
   const [busy, setBusy] = useState(false);
   const scene = o.scene;
   if (!scene) return null;
+  const setAdj = (a: Partial<NonNullable<MotionScene['adjust']>>) => patch({ scene: { ...scene, adjust: { ...scene.adjust, ...a } } }, 'sadj');
   const change = async () => {
     if (!prompt.trim() || busy) return;
     setBusy(true);
@@ -55,6 +56,12 @@ function MotionEdit({ o, patch }: { o: OverlayItem; patch: (p: Partial<OverlayIt
     <Section title={scene.role === 'transition' ? 'Transition' : scene.role === 'background' ? 'Background' : 'Motion graphic'}>
       <Row label="Name"><Input className="h-7 text-xs" value={scene.name} onChange={(e) => patch({ scene: { ...scene, name: e.target.value } }, 'sname')} /></Row>
       <Row label="Length"><span className="font-mono text-xs">{scene.duration.toFixed(2)}s</span></Row>
+      <Row label="Hue"><Slider value={scene.adjust?.hue ?? 0} min={-180} max={180} format={(v) => `${v}°`} onChange={(hue) => setAdj({ hue })} /></Row>
+      <Row label="Saturation"><Slider value={Math.round((scene.adjust?.sat ?? 1) * 100)} min={0} max={200} format={(v) => `${v}%`} onChange={(v) => setAdj({ sat: v / 100 })} /></Row>
+      <Row label="Brightness"><Slider value={Math.round((scene.adjust?.bri ?? 1) * 100)} min={40} max={180} format={(v) => `${v}%`} onChange={(v) => setAdj({ bri: v / 100 })} /></Row>
+      <Row label="Contrast"><Slider value={Math.round((scene.adjust?.con ?? 1) * 100)} min={50} max={180} format={(v) => `${v}%`} onChange={(v) => setAdj({ con: v / 100 })} /></Row>
+      <Row label="Speed"><Slider value={Math.round((scene.adjust?.speed ?? 1) * 100)} min={25} max={300} format={(v) => `${(v / 100).toFixed(2)}×`} onChange={(v) => setAdj({ speed: v / 100 })} /></Row>
+      <Button size="xs" variant="secondary" disabled={!scene.adjust} onClick={() => patch({ scene: { ...scene, adjust: undefined } })}>Reset look</Button>
       <Textarea className="min-h-16 text-sm" value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder="Ask Claude to change it: make it faster, use pink, add a line under the name…" />
       <Button size="sm" disabled={busy || !prompt.trim()} onClick={() => void change()}>{busy ? 'Claude is working…' : 'Change with Claude'}</Button>
       <p className="text-[11px] text-muted-foreground">Move, resize and trim it with the Layout and Timing tabs. Drag it up or down the Layers rows on the timeline to put it in front of or behind other layers.</p>
