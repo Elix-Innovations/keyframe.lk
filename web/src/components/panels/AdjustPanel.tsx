@@ -5,6 +5,7 @@ import { NEUTRAL_FILTERS } from '@/lib/videoFx';
 import { Button } from '@/components/ui/button';
 import { Row, Section, Slider } from '../controls';
 import { ColorGrade } from './ColorGrade';
+import { usePreviewSourceSync } from '../FxPreview';
 import { TargetBar, useLayer } from './EffectsPanel';
 
 const FIELDS: { k: keyof VideoFilters; label: string; min: number; max: number; unit: string }[] = [
@@ -20,6 +21,7 @@ const FIELDS: { k: keyof VideoFilters; label: string; min: number; max: number; 
 
 /** The selected video clip's own colour adjustments and effects (the timeline's Filters and Effects tracks apply across clips). */
 export function AdjustPanel() {
+  usePreviewSourceSync();
   const { layer, set } = useLayer();
   const label = (id: string) => EFFECTS.find((e) => e.id === id)?.label ?? id;
   return (

@@ -4,9 +4,23 @@ import type { VideoFilters } from '@/types';
 import { HSL_BANDS, NEUTRAL_FILTERS } from '@/lib/videoFx';
 import { Button } from '@/components/ui/button';
 import { Row, Section, Slider } from '../controls';
+import { PreviewTile } from './EffectsPanel';
 
 type Patch = (p: Partial<VideoFilters>, key: string) => void;
 type Num = Exclude<keyof VideoFilters, never>;
+
+/** Presets shown as live thumbnails of the current frame; click one to apply it. */
+function PresetTiles({ items, base, onPick }: { items: { label: string; v: Partial<VideoFilters> }[]; base: Num[]; onPick: (v: Partial<VideoFilters>, label: string) => void }) {
+  return (
+    <div className="grid grid-cols-4 gap-1.5">
+      {items.map((p) => (
+        <button key={p.label} type="button" onClick={() => onPick({ ...reset(base), ...p.v }, p.label)} className="min-w-0 text-left">
+          <PreviewTile spec={{ filters: { ...NEUTRAL_FILTERS, ...p.v } }} label={p.label} />
+        </button>
+      ))}
+    </div>
+  );
+}
 
 const signed = (v: number) => (v > 0 ? `+${v}` : String(v));
 
@@ -152,11 +166,7 @@ export function ColorGrade({ filters: f, patch }: { filters: VideoFilters; patch
       </Section>
 
       <Section title="Levels" collapsible defaultOpen={false} right={<ResetBtn patch={patch} keys={LEVEL_KEYS} />}>
-        <div className="flex flex-wrap gap-1">
-          {LEVEL_PRESETS.map((p) => (
-            <Button key={p.label} variant="secondary" size="xs" onClick={() => patch({ ...reset(LEVEL_KEYS), ...p.v }, 'lv-preset')}>{p.label}</Button>
-          ))}
-        </div>
+        <PresetTiles items={LEVEL_PRESETS} base={LEVEL_KEYS} onPick={(v) => patch(v, 'lv-preset')} />
         <Field f={f} k="lvInBlack" label="Input black" patch={patch} min={0} max={254} format={String} />
         <Field f={f} k="lvGamma" label="Midtones" patch={patch} min={20} max={300} format={(v) => (v / 100).toFixed(2)} />
         <Field f={f} k="lvInWhite" label="Input white" patch={patch} min={1} max={255} format={String} />
@@ -167,11 +177,7 @@ export function ColorGrade({ filters: f, patch }: { filters: VideoFilters; patch
       <Section title="Curves" collapsible defaultOpen={false} right={<ResetBtn patch={patch} keys={CURVE_KEYS} />}>
         <CurveEditor f={f} patch={patch} />
         <p className="text-center text-[11px] text-muted-foreground">Drag a point up or down. Double-click a point to reset it.</p>
-        <div className="flex flex-wrap gap-1">
-          {CURVE_PRESETS.map((p) => (
-            <Button key={p.label} variant="secondary" size="xs" onClick={() => patch({ ...reset(CURVE_KEYS), ...p.v }, 'cv-preset')}>{p.label}</Button>
-          ))}
-        </div>
+        <PresetTiles items={CURVE_PRESETS} base={CURVE_KEYS} onPick={(v) => patch(v, 'cv-preset')} />
       </Section>
 
       <Section title="HSL" collapsible defaultOpen={false} right={<ResetBtn patch={patch} keys={hslKeys} />}>
