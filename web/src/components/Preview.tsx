@@ -20,6 +20,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Keys } from './ShortcutsDialog';
 import { SinhalaInput } from './SinhalaInput';
+import { SAFE_ZONES, SafeZoneOverlay, type SafeZoneId } from './SafeZones';
 import { retimeWordsWithBreaks, wordsToText } from '../lib/segment';
 import { matteHints, onSegmenterChange } from '../render/matte';
 import { snapBox, unionBox, type Box, type Guide } from '../lib/previewSnap';
@@ -57,7 +58,7 @@ export function Preview() {
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [box, setBox] = useState({ w: 0, h: 0 });
-  const [safeZone, setSafeZone] = useState(false);
+  const [safeZone, setSafeZone] = useState<SafeZoneId | 'off'>('off');
   const [hover, setHover] = useState(false);
   const bboxRef = useRef<Rect | null>(null);
   const hitsRef = useRef<OverlayHit[]>([]);
@@ -466,14 +467,7 @@ export function Preview() {
                 style={{ width: w, left: Math.min(Math.max(0, (b.x + b.w / 2) * k - w / 2), box.w - w), top: Math.max(0, (b.y + b.h / 2) * k - 28) }} />
             );
           })()}
-          {safeZone && (
-            <div className="pointer-events-none absolute inset-0">
-              <div className="absolute inset-x-0 top-0 h-[12%] bg-destructive/15" />
-              <div className="absolute inset-x-0 bottom-0 h-[20%] bg-destructive/15" />
-              <div className="absolute bottom-[20%] right-0 top-[40%] w-[14%] bg-destructive/15" />
-              <div className="absolute left-2 top-2 rounded bg-black/60 px-1.5 text-[10px] text-white/80">Reels / TikTok UI overlap</div>
-            </div>
-          )}
+          {safeZone !== 'off' && <SafeZoneOverlay id={safeZone} />}
         </div>
         {!loaded && !missing && !noVideo && <div className="absolute text-muted-foreground">Loading video…</div>}
         {needsAccess && (
@@ -519,8 +513,14 @@ export function Preview() {
             <Label htmlFor="magnet" className="text-xs font-normal text-muted-foreground" title="Snap to the frame centre, edges and other items while dragging. Hold Alt to move freely.">Magnet</Label>
           </div>
           <div className="flex items-center gap-2">
-            <Switch id="safe" checked={safeZone} onCheckedChange={setSafeZone} />
-            <Label htmlFor="safe" className="text-xs font-normal text-muted-foreground"><Smartphone className="size-3.5" />Safe zones</Label>
+            <Label className="text-xs font-normal text-muted-foreground"><Smartphone className="size-3.5" />Safe zones</Label>
+            <Select value={safeZone} onValueChange={(v) => setSafeZone(v as SafeZoneId | 'off')}>
+              <SelectTrigger size="sm" className="w-40"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="off">Off</SelectItem>
+                {(Object.keys(SAFE_ZONES) as SafeZoneId[]).map((k) => <SelectItem key={k} value={k}>{SAFE_ZONES[k].label}</SelectItem>)}
+              </SelectContent>
+            </Select>
           </div>
           <Select value={project.aspectRatio} onValueChange={(v) => useEditor.getState().update((p) => ({ ...p, aspectRatio: v as AspectRatio }))}>
             <SelectTrigger size="sm" className="w-28"><SelectValue /></SelectTrigger>
