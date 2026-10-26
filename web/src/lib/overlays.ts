@@ -1,6 +1,8 @@
 import { nanoid } from 'nanoid';
 import type { OverlayAnimId, OverlayBlend, OverlayItem, OverlayLoopId } from '../types';
+import type { Project } from '../types';
 import { freeTrack } from './adj';
+import { freeLayerRow, newLayerRow } from './layers';
 
 /** Pure logic and presets for text, sticker and image overlays. Timeline editing reuses the track helpers in adj.ts. */
 
@@ -90,13 +92,15 @@ export interface OverlayInit {
   apply?: Partial<OverlayItem>;
 }
 
-export function makeOverlay(o: OverlayInit, list: OverlayItem[]): OverlayItem {
+/** With `project`, the row is free of video clips too, and a new layer lands in front by default. */
+export function makeOverlay(o: OverlayInit, list: OverlayItem[], project?: Project): OverlayItem {
   const duration = Math.max(MIN_OVERLAY, o.duration);
   const start = Math.max(0, o.start);
   const b = base();
   const item: OverlayItem = {
     ...b, id: nanoid(8), kind: o.kind, text: o.text ?? '', assetId: o.assetId, imgW: o.imgW, imgH: o.imgH,
-    start, duration, track: freeTrack(list, start, duration, o.track ?? 0),
+    start, duration,
+    track: project ? (o.track === undefined ? newLayerRow(project, start, duration) : freeLayerRow(project, start, duration, o.track)) : freeTrack(list, start, duration, o.track ?? 1),
     ...(o.kind === 'text' ? { y: 62 } : {}),
     ...(o.kind === 'sticker' ? { bold: false, animIn: { id: 'pop' as const, duration: 0.35 }, color: '#FFFFFF' } : {}),
     ...(o.kind === 'image' ? { animIn: { id: 'fade' as const, duration: 0.3 }, scale: 0.6 } : {}),
@@ -154,7 +158,9 @@ const hash = (n: number) => { const x = Math.sin(n * 127.1 + 311.7) * 43758.5453
 /** Overlay-local time scaled by the overlay's speed, for its loop and keyframes. */
 export const overlayClock = (o: OverlayItem, lt: number) => lt * (o.speed || 1);
 
-export function overlayPose(o: OverlayItem, lt: number): OverlayPose {
+export type PoseSource = Pick<OverlayItem, 'animIn' | 'animOut' | 'loop' | 'duration' | 'speed'>;
+
+export function overlayPose(o: PoseSource, lt: number): OverlayPose {
   const s: OverlayPose = { alpha: 1, scale: 1, sx: 1, sy: 1, dx: 0, dy: 0, rot: 0, blur: 0, reveal: 1, byWord: false, wipe: 1, split: 0 };
   const step = (id: OverlayAnimId, p: number, dir: 1 | -1) => { // p: 0 = hidden, 1 = settled
     const q = 1 - p;

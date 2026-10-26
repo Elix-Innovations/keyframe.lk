@@ -4,7 +4,7 @@ import { videoClipAt, videoClips } from './clips';
 import { peekVideo } from './videoPool';
 
 /**
- * One small still of the current video frame, shared by every tile in the Filters, Effects and Transitions
+ * One small still of the current video frame, shared by every tile (720px wide so tiles stay sharp) in the Filters, Effects and Transitions
  * panels, so they preview on your own footage. Falls back to the project thumbnail while the video loads.
  */
 let bmp: ImageBitmap | null = null;
@@ -20,7 +20,7 @@ async function grab(): Promise<ImageBitmap | null> {
   const clip = videoClipAt(clips, useEditor.getState().time) ?? videoClips(clips)[0];
   const el = clip ? peekVideo(clip.assetId, clip.track ?? 0) : null;
   if (el && el.readyState >= 2 && el.videoWidth) {
-    try { return await createImageBitmap(el, { resizeWidth: 360, resizeQuality: 'medium' }); } catch { /* fall through */ }
+    try { return await createImageBitmap(el, { resizeWidth: 720, resizeQuality: 'high' }); } catch { /* fall through */ }
   }
   if (p.thumbnail) {
     try { const blob = await (await fetch(p.thumbnail)).blob(); return await createImageBitmap(blob); } catch { /* none */ }

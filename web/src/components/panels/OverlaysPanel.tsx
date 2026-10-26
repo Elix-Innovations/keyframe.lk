@@ -31,7 +31,7 @@ function Tile({ drag, onClick, children, title }: { drag: DragPayload; onClick: 
   return (
     <button type="button" title={title} draggable onClick={onClick}
       onDragStart={(e) => { e.dataTransfer.setData(DRAG_MIME, JSON.stringify(drag)); e.dataTransfer.effectAllowed = 'copy'; }}
-      className="group grid aspect-[4/3] cursor-grab place-items-center overflow-hidden rounded-xl border bg-zinc-800 transition-colors hover:border-primary/60 active:cursor-grabbing">
+      className="group grid aspect-[3/2] cursor-grab place-items-center overflow-hidden rounded-xl border bg-zinc-800 transition-colors hover:border-primary/60 active:cursor-grabbing">
       {children}
     </button>
   );
@@ -75,16 +75,16 @@ export function OverlaysPanel() {
             <Button size="sm" className="h-8" onClick={() => overlayOps.addText('Your text', 'classic')}><Type />New text</Button>
           </Section>
           <Section title="Styles" right={<span className="text-[11px] text-muted-foreground">{TEXT_PRESETS.length}</span>}>
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-4 gap-1.5">
               {TEXT_PRESETS.map((p) => (
                 <Tile key={p.id} title={p.label} drag={{ type: 'overlay', kind: 'text', text: 'Your text', presetId: p.id }} onClick={() => overlayOps.addText('Your text', p.id)}>
-                  <span className="text-lg leading-none" style={tileStyle(p.apply)}>{p.sample}</span>
+                  <span className="text-base leading-none" style={tileStyle(p.apply)}>{p.sample}</span>
                 </Tile>
               ))}
             </div>
           </Section>
           <Section title="Labels" right={<span className="text-[11px] text-muted-foreground">{BADGES.length}</span>}>
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-3 gap-1.5">
               {BADGES.map((b) => (
                 <Tile key={b.id} title={b.text} drag={{ type: 'overlay', kind: 'text', text: b.text, presetId: b.id }} onClick={() => overlayOps.addText(b.text, b.id)}>
                   <span className="whitespace-nowrap text-[11px] leading-none" style={tileStyle(b.apply)}>{b.text}</span>
@@ -96,11 +96,11 @@ export function OverlaysPanel() {
       )}
       {tab === 'stickers' && STICKER_GROUPS.map((g) => (
         <Section key={g.label} title={g.label} collapsible>
-          <div className="grid grid-cols-6 gap-1">
+          <div className="grid grid-cols-8 gap-0.5">
             {g.items.map((s) => (
               <button key={s} type="button" draggable title={s} onClick={() => overlayOps.addSticker(s)}
                 onDragStart={(e) => { e.dataTransfer.setData(DRAG_MIME, JSON.stringify({ type: 'overlay', kind: 'sticker', text: s } satisfies DragPayload)); e.dataTransfer.effectAllowed = 'copy'; }}
-                className={cn('grid aspect-square cursor-grab place-items-center rounded-lg text-2xl transition-transform hover:scale-110 hover:bg-sidebar-accent active:cursor-grabbing')}>{s}</button>
+                className={cn('grid aspect-square cursor-grab place-items-center rounded-md text-xl transition-transform hover:scale-110 hover:bg-sidebar-accent active:cursor-grabbing')}>{s}</button>
             ))}
           </div>
         </Section>
@@ -108,7 +108,7 @@ export function OverlaysPanel() {
       {tab === 'image' && (
         <Section title="Image overlay">
           <button onClick={() => input.current?.click()} disabled={busy}
-            className="flex h-20 w-full flex-col items-center justify-center gap-1 rounded-xl border border-dashed text-xs text-muted-foreground transition-colors hover:border-primary hover:bg-primary/5 hover:text-foreground">
+            className="flex h-14 w-full flex-col items-center justify-center gap-1 rounded-xl border border-dashed text-xs text-muted-foreground transition-colors hover:border-primary hover:bg-primary/5 hover:text-foreground">
             <ImagePlus className="size-4" />{busy ? 'Adding…' : 'Choose images (PNG with transparency works best)'}
           </button>
           <input ref={input} type="file" accept="image/*" multiple hidden onChange={(e) => { if (e.target.files) void addImages(e.target.files); e.target.value = ''; }} />

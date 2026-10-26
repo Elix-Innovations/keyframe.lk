@@ -132,21 +132,23 @@ function Wheel({ label, hue, amt, onChange }: { label: string; hue: number; amt:
 const BAND_COLOR: Record<string, string> = { Red: '#ef4444', Orange: '#f97316', Yellow: '#eab308', Green: '#22c55e', Aqua: '#06b6d4', Blue: '#3b82f6', Purple: '#8b5cf6', Magenta: '#ec4899' };
 
 /** Pro colour tools: light, colour, levels, curves, HSL, colour wheels and finishing. Every change goes through `patch`. */
-export function ColorGrade({ filters: f, patch }: { filters: VideoFilters; patch: Patch }) {
+export type GradePart = 'basic' | 'hsl' | 'curves' | 'wheels';
+export function ColorGrade({ filters: f, patch, part }: { filters: VideoFilters; patch: Patch; part?: GradePart }) {
+  const show = (p: GradePart) => !part || part === p;
   const [band, setBand] = useState<(typeof HSL_BANDS)[number]>('Red');
   const bandKeys = [`hue${band}`, `sat${band}`, `lum${band}`] as Num[];
   const hslKeys = HSL_BANDS.flatMap((b) => [`hue${b}`, `sat${b}`, `lum${b}`]) as Num[];
   return (
     <>
-      <Section title="Light" collapsible right={<ResetBtn patch={patch} keys={['exposure', 'highlights', 'shadows', 'whites', 'blacks']} />}>
+      {show('basic') && (<Section title="Light" collapsible right={<ResetBtn patch={patch} keys={['exposure', 'highlights', 'shadows', 'whites', 'blacks']} />}>
         <Field f={f} k="exposure" label="Exposure" patch={patch} />
         <Field f={f} k="highlights" label="Highlights" patch={patch} />
         <Field f={f} k="shadows" label="Shadows" patch={patch} />
         <Field f={f} k="whites" label="Whites" patch={patch} />
         <Field f={f} k="blacks" label="Blacks" patch={patch} />
-      </Section>
+      </Section>)}
 
-      <Section title="Colour" collapsible right={<ResetBtn patch={patch} keys={['temperature', 'tint', 'vibrance']} />}>
+      {show('basic') && (<Section title="Colour" collapsible right={<ResetBtn patch={patch} keys={['temperature', 'tint', 'vibrance']} />}>
         <Row label="Temperature">
           <div className="flex min-w-0 flex-1 flex-col gap-1">
             <div className="h-1.5 rounded-full" style={{ background: 'linear-gradient(90deg,#3b82f6,#e5e7eb,#f59e0b)' }} />
@@ -163,24 +165,24 @@ export function ColorGrade({ filters: f, patch }: { filters: VideoFilters; patch
         <Field f={f} k="gainR" label="Red balance" patch={patch} />
         <Field f={f} k="gainG" label="Green balance" patch={patch} />
         <Field f={f} k="gainB" label="Blue balance" patch={patch} />
-      </Section>
+      </Section>)}
 
-      <Section title="Levels" collapsible defaultOpen={false} right={<ResetBtn patch={patch} keys={LEVEL_KEYS} />}>
+      {show('basic') && (<Section title="Levels" collapsible defaultOpen={false} right={<ResetBtn patch={patch} keys={LEVEL_KEYS} />}>
         <PresetTiles items={LEVEL_PRESETS} base={LEVEL_KEYS} onPick={(v) => patch(v, 'lv-preset')} />
         <Field f={f} k="lvInBlack" label="Input black" patch={patch} min={0} max={254} format={String} />
         <Field f={f} k="lvGamma" label="Midtones" patch={patch} min={20} max={300} format={(v) => (v / 100).toFixed(2)} />
         <Field f={f} k="lvInWhite" label="Input white" patch={patch} min={1} max={255} format={String} />
         <Field f={f} k="lvOutBlack" label="Output black" patch={patch} min={0} max={254} format={String} />
         <Field f={f} k="lvOutWhite" label="Output white" patch={patch} min={1} max={255} format={String} />
-      </Section>
+      </Section>)}
 
-      <Section title="Curves" collapsible defaultOpen={false} right={<ResetBtn patch={patch} keys={CURVE_KEYS} />}>
+      {show('curves') && (<Section title="Curves" collapsible defaultOpen={false} right={<ResetBtn patch={patch} keys={CURVE_KEYS} />}>
         <CurveEditor f={f} patch={patch} />
         <p className="text-center text-[11px] text-muted-foreground">Drag a point up or down. Double-click a point to reset it.</p>
         <PresetTiles items={CURVE_PRESETS} base={CURVE_KEYS} onPick={(v) => patch(v, 'cv-preset')} />
-      </Section>
+      </Section>)}
 
-      <Section title="HSL" collapsible defaultOpen={false} right={<ResetBtn patch={patch} keys={hslKeys} />}>
+      {show('hsl') && (<Section title="HSL" collapsible defaultOpen={false} right={<ResetBtn patch={patch} keys={hslKeys} />}>
         <div className="flex justify-between gap-1">
           {HSL_BANDS.map((b) => {
             const touched = f[`hue${b}` as Num] || f[`sat${b}` as Num] || f[`lum${b}` as Num];
@@ -195,23 +197,23 @@ export function ColorGrade({ filters: f, patch }: { filters: VideoFilters; patch
         <Field f={f} k={bandKeys[0]} label="Hue" patch={patch} />
         <Field f={f} k={bandKeys[1]} label="Saturation" patch={patch} />
         <Field f={f} k={bandKeys[2]} label="Luminance" patch={patch} />
-      </Section>
+      </Section>)}
 
-      <Section title="Colour wheels" collapsible defaultOpen={false} right={<ResetBtn patch={patch} keys={['shadowAmt', 'midAmt', 'highAmt']} />}>
+      {show('wheels') && (<Section title="Colour wheels" collapsible defaultOpen={false} right={<ResetBtn patch={patch} keys={['shadowAmt', 'midAmt', 'highAmt']} />}>
         <div className="flex gap-2">
           <Wheel label="Shadows" hue={f.shadowHue} amt={f.shadowAmt} onChange={(h, a) => patch({ shadowHue: h, shadowAmt: a }, 'wh-s')} />
           <Wheel label="Midtones" hue={f.midHue} amt={f.midAmt} onChange={(h, a) => patch({ midHue: h, midAmt: a }, 'wh-m')} />
           <Wheel label="Highlights" hue={f.highHue} amt={f.highAmt} onChange={(h, a) => patch({ highHue: h, highAmt: a }, 'wh-h')} />
         </div>
         <p className="text-center text-[11px] text-muted-foreground">Drag inside a wheel to tint that tone. Double-click to clear.</p>
-      </Section>
+      </Section>)}
 
-      <Section title="Finish" collapsible right={<ResetBtn patch={patch} keys={['fade', 'grain', 'sharpen', 'clarity']} />}>
+      {show('basic') && (<Section title="Finish" collapsible right={<ResetBtn patch={patch} keys={['fade', 'grain', 'sharpen', 'clarity']} />}>
         <Field f={f} k="clarity" label="Clarity" patch={patch} />
         <Field f={f} k="sharpen" label="Sharpen" patch={patch} min={0} max={100} format={String} />
         <Field f={f} k="fade" label="Fade" patch={patch} min={0} max={100} format={String} />
         <Field f={f} k="grain" label="Grain" patch={patch} min={0} max={100} format={String} />
-      </Section>
+      </Section>)}
     </>
   );
 }

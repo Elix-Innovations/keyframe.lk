@@ -156,6 +156,10 @@ export const TRANSITIONS: { id: TransitionId; label: string }[] = [
   { id: 'irisOpen', label: 'Iris open' }, { id: 'barnDoor', label: 'Barn door' },
   { id: 'wipeLeft', label: 'Wipe left' }, { id: 'wipeRight', label: 'Wipe right' }, { id: 'wipeUp', label: 'Wipe up' }, { id: 'wipeDown', label: 'Wipe down' },
   { id: 'circle', label: 'Circle' }, { id: 'flip', label: 'Flip' }, { id: 'glitch', label: 'Glitch' },
+  { id: 'fire', label: 'Fire' }, { id: 'lensFlare', label: 'Lens flare' }, { id: 'lightLeak', label: 'Light leak' }, { id: 'anamorphic', label: 'Anamorphic streak' },
+  { id: 'sparkle', label: 'Sparkle' }, { id: 'lightning', label: 'Lightning' }, { id: 'prism', label: 'Prism' }, { id: 'sunrise', label: 'Sunrise' },
+  { id: 'earthquake', label: 'Earthquake' }, { id: 'dizzy', label: 'Dizzy' }, { id: 'fastZoom', label: 'Fast zoom' }, { id: 'slam', label: 'Slam' },
+  { id: 'stretch', label: 'Stretch' }, { id: 'fadeBlack', label: 'Dip to black' }, { id: 'vhsRewind', label: 'VHS rewind' }, { id: 'heartbeat', label: 'Heartbeat' },
 ];
 
 export const EASES: { id: Ease; label: string }[] = [
@@ -271,6 +275,8 @@ export function cssFilter(f: VideoFilters, scale: number): string {
   return parts.join(' ') || 'none';
 }
 
+import type { LightKind } from '../render/transitionFx';
+
 export interface TransitionState {
   alpha: number; scale: number; sx: number; dx: number; dy: number; rot: number; blur: number; flash: number;
   /** Flash colour as 'r,g,b' (default white). */
@@ -279,13 +285,15 @@ export interface TransitionState {
   split: number;
   /** Reveal region: wipe from an edge or a growing circle. p = 0..1 revealed. */
   clip: { kind: 'l' | 'r' | 'u' | 'd' | 'h' | 'circle'; p: number } | null;
+  /** Light overlay painted on top (fire, lens flare...): q 1 at the cut, sweep 0..1 in time order. */
+  light: { kind: LightKind; q: number; sweep: number } | null;
 }
 
 const easeOutBack = (u: number) => { const c = 1.70158; return 1 + (c + 1) * Math.pow(u - 1, 3) + c * Math.pow(u - 1, 2); };
 
 /** In/out transition at time t. dir: 1 = entering, -1 = leaving. */
 export function transitionAt(v: VideoLayer, t: number, duration: number): TransitionState {
-  const s: TransitionState = { alpha: 1, scale: 1, sx: 1, dx: 0, dy: 0, rot: 0, blur: 0, flash: 0, flashColor: '255,255,255', split: 0, clip: null };
+  const s: TransitionState = { alpha: 1, scale: 1, sx: 1, dx: 0, dy: 0, rot: 0, blur: 0, flash: 0, flashColor: '255,255,255', split: 0, clip: null, light: null };
   const apply = (id: TransitionId, p: number, dir: 1 | -1) => { // p: 0 = at the cut (hidden), 1 = settled
     const q = 1 - p;
     switch (id) {
@@ -328,6 +336,22 @@ export function transitionAt(v: VideoLayer, t: number, duration: number): Transi
       case 'wipeDown': s.clip = { kind: 'd', p }; break;
       case 'circle': s.clip = { kind: 'circle', p }; break;
       case 'flip': s.sx *= Math.max(0.001, Math.abs(Math.cos((1 - p) * Math.PI / 2))); break;
+      case 'fire': s.light = { kind: 'fire', q, sweep: dir > 0 ? p : 1 - p }; s.scale *= 1 + 0.08 * q; s.alpha *= 0.5 + 0.5 * p; break;
+      case 'lensFlare': s.light = { kind: 'lensFlare', q, sweep: dir > 0 ? p : 1 - p }; s.flash = Math.max(s.flash, q * 0.35); s.blur = Math.max(s.blur, q * 4); break;
+      case 'lightLeak': s.light = { kind: 'lightLeak', q, sweep: dir > 0 ? p : 1 - p }; s.alpha *= 0.6 + 0.4 * p; break;
+      case 'anamorphic': s.light = { kind: 'anamorphic', q, sweep: dir > 0 ? p : 1 - p }; s.flash = Math.max(s.flash, q * 0.2); s.scale *= 1 + 0.06 * q; break;
+      case 'sparkle': s.light = { kind: 'sparkle', q, sweep: dir > 0 ? p : 1 - p }; s.alpha *= 0.5 + 0.5 * p; s.scale *= 1 + 0.04 * q; break;
+      case 'lightning': s.light = { kind: 'lightning', q, sweep: dir > 0 ? p : 1 - p }; s.alpha *= Math.sin(p * 40) > -0.3 ? 1 : 0.4; break;
+      case 'prism': s.light = { kind: 'prism', q, sweep: dir > 0 ? p : 1 - p }; s.split = Math.max(s.split, q * 2); break;
+      case 'sunrise': s.light = { kind: 'sunrise', q, sweep: dir > 0 ? p : 1 - p }; s.dy += dir * q * 0.08; s.alpha *= 0.4 + 0.6 * p; break;
+      case 'earthquake': s.dx += Math.sin(p * 120) * 0.05 * q; s.dy += Math.cos(p * 97) * 0.04 * q; s.rot += Math.sin(p * 70) * 3 * q; s.scale *= 1 + 0.1 * q; break;
+      case 'dizzy': s.rot += Math.sin(p * 12) * 14 * q; s.scale *= 1 + 0.15 * q; s.blur = Math.max(s.blur, q * 6); s.alpha *= 0.5 + 0.5 * p; break;
+      case 'fastZoom': s.scale *= 1 + 3 * q * q; s.blur = Math.max(s.blur, q * 28); s.alpha *= Math.min(1, p * 3); break;
+      case 'slam': s.scale *= 1 + 0.6 * q * q; s.alpha *= Math.min(1, p * 6); s.dy -= dir * q * q * 0.06; break;
+      case 'stretch': s.sx *= 1 + 1.6 * q; s.blur = Math.max(s.blur, q * 14); s.alpha *= p; break;
+      case 'fadeBlack': s.flash = Math.max(s.flash, Math.min(1, q * 1.3)); s.flashColor = '0,0,0'; s.alpha *= 0.6 + 0.4 * p; break;
+      case 'vhsRewind': s.dy += Math.floor(p * 9) % 2 ? q * 0.04 : -q * 0.03; s.split = Math.max(s.split, q * 2.5); s.flash = Math.max(s.flash, q * 0.15); s.blur = Math.max(s.blur, q * 3); break;
+      case 'heartbeat': s.scale *= 1 + 0.18 * q * Math.pow(Math.max(0, Math.sin(p * Math.PI * 5)), 2); s.flash = Math.max(s.flash, q * 0.12); break;
       case 'glitch': s.dx += (Math.sin(p * 90) > 0 ? 1 : -1) * 0.05 * q; s.flash = Math.max(s.flash, q * 0.25); s.alpha *= 0.5 + 0.5 * p; break;
     }
   };
@@ -339,4 +363,4 @@ export function transitionAt(v: VideoLayer, t: number, duration: number): Transi
 
 /** Looks that are most used on TikTok, Reels and Shorts, shown first in the panels. */
 export const TRENDING_FILTERS = ['y2k', 'cleanGirl', 'vhs90s', 'kodak', 'ccd', 'dreamy', 'darkAcademia', 'cyberpunk', 'blockbuster', 'softPeach', 'lofi', 'summer', 'hpGlow', 'hpCine', 'hpPortra', 'hpDreamPink'];
-export const TRENDING_TRANSITIONS: TransitionId[] = ['whipLeft', 'whipRight', 'zoomBlur', 'rgbShift', 'pulse', 'swirl', 'filmBurn', 'whiteOut', 'jumpCut', 'glitch', 'tiltDrop', 'flash'];
+export const TRENDING_TRANSITIONS: TransitionId[] = ['fire', 'lensFlare', 'lightLeak', 'sparkle', 'fastZoom', 'vhsRewind', 'whipLeft', 'whipRight', 'zoomBlur', 'rgbShift', 'pulse', 'swirl', 'filmBurn', 'whiteOut', 'jumpCut', 'glitch', 'tiltDrop', 'flash'];

@@ -1,5 +1,5 @@
 /** Read duration, display size and a thumbnail from a video file. */
-export function probeVideo(file: Blob): Promise<{ duration: number; width: number; height: number; thumbnail: string | null }> {
+export function probeVideo(file: Blob, thumbWidth = 240): Promise<{ duration: number; width: number; height: number; thumbnail: string | null }> {
   return new Promise((resolve, reject) => {
     const url = URL.createObjectURL(file);
     const v = document.createElement('video');
@@ -16,11 +16,11 @@ export function probeVideo(file: Blob): Promise<{ duration: number; width: numbe
       v.currentTime = Math.min(1, (v.duration || 2) / 2);
     };
     v.onseeked = () => {
-      const w = 240, h = Math.round((v.videoHeight / v.videoWidth) * w);
+      const w = thumbWidth, h = Math.round((v.videoHeight / v.videoWidth) * w);
       const c = document.createElement('canvas');
       c.width = w; c.height = h;
       c.getContext('2d')!.drawImage(v, 0, 0, w, h);
-      done(c.toDataURL('image/jpeg', 0.7));
+      done(c.toDataURL('image/jpeg', thumbWidth > 240 ? 0.85 : 0.7));
     };
     v.onerror = () => { URL.revokeObjectURL(url); reject(new Error('This file could not be read as a video.')); };
     setTimeout(() => { URL.revokeObjectURL(url); reject(new Error('Timed out reading the video. Keep this tab in the foreground and try again.')); }, 20000);

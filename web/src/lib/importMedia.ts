@@ -27,7 +27,7 @@ export async function addVideo(file: File, handle?: FileSystemFileHandle | null,
   const last = mainClips.at(-1);
   const start = pos ? pos.start : last ? clipEnd(last) : 0;
   const linkId = sound ? nanoid(6) : undefined;
-  const track = pos ? freeVideoTrack(st.project.clips ?? [], start, meta.duration, pos.track) : 0;
+  const track = pos ? freeVideoTrack(st.project.clips ?? [], start, meta.duration, pos.track, undefined, st.project.overlays) : 0;
   const v = { ...makeVideoClip({ assetId, name, sourceDuration: meta.duration, start, width: meta.width, height: meta.height, linkId }), track };
   const a = sound ? makeAudioClip({ assetId, name: `${name} audio`, sourceDuration: meta.duration, start, linkId, fromVideo: true }) : null;
   st.setClips((c) => [...c, v, ...(a ? [a] : [])]);

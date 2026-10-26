@@ -39,7 +39,8 @@ import { MediaPanel } from './panels/MediaPanel';
 import { EffectsPanel } from './panels/EffectsPanel';
 import { FiltersPanel } from './panels/FiltersPanel';
 import { TransitionsPanel } from './panels/TransitionsPanel';
-import { ClipPanel } from './panels/ClipPanel';
+import { ClipPanel, ClipAudioPanel, SpeedPanel } from './panels/ClipPanel';
+import { ClipAnimPanel } from './panels/ClipAnimPanel';
 import { AdjustPanel } from './panels/AdjustPanel';
 import { AdjItemPanel } from './panels/AdjItemPanel';
 import { OverlaysPanel } from './panels/OverlaysPanel';
@@ -49,6 +50,8 @@ import { overlayOps } from './OverlayLane';
 import { trackOps } from '@/lib/sounds';
 import { canCopy, copySelection, cutSelection, hasClipboard, pasteAtPlayhead, pasteAttributes } from '@/lib/clipboard';
 import { adjOps } from './AdjLane';
+import { useLibQuery } from '@/lib/libQuery';
+import { Search } from '@/components/icons';
 
 const META: Record<PanelId, { label: string; title: string; icon: ComponentType<{ className?: string }> }> = {
   media: { label: 'Media', title: 'Media', icon: Film },
@@ -65,8 +68,11 @@ const META: Record<PanelId, { label: string; title: string; icon: ComponentType<
   display: { label: 'Display', title: 'Display mode', icon: Highlighter },
   animation: { label: 'Motion', title: 'Caption motion', icon: Activity },
   layout: { label: 'Layout', title: 'Layout & canvas', icon: Frame },
-  clip: { label: 'Clip', title: 'Clip: speed, crop, transform, keyframes', icon: Film },
-  adjust: { label: 'Adjust', title: 'Clip adjustments and effects', icon: Sparkles },
+  clip: { label: 'Video', title: 'Video: transform, crop, keyframes, remove background', icon: Film },
+  caudio: { label: 'Audio', title: 'Clip audio: volume, fades, noise', icon: Volume },
+  cspeed: { label: 'Speed', title: 'Clip speed and duration', icon: Activity },
+  canim: { label: 'Animation', title: 'Clip animation: in, out, combo', icon: Sparkles },
+  adjust: { label: 'Adjust', title: 'Colour: basic, HSL, curves, colour wheel', icon: Sparkles },
   layer: { label: 'Filter / FX', title: 'Filter or effect clip', icon: WandSparkles },
   audio: { label: 'Audio', title: 'Music & audio', icon: Music },
   ai: { label: 'AI', title: 'AI tools', icon: Sparkles },
@@ -75,12 +81,13 @@ const META: Record<PanelId, { label: string; title: string; icon: ComponentType<
 };
 
 function PanelBody({ id }: { id: PanelId }) {
+  const ovlId = useEditor((s) => s.selectedOverlayId);
   switch (id) {
     case 'media': return <MediaPanel />;
     case 'captions': return <CaptionsPanel />;
     case 'overlays': return <OverlaysPanel />;
     case 'sounds': return <SoundsPanel />;
-    case 'overlay': return <OverlayItemPanel />;
+    case 'overlay': return <OverlayItemPanel key={ovlId ?? ''} />;
     case 'transitions': return <TransitionsPanel />;
     case 'effects': return <EffectsPanel />;
     case 'filters': return <FiltersPanel />;
@@ -91,6 +98,9 @@ function PanelBody({ id }: { id: PanelId }) {
     case 'animation': return <AnimationPanel />;
     case 'layout': return <LayoutPanel />;
     case 'clip': return <ClipPanel />;
+    case 'caudio': return <ClipAudioPanel />;
+    case 'cspeed': return <SpeedPanel />;
+    case 'canim': return <ClipAnimPanel />;
     case 'adjust': return <AdjustPanel />;
     case 'layer': return <AdjItemPanel />;
     case 'audio': return <AudioPanel />;
@@ -142,6 +152,44 @@ function TabStrip({ ids, active, onPick }: { ids: PanelId[]; active: PanelId; on
   );
 }
 
+/** CapCut-style vertical category rail for the library. */
+function LibraryRail({ active, onPick }: { active: PanelId; onPick: (id: PanelId) => void }) {
+  return (
+    <div role="tablist" aria-orientation="vertical" className="flex w-16 shrink-0 flex-col gap-0.5 overflow-y-auto border-r bg-sidebar p-1">
+      {LEFT_PANELS.map((id) => {
+        const M = META[id], on = active === id, n = PANELS.indexOf(id) + 1;
+        return (
+          <Tooltip key={id}>
+            <TooltipTrigger asChild>
+              <button role="tab" aria-selected={on} onClick={() => onPick(id)}
+                className={cn('flex flex-col items-center gap-1 rounded-lg px-1 py-2 text-[10px] leading-none transition-colors', on ? 'bg-primary/15 text-foreground' : 'text-muted-foreground hover:bg-sidebar-accent hover:text-foreground')}>
+                <M.icon className={cn('size-[18px]', on && 'text-primary')} />
+                {M.label}
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="right" className="flex items-center gap-2">{M.title}{n <= 9 && <Keys keys={[String(n)]} />}</TooltipContent>
+          </Tooltip>
+        );
+      })}
+    </div>
+  );
+}
+
+/** Search box shared by the tile libraries; it clears when you switch category. */
+function LibrarySearch({ id }: { id: PanelId }) {
+  const q = useLibQuery((s) => s.q), set = useLibQuery((s) => s.set);
+  useEffect(() => { set(''); }, [id, set]);
+  if (id !== 'effects' && id !== 'filters' && id !== 'transitions') return null;
+  return (
+    <div className="shrink-0 border-b p-2">
+      <div className="relative">
+        <Search className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+        <Input value={q} onChange={(e) => set(e.target.value)} placeholder={`Search ${META[id].label.toLowerCase()}`} className="h-8 pl-7 text-xs" />
+      </div>
+    </div>
+  );
+}
+
 export function Editor() {
   const project = useEditor((s) => s.project)!;
   const panel = useEditor((s) => s.panel);
@@ -161,7 +209,7 @@ export function Editor() {
   const rightTabs = INSPECTOR_TABS[ctx];
   const leftActive: PanelId = LEFT_PANELS.includes(panel) ? panel : (useEditor.getState().lastLeft ?? 'media');
   const lastRight = useEditor.getState().lastRight;
-  const rightActive: PanelId = rightTabs.includes(panel) || panel === 'usage' ? panel : lastRight && rightTabs.includes(lastRight) ? lastRight : rightTabs[0];
+  const rightActive: PanelId = rightTabs.includes(panel) || panel === 'usage' || panel === 'export' ? panel : lastRight && rightTabs.includes(lastRight) ? lastRight : rightTabs[0];
   // Selecting something new brings up its own first tab.
   const sig = useEditor((s) => `${inspectorContext(s)}:${s.selectedOverlayId ?? s.selectedAdjId ?? s.selectedClipId ?? s.selectedCaptionId ?? ''}`);
   useEffect(() => { if (ctx !== 'none') useEditor.getState().setPanel(INSPECTOR_TABS[ctx][0]); }, [sig]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -188,6 +236,7 @@ export function Editor() {
       if (/^[1-9]$/.test(e.key)) { st.setPanel(PANELS[Number(e.key) - 1]); return; }
       switch (e.key) {
         case '?': st.setShortcutsOpen(true); break;
+        case 'b': case 'B': st.setBefore(!st.before); break;
         case ' ': e.preventDefault(); togglePlay(); break;
         case 'ArrowLeft':
         case 'ArrowRight': {
@@ -279,8 +328,13 @@ export function Editor() {
           <ResizablePanelGroup orientation="horizontal" defaultLayout={inner.defaultLayout} onLayoutChanged={inner.onLayoutChanged} className="h-full">
             <ResizablePanel id="library" defaultSize="28" minSize="300px" maxSize="45">
               <div className="pane flex h-full flex-col" data-inspector>
-                <TabStrip ids={LEFT_PANELS} active={leftActive} onPick={setPanel} />
-                <ScrollArea className="min-h-0 flex-1"><PanelBody id={leftActive} /></ScrollArea>
+                <div className="flex min-h-0 flex-1">
+                  <LibraryRail active={leftActive} onPick={setPanel} />
+                  <div className="flex min-w-0 flex-1 flex-col">
+                    <LibrarySearch id={leftActive} />
+                    <ScrollArea className="min-h-0 flex-1"><PanelBody id={leftActive} /></ScrollArea>
+                  </div>
+                </div>
               </div>
             </ResizablePanel>
             <ResizableHandle className="bg-transparent" />

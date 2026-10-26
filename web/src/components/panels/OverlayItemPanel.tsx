@@ -5,11 +5,11 @@ import type { OverlayItem } from '@/types';
 import { adjEnd } from '@/lib/adj';
 import { ai } from '@/lib/api';
 import { outputSize } from '@/render/compose';
-import { videoClips } from '@/lib/clips';
-import { ANIM_IN, BLENDS, LOOPS, TEXT_PRESETS } from '@/lib/overlays';
+import { BLENDS, TEXT_PRESETS } from '@/lib/overlays';
 import { EASES, IDENTITY, newKeyframe, transformAt } from '@/lib/videoFx';
 import { currentTime, seek } from '@/lib/player';
-import { PreviewPicker, type PickerOption } from '../OverlayPicker';
+import { AnimGrid } from './AnimGrid';
+import { PreviewPicker } from '../OverlayPicker';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -28,14 +28,9 @@ const num = (v: string, fallback: number) => { const n = parseFloat(v); return N
 
 /** The overlay's own text and colours, so previews show what you will get. */
 const sampleBase = (o: OverlayItem): Partial<OverlayItem> => ({
-  kind: o.kind, text: o.kind === 'image' ? '▣' : o.text.split('\n')[0].slice(0, 12) || 'Aa', fontId: o.fontId, color: o.color, bold: o.bold, italic: o.italic,
+  kind: o.kind === 'motion' ? 'sticker' : o.kind, ...(o.kind === 'image' ? { assetId: o.assetId, corner: o.corner, flipH: o.flipH } : {}), text: o.kind === 'motion' ? '✨' : o.text.split('\n')[0].slice(0, 12) || 'Aa', fontId: o.fontId, color: o.color, bold: o.bold, italic: o.italic,
   strokeWidth: o.strokeWidth, strokeColor: o.strokeColor, shadow: o.shadow, glow: o.glow, bg: o.bg,
 });
-const animOptions = (o: OverlayItem, which: 'in' | 'out'): PickerOption[] => ANIM_IN.map((a) => ({
-  id: a.id, label: a.label,
-  spec: { ...sampleBase(o), loop: 'none', ...(which === 'in' ? { animIn: { id: a.id, duration: 0.8 } } : { animOut: { id: a.id, duration: 0.8 } }) },
-}));
-const loopOptions = (o: OverlayItem): PickerOption[] => LOOPS.map((l) => ({ id: l.id, label: l.label, spec: { ...sampleBase(o), loop: l.id } }));
 
 /** A motion graphic / transition layer: its name and length, and asking Claude to change it. */
 function MotionEdit({ o, patch }: { o: OverlayItem; patch: (p: Partial<OverlayItem>, key?: string) => void }) {
@@ -62,7 +57,7 @@ function MotionEdit({ o, patch }: { o: OverlayItem; patch: (p: Partial<OverlayIt
       <Row label="Length"><span className="font-mono text-xs">{scene.duration.toFixed(2)}s</span></Row>
       <Textarea className="min-h-16 text-sm" value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder="Ask Claude to change it: make it faster, use pink, add a line under the name…" />
       <Button size="sm" disabled={busy || !prompt.trim()} onClick={() => void change()}>{busy ? 'Claude is working…' : 'Change with Claude'}</Button>
-      <p className="text-[11px] text-muted-foreground">Move, resize and trim it with the Layout and Timing tabs. Layout → Depth puts it behind a cut-out layer.</p>
+      <p className="text-[11px] text-muted-foreground">Move, resize and trim it with the Layout and Timing tabs. Drag it up or down the Layers rows on the timeline to put it in front of or behind other layers.</p>
     </Section>
   );
 }
@@ -74,18 +69,17 @@ export function OverlayItemPanel() {
   const custom = useEditor((s) => s.customTemplates);
   const setCustom = useEditor((s) => s.setCustomTemplates);
   const notify = useEditor((s) => s.notify);
-  const clipsAll = useEditor((s) => s.project!.clips) ?? [];
   const total = useEditor((s) => s.project!.duration);
   const [script, setScript] = useState<'sinhala' | 'english'>('sinhala');
-  const [tab, setTab] = useState<'edit' | 'style' | 'display' | 'layout' | 'motion' | 'timing'>('edit');
+  const [tab0, setTab] = useState<'edit' | 'style' | 'display' | 'layout' | 'motion' | 'timing'>('edit');
+  // A tab the selected layer does not have (Style / Display are template-only) falls back to Edit.
+  const tab = (tab0 === 'style' || tab0 === 'display') && !o?.tpl ? 'edit' : tab0;
   if (!o) return <Section title="Overlay"><Empty icon={<Scissors />} title="Nothing selected">Select a text, sticker or image on the timeline or in the preview to change it.</Empty></Section>;
   const patch = (p: Partial<OverlayItem>, key?: string) => setOverlays((l) => l.map((x) => (x.id === o.id ? { ...x, ...p } : x)), key && `ovl-${key}-${o.id}`);
   const alignPicked = (pos: { x?: number; y?: number }) => {
     const ids = new Set([o.id, ...useEditor.getState().extraOverlayIds]);
     setOverlays((l) => l.map((x) => (ids.has(x.id) ? { ...x, ...pos } : x)));
   };
-  // Video layers an overlay can sit behind: every video track above the main one (cut-out layers are named for what they are).
-  const layers = [...new Map(videoClips(clipsAll).filter((c) => (c.track ?? 0) > 0).map((c) => [c.track ?? 0, { track: c.track ?? 0, name: c.cutout ? `cut-out (Overlay ${c.track})` : `Overlay ${c.track}` }])).values()];
   const text = o.kind === 'text' && !o.tpl; // template layers take their look from the template
   return (
     <div>
@@ -100,6 +94,12 @@ export function OverlayItemPanel() {
         {o.kind !== 'image' && (
           <Textarea className="sinhala min-h-16 text-sm" value={o.text} placeholder={text ? 'Type your text' : 'Emoji or symbol'} onChange={(e) => patch({ text: e.target.value }, 'text')} />
         )}
+        {o.kind === 'image' && <>
+          <Row label="Size"><Slider value={Math.round(o.scale * 100)} min={10} max={400} format={(v) => `${v}%`} onChange={(v) => patch({ scale: v / 100 }, 'scale')} /></Row>
+          <Row label="Opacity"><Slider value={Math.round(o.opacity * 100)} min={0} max={100} format={(v) => `${v}%`} onChange={(v) => patch({ opacity: v / 100 }, 'op')} /></Row>
+          <Row label="Corners"><Slider value={o.corner ?? 0} min={0} max={50} onChange={(corner) => patch({ corner }, 'corner')} /></Row>
+          <Row label="Flip"><Toggle checked={!!o.flipH} onChange={(flipH) => patch({ flipH })} label="Flip horizontally" /></Row>
+        </>}
         {text && (
           <Row label="Style">
             <PreviewPicker placeholder="Apply a style" className="w-40"
@@ -155,15 +155,6 @@ export function OverlayItemPanel() {
       </>}
       {tab === 'layout' && <>
       <Section title="Position">
-        <Row label="Depth" hint="Behind a cut-out layer, the text or image passes behind the subject. In front is the default.">
-          <Select value={o.behind === undefined ? 'front' : String(o.behind)} onValueChange={(v) => patch({ behind: v === 'front' ? undefined : Number(v) })}>
-            <SelectTrigger size="sm" className="w-44"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="front">In front of everything</SelectItem>
-              {layers.map((l) => <SelectItem key={l.track} value={String(l.track)}>Behind {l.name}</SelectItem>)}
-            </SelectContent>
-          </Select>
-        </Row>
         <Row label="Align to frame" hint="Centres this item, and every other item picked in the preview, on the frame.">
           <Button size="xs" variant="secondary" onClick={() => alignPicked({ x: 50 })}>Centre ↔</Button>
           <Button size="xs" variant="secondary" onClick={() => alignPicked({ y: 50 })}>Centre ↕</Button>
@@ -185,15 +176,7 @@ export function OverlayItemPanel() {
       </Section>
       </>}
       {tab === 'motion' && <>
-      <Section title="Animation">
-        <Row label="In"><PreviewPicker value={o.animIn.id} options={animOptions(o, 'in')} onChange={(id) => patch({ animIn: { ...o.animIn, id: id as never } })} /></Row>
-        {o.animIn.id !== 'none' && <Row label="In length"><Slider value={o.animIn.duration} min={0.1} max={Math.max(0.2, Math.min(2, o.duration))} step={0.05} format={(v) => `${v.toFixed(2)}s`} onChange={(duration) => patch({ animIn: { ...o.animIn, duration } }, 'ain')} /></Row>}
-        <Row label="Out"><PreviewPicker value={o.animOut.id} options={animOptions(o, 'out')} onChange={(id) => patch({ animOut: { ...o.animOut, id: id as never } })} /></Row>
-        {o.animOut.id !== 'none' && <Row label="Out length"><Slider value={o.animOut.duration} min={0.1} max={Math.max(0.2, Math.min(2, o.duration))} step={0.05} format={(v) => `${v.toFixed(2)}s`} onChange={(duration) => patch({ animOut: { ...o.animOut, duration } }, 'aout')} /></Row>}
-        <Row label="Loop"><PreviewPicker value={o.loop} options={loopOptions(o)} onChange={(loop) => patch({ loop: loop as OverlayItem['loop'] })} /></Row>
-        {o.animIn.id !== 'none' && <Row label="In speed"><Slider value={o.animIn.speed ?? 1} min={0.25} max={4} step={0.05} format={(v) => `${v.toFixed(2)}×`} onChange={(speed) => patch({ animIn: { ...o.animIn, speed } }, 'ains')} /></Row>}
-        {o.animOut.id !== 'none' && <Row label="Out speed"><Slider value={o.animOut.speed ?? 1} min={0.25} max={4} step={0.05} format={(v) => `${v.toFixed(2)}×`} onChange={(speed) => patch({ animOut: { ...o.animOut, speed } }, 'aouts')} /></Row>}
-      </Section>
+      <AnimGrid value={o} maxLen={o.duration} sample={sampleBase(o)} onChange={(p, key) => patch(p, key)} />
       <Section title="Playback speed">
         <Row label="Speed" hint="How fast the loop animation and keyframes play."><Slider value={o.speed ?? 1} min={0.25} max={4} step={0.05} format={(v) => `${v.toFixed(2)}×`} onChange={(speed) => patch({ speed }, 'spd')} /></Row>
         <div className="flex flex-wrap justify-end gap-1">

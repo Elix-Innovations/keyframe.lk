@@ -4,6 +4,7 @@ import { currentTime, seek, syncVideos, togglePlay } from '../lib/player';
 import { ensureVideo, keyOf, onVideoFrame, peekVideo, registerVideoBlob, releaseUnused } from '../lib/videoPool';
 import { videoClips, videoLayersAt } from '../lib/clips';
 import { addVideo } from '../lib/importMedia';
+import { beforeProject } from '../lib/before';
 import { composeFrame, outputSize } from '../render/compose';
 import type { OverlayHit } from '../render/overlays';
 import { clearMeasureCache, type Ctx2D, type Rect } from '../render/captions';
@@ -11,7 +12,7 @@ import { getBlob, grantFileAccess, NeedsPermissionError } from '../lib/db';
 import { ensureFonts, onFontsChanged } from '../lib/fonts';
 import { projectFontIds } from '../lib/util';
 import { formatClock } from '../lib/srt';
-import { Pause, Play, SkipBack, Smartphone } from '@/components/icons';
+import { Maximize, Minimize, Pause, Play, SkipBack, Smartphone } from '@/components/icons';
 import type { AspectRatio, Clip } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
@@ -54,8 +55,11 @@ function knobAt(h: OverlayHit, x: number, y: number, dpr: number): 'rotate' | 's
 export function Preview() {
   const project = useEditor((s) => s.project)!;
   const playing = useEditor((s) => s.playing);
+  const before = useEditor((s) => s.before);
   const time = useEditor((s) => s.time);
+  const rootRef = useRef<HTMLDivElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
+  const [full, setFull] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [box, setBox] = useState({ w: 0, h: 0 });
   const [safeZone, setSafeZone] = useState<SafeZoneId | 'off'>('off');
@@ -160,10 +164,12 @@ export function Preview() {
     const draw = () => {
       matteHints.playing = playing;
       const t = currentTime();
-      const p = useEditor.getState().project!;
+      const p0 = useEditor.getState().project!;
+      const p = before ? beforeProject(p0) : p0;
       const frameFor = (clip: Clip) => {
         const v = peekVideo(clip.assetId, clip.track ?? 0);
-        if (!v || v.readyState < 2) return null;
+        // While seeking Chrome reports readyState 1 but still draws the last frame; returning null there made the preview blink.
+        if (!v || (v.readyState < 2 && !(v.seeking && v.videoWidth))) return null;
         const w = v.videoWidth || clip.width || 0, h = v.videoHeight || clip.height || 0;
         return { draw: (c: Ctx2D, dx: number, dy: number, dw: number, dh: number) => c.drawImage(v, dx, dy, dw, dh), w, h };
       };
@@ -229,7 +235,7 @@ export function Preview() {
     };
     draw();
     return () => cancelAnimationFrame(raf);
-  }, [box.w, box.h, playing, project, time, hover, loaded, tick, selOverlay, selExtra, selCaption, selClip]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [box.w, box.h, playing, before, project, time, hover, loaded, tick, selOverlay, selExtra, selCaption, selClip]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Selecting and dragging in the preview: click an item to select it, shift / ⌘ / Ctrl-click to add more, drag on empty
   // space to box-select, drag to move (the magnet sticks centres and edges to the frame and to other items; hold Alt to
@@ -448,10 +454,27 @@ export function Preview() {
     force((n) => n + 1);
   };
 
+  // Full screen is the whole page plus a fixed overlay, not the preview element alone: menus and
+  // tooltips render in portals outside the preview, and an element in full screen would hide them.
+  useEffect(() => {
+    if (!full) return;
+    void document.documentElement.requestFullscreen?.().catch(() => {});
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setFull(false); };
+    const onChange = () => { if (!document.fullscreenElement) setFull(false); };
+    window.addEventListener('keydown', onKey);
+    document.addEventListener('fullscreenchange', onChange);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      document.removeEventListener('fullscreenchange', onChange);
+      if (document.fullscreenElement) void document.exitFullscreen().catch(() => {});
+    };
+  }, [full]);
+  const toggleFull = () => setFull((v) => !v);
+
   const dur = project.duration || 0;
   const noVideo = videoClips(project.clips ?? []).length === 0;
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <div ref={rootRef} className={`flex min-h-0 flex-col bg-background ${full ? 'fixed inset-0 z-40' : 'h-full'}`}>
       <div ref={wrapRef} className="checker relative flex min-h-0 flex-1 items-center justify-center">
         <div className="relative" style={{ width: box.w, height: box.h }}>
           <canvas ref={canvasRef} className={`h-full w-full rounded-lg shadow-2xl shadow-black/30 ring-1 ring-border ${hover ? 'cursor-move' : 'cursor-pointer'}`}
@@ -508,6 +531,15 @@ export function Preview() {
         </Tooltip>
         <span className="ml-1 font-mono text-xs tabular-nums"><span>{formatClock(time, true)}</span><span className="text-muted-foreground"> / {formatClock(dur, true)}</span></span>
         <div className="ml-auto flex flex-wrap items-center justify-end gap-x-3 gap-y-1.5">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant={before ? 'default' : 'outline'} size="sm" aria-pressed={before}
+                onClick={() => useEditor.getState().setBefore(!before)}
+              >{before ? 'Before' : 'After'}</Button>
+            </TooltipTrigger>
+            <TooltipContent className="flex items-center gap-2">Hear and see the original, without noise removal, grade or effects <Keys keys={['B']} /></TooltipContent>
+          </Tooltip>
           <div className="flex items-center gap-2">
             <Switch id="magnet" checked={magnet} onCheckedChange={setMagnet} />
             <Label htmlFor="magnet" className="text-xs font-normal text-muted-foreground" title="Snap to the frame centre, edges and other items while dragging. Hold Alt to move freely.">Magnet</Label>
@@ -529,6 +561,12 @@ export function Preview() {
             </SelectContent>
           </Select>
           <span className="rounded-md bg-muted px-2 py-1 font-mono text-[11px] text-muted-foreground">{out.width}×{out.height}</span>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="ghost" size="icon-sm" onClick={toggleFull} aria-label={full ? 'Exit full screen' : 'Full screen'}>{full ? <Minimize /> : <Maximize />}</Button>
+            </TooltipTrigger>
+            <TooltipContent>{full ? 'Exit full screen' : 'Full screen'}</TooltipContent>
+          </Tooltip>
         </div>
       </div>
     </div>

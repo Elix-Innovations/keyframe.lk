@@ -19,7 +19,7 @@ import { cropForAspect, hasCrop } from '@/lib/videoFx';
 import { FlipHorizontalIcon, RotateLeft01Icon, RotateRight01Icon } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react';
 
-function KeyframeCard({ k }: { k: VideoKeyframe }) {
+export function KeyframeCard({ k }: { k: VideoKeyframe }) {
   const { set, clip } = useLayer();
   const patch = (p: Partial<VideoKeyframe>, key?: string) => set((v) => ({ ...v, keyframes: v.keyframes.map((x) => (x.id === k.id ? { ...x, ...p } : x)) }), key && `kf-${key}-${k.id}`);
   return (
@@ -41,13 +41,11 @@ function KeyframeCard({ k }: { k: VideoKeyframe }) {
   );
 }
 
-/** The selected clip: link state, speed, volume and fades. */
-function SelectedClip() {
+/** Link state and quick actions for the selected clip. */
+export function ClipActions() {
   const clip = useEditor((s) => s.project!.clips?.find((c) => c.id === s.selectedClipId) ?? null);
   const partner = useEditor((s) => { const c = s.project!.clips?.find((x) => x.id === s.selectedClipId); return c ? partnerOf(s.project!.clips ?? [], c) : null; });
-  const setClips = useEditor((s) => s.setClips);
-  if (!clip) return <Section title="Clip"><Empty icon={<Scissors />} title="No clip selected">Click a clip on the timeline to change its speed, volume, or to unlink its video and audio.</Empty></Section>;
-  const patch = (p: Partial<typeof clip>, key?: string) => setClips((cs) => cs.map((c) => (c.id === clip.id || (c.id === partner?.id && ('speed' in p)) ? { ...c, ...p } : c)), key && `clipinsp-${key}-${clip.id}`);
+  if (!clip) return <Section title="Clip"><Empty icon={<Scissors />} title="No clip selected">Click a clip on the timeline to edit it.</Empty></Section>;
   const audio = clip.kind === 'audio';
   return (
     <Section title={audio ? 'Audio clip' : 'Video clip'} right={<span className="max-w-32 truncate text-[11px] text-muted-foreground">{clip.name}</span>}>
@@ -56,22 +54,6 @@ function SelectedClip() {
           ? <Button size="xs" variant="secondary" onClick={() => clipOps.unlink(clip.id)}>Unlink {partner ? (audio ? 'from video' : 'from audio') : ''}</Button>
           : <Button size="xs" variant="secondary" onClick={() => clipOps.link(clip.id)}>Link with {audio ? 'video' : 'audio'}</Button>}
       </Row>
-      {!clip.freeze && (
-        <>
-          <Row label="Speed"><Slider value={clip.speed} min={0.1} max={8} step={0.05} onChange={(s) => clipOps.speed(clip.id, s)} format={(v) => `${v.toFixed(2)}×`} /></Row>
-          <div className="flex flex-wrap justify-end gap-1">
-            {SPEEDS.map((s) => <Button key={s} size="xs" variant={clip.speed === s ? 'default' : 'secondary'} onClick={() => clipOps.speed(clip.id, s)}>{s}×</Button>)}
-          </div>
-        </>
-      )}
-      {audio && (
-        <>
-          <Row label="Volume"><Slider value={clip.volume} min={-30} max={12} step={0.5} onChange={(volume) => patch({ volume }, 'vol')} format={(v) => `${v > 0 ? '+' : ''}${v} dB`} /></Row>
-          <Row label="Fade in"><Slider value={clip.fadeIn} min={0} max={Math.min(5, clip.duration / 2)} step={0.05} onChange={(fadeIn) => patch({ fadeIn }, 'fi')} format={(v) => `${v.toFixed(2)}s`} /></Row>
-          <Row label="Fade out"><Slider value={clip.fadeOut} min={0} max={Math.min(5, clip.duration / 2)} step={0.05} onChange={(fadeOut) => patch({ fadeOut }, 'fo')} format={(v) => `${v.toFixed(2)}s`} /></Row>
-          <Row label="Mute"><Button size="xs" variant={clip.muted ? 'default' : 'secondary'} onClick={() => clipOps.mute(clip.id)}>{clip.muted ? <VolumeOff /> : <Volume />}{clip.muted ? 'Muted' : 'Mute'}</Button></Row>
-        </>
-      )}
       <div className="flex flex-wrap justify-end gap-1.5 pt-1">
         <Button size="xs" variant="secondary" onClick={() => clipOps.splitAtPlayhead([clip.id])}><Scissors />Split</Button>
         <Button size="xs" variant="secondary" onClick={() => clipOps.duplicate(clip.id)}><Copy />Duplicate</Button>
@@ -82,10 +64,49 @@ function SelectedClip() {
   );
 }
 
+/** Speed: slider, presets and an exact duration. Linked audio follows. */
+export function SpeedPanel() {
+  const clip = useEditor((s) => s.project!.clips?.find((c) => c.id === s.selectedClipId) ?? null);
+  if (!clip) return <Section title="Speed"><Empty icon={<Scissors />} title="No clip selected">Click a clip on the timeline to change its speed.</Empty></Section>;
+  if (clip.freeze) return <Section title="Speed"><p className="text-xs text-muted-foreground">A freeze frame has no speed.</p></Section>;
+  const source = clip.duration * clip.speed; // length of the source span this clip plays
+  return (
+    <Section title="Speed" right={clip.speed !== 1 ? <Button size="xs" variant="ghost" onClick={() => clipOps.speed(clip.id, 1)}>Reset</Button> : null}>
+      <Row label="Speed"><Slider value={clip.speed} min={0.1} max={8} step={0.05} onChange={(s) => clipOps.speed(clip.id, s)} format={(v) => `${v.toFixed(2)}×`} /></Row>
+      <div className="flex flex-wrap justify-end gap-1">
+        {SPEEDS.map((s) => <Button key={s} size="xs" variant={clip.speed === s ? 'default' : 'secondary'} onClick={() => clipOps.speed(clip.id, s)}>{s}×</Button>)}
+      </div>
+      <Row label="Duration" hint="Changing the duration changes the speed so the same footage fits."><Slider value={clip.duration} min={Math.max(0.2, source / 8)} max={source / 0.1} step={0.05} onChange={(d) => clipOps.speed(clip.id, source / d)} format={(v) => `${v.toFixed(2)}s`} /></Row>
+    </Section>
+  );
+}
+
+/** Volume, fades and noise removal. For a video clip this edits its linked audio clip. */
+export function ClipAudioPanel() {
+  const clip = useEditor((s) => {
+    const c = s.project!.clips?.find((x) => x.id === s.selectedClipId) ?? null;
+    return c && c.kind !== 'audio' ? partnerOf(s.project!.clips ?? [], c) : c;
+  });
+  const setClips = useEditor((s) => s.setClips);
+  if (!clip) return <Section title="Audio"><Empty icon={<Volume />} title="No audio">This clip has no linked audio clip. Link one from the Video tab, or select an audio clip on the timeline.</Empty></Section>;
+  const patch = (p: Partial<typeof clip>, key?: string) => setClips((cs) => cs.map((c) => (c.id === clip.id ? { ...c, ...p } : c)), key && `clipinsp-${key}-${clip.id}`);
+  return (
+    <div>
+      <Section title="Basic" right={<span className="max-w-32 truncate text-[11px] text-muted-foreground">{clip.name}</span>}>
+        <Row label="Volume"><Slider value={clip.volume} min={-30} max={12} step={0.5} onChange={(volume) => patch({ volume }, 'vol')} format={(v) => `${v > 0 ? '+' : ''}${v} dB`} /></Row>
+        <Row label="Fade in"><Slider value={clip.fadeIn} min={0} max={Math.min(5, clip.duration / 2)} step={0.05} onChange={(fadeIn) => patch({ fadeIn }, 'fi')} format={(v) => `${v.toFixed(2)}s`} /></Row>
+        <Row label="Fade out"><Slider value={clip.fadeOut} min={0} max={Math.min(5, clip.duration / 2)} step={0.05} onChange={(fadeOut) => patch({ fadeOut }, 'fo')} format={(v) => `${v.toFixed(2)}s`} /></Row>
+        <Row label="Mute"><Button size="xs" variant={clip.muted ? 'default' : 'secondary'} onClick={() => clipOps.mute(clip.id)}>{clip.muted ? <VolumeOff /> : <Volume />}{clip.muted ? 'Muted' : 'Mute'}</Button></Row>
+      </Section>
+      {clip.fromVideo && <NoiseRemoval />}
+    </div>
+  );
+}
+
 const ASPECTS: [string, number, number][] = [['1:1', 1, 1], ['9:16', 9, 16], ['16:9', 16, 9], ['4:5', 4, 5], ['3:4', 3, 4], ['4:3', 4, 3]];
 
 /** Crop, flip, rotate and the static position/scale of the video clip. */
-function CropAndTransform({ part }: { part: 'crop' | 'transform' }) {
+export function CropAndTransform({ part }: { part: 'crop' | 'transform' }) {
   const { layer, set, clip } = useLayer();
   const crop = layer.crop!;
   const base = layer.base!;
@@ -124,35 +145,36 @@ function CropAndTransform({ part }: { part: 'crop' | 'transform' }) {
   );
 }
 
-/** Inspector for the selected clip, then crop and transform, then transform keyframes (times are relative to the clip start). */
+/** Video tab: Basic (actions, transform, crop, keyframes) / Remove BG / Blur. */
 export function ClipPanel() {
   const { layer, set, clip } = useLayer();
-  const selected = useEditor((s) => s.project!.clips?.find((c) => c.id === s.selectedClipId) ?? null);
   const time = useEditor((s) => s.time);
-  const [tab, setTab] = useState<'clip' | 'bg' | 'blur' | 'crop' | 'transform' | 'keys'>('clip');
-  if (selected?.kind === 'audio') return <div><SelectedClip />{selected.fromVideo && <NoiseRemoval />}</div>;
+  const [tab, setTab] = useState<'basic' | 'bg' | 'blur'>('basic');
   const sorted = [...layer.keyframes].sort((a, b) => a.t - b.t);
   const local = Math.max(0, Math.min(time - (clip?.start ?? 0), clip?.duration ?? 0));
   const nearby = sorted.find((k) => Math.abs(k.t - local) < 0.05);
   return (
     <div>
       <div className="sticky top-0 z-10 border-b bg-sidebar px-3 py-2">
-        <Segmented fill size="sm" value={tab} onChange={setTab} options={[{ value: 'clip', label: 'Clip' }, { value: 'bg', label: 'Cut-out' }, { value: 'blur', label: 'Blur' }, { value: 'crop', label: 'Crop' }, { value: 'transform', label: 'Transform' }, { value: 'keys', label: `Keyframes${sorted.length ? ` ${sorted.length}` : ''}` }]} />
+        <Segmented fill size="sm" value={tab} onChange={setTab} options={[{ value: 'basic', label: 'Basic' }, { value: 'bg', label: 'Remove BG' }, { value: 'blur', label: 'Blur' }]} />
       </div>
-      {tab === 'clip' && <SelectedClip />}
       {tab === 'bg' && <BackgroundSection />}
       {tab === 'blur' && <BlurSection />}
-      {(tab === 'crop' || tab === 'transform' || tab === 'keys') && <TargetBar pick={(l) => ({ crop: l.crop, flipH: l.flipH, flipV: l.flipV, rot90: l.rot90, base: l.base, keyframes: l.keyframes })} label="crop, transform and keyframes" />}
-      {(tab === 'crop' || tab === 'transform') && <CropAndTransform part={tab} />}
-      {tab === 'keys' && (
-        <Section title="Keyframes" right={
-          <Button size="xs" variant="secondary" disabled={!!nearby || !clip}
-            onClick={() => set((l) => ({ ...l, keyframes: [...l.keyframes, newKeyframe(local, transformAt(l.keyframes, local, l.base))] }))}>
-            <Plus />{nearby ? 'Keyframe here' : 'Add at playhead'}
-          </Button>}>
-          {sorted.length === 0 && <p className="text-xs text-muted-foreground">Move the playhead inside the clip, add a keyframe, then add another later and change a value. The video animates between them: zoom, pan, spin, fade.</p>}
-          {sorted.map((k) => <KeyframeCard key={k.id} k={k} />)}
-        </Section>
+      {tab === 'basic' && (
+        <>
+          <ClipActions />
+          <TargetBar pick={(l) => ({ crop: l.crop, flipH: l.flipH, flipV: l.flipV, rot90: l.rot90, base: l.base, keyframes: l.keyframes })} label="crop, transform and keyframes" />
+          <CropAndTransform part="transform" />
+          <CropAndTransform part="crop" />
+          <Section title="Keyframes" right={
+            <Button size="xs" variant="secondary" disabled={!!nearby || !clip}
+              onClick={() => set((l) => ({ ...l, keyframes: [...l.keyframes, newKeyframe(local, transformAt(l.keyframes, local, l.base))] }))}>
+              <Plus />{nearby ? 'Keyframe here' : 'Add at playhead'}
+            </Button>}>
+            {sorted.length === 0 && <p className="text-xs text-muted-foreground">Move the playhead inside the clip, add a keyframe, then add another later and change a value. The video animates between them: zoom, pan, spin, fade.</p>}
+            {sorted.map((k) => <KeyframeCard key={k.id} k={k} />)}
+          </Section>
+        </>
       )}
     </div>
   );

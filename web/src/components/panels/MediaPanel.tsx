@@ -39,7 +39,7 @@ export function MediaPanel() {
     for (const o of images) {
       const id = o.assetId!;
       if (thumbs[id]) continue;
-      getBlob(id).then((blob) => blob && imageThumb(blob, 160)).then((u) => { if (live && u) setThumbs((t) => ({ ...t, [id]: u })); }).catch(() => {});
+      getBlob(id).then((blob) => blob && imageThumb(blob, 640)).then((u) => { if (live && u) setThumbs((t) => ({ ...t, [id]: u })); }).catch(() => {});
     }
     return () => { live = false; };
   }, [brollIds]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -50,7 +50,7 @@ export function MediaPanel() {
     let live = true;
     for (const id of videoIds ? videoIds.split('|') : []) {
       if (thumbs[id]) continue;
-      getBlob(id).then((blob) => blob && probeVideo(blob as File)).then((m) => { if (live && m?.thumbnail) setThumbs((t) => ({ ...t, [id]: m.thumbnail! })); }).catch(() => {});
+      getBlob(id).then((blob) => blob && probeVideo(blob as File, 640)).then((m) => { if (live && m?.thumbnail) setThumbs((t) => ({ ...t, [id]: m.thumbnail! })); }).catch(() => {});
     }
     return () => { live = false; };
   }, [videoIds]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -109,7 +109,7 @@ export function MediaPanel() {
       {shown.length === 0 ? (
         <Empty icon={<Film className="size-6" />} title="Nothing here yet">Import media above. Images drop onto the timeline at the playhead as b-roll.</Empty>
       ) : (
-        <div className="grid grid-cols-2 gap-2 p-3">
+        <div className="grid grid-cols-4 gap-1.5 p-2">
           {shown.map((i) => (
             <div key={i.id} className="group relative overflow-hidden rounded-xl border bg-card" draggable={i.source === 'clip'}
               onDragStart={(e) => { if (i.source !== 'clip') return; e.dataTransfer.setData(DRAG_MIME, JSON.stringify({ type: 'media', clipId: i.id })); e.dataTransfer.effectAllowed = 'copy'; }}>

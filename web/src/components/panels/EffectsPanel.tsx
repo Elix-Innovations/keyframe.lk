@@ -1,3 +1,4 @@
+import { useLibQuery, matches } from '@/lib/libQuery';
 import { useMemo, useState, type ReactNode } from 'react';
 import type { Clip, VideoLayer } from '@/types';
 import { useEditor } from '@/store';
@@ -76,13 +77,25 @@ export function PreviewTile({ spec, label, on, drag, children }: { spec: Paramet
  */
 export function EffectsPanel() {
   usePreviewSourceSync();
+  const q = useLibQuery((s) => s.q).trim();
   const adj = useEditor((s) => s.project!.adj);
   const used = new Set((adj ?? []).filter((a) => a.kind === 'effect').map((a) => a.refId));
+  if (q) {
+    const hits = EFFECTS.filter((e) => e.id !== 'none' && matches(e.label, q));
+    return (
+      <Section title="Results" right={<span className="text-[11px] text-muted-foreground">{hits.length}</span>}>
+        {hits.length === 0 && <p className="text-xs text-muted-foreground">No effect matches “{q}”.</p>}
+        <div className="grid grid-cols-4 gap-1.5">
+          {hits.map((e) => <PreviewTile key={e.id} spec={{ effects: [{ id: 'p', effectId: e.id, intensity: 0.7 }] }} label={e.label} on={used.has(e.id)} drag={{ type: 'fx', kind: 'effect', refId: e.id }} />)}
+        </div>
+      </Section>
+    );
+  }
   return (
     <div>
       <div className="border-b px-3 py-2.5 text-xs text-muted-foreground">Drag an effect onto a track on the timeline (or onto a clip to cover it). Select it there to change strength, move, trim or split.</div>
       <Section title="Trending" right={<span className="text-[11px] text-muted-foreground">{TRENDING_EFFECTS.length}</span>}>
-        <div className="grid grid-cols-3 gap-2">
+        <div className="grid grid-cols-4 gap-1.5">
           {EFFECTS.filter((e) => TRENDING_EFFECTS.includes(e.id)).map((e) => (
             <PreviewTile key={e.id} spec={{ effects: [{ id: 'p', effectId: e.id, intensity: 0.7 }] }} label={e.label} on={used.has(e.id)}
               drag={{ type: 'fx', kind: 'effect', refId: e.id }} />
@@ -91,7 +104,7 @@ export function EffectsPanel() {
       </Section>
       {EFFECT_GROUPS.map((g) => (
         <Section key={g} title={g} collapsible right={<span className="text-[11px] text-muted-foreground">{EFFECTS.filter((e) => e.group === g).length}</span>}>
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-4 gap-1.5">
             {EFFECTS.filter((e) => e.group === g).map((e) => (
               <PreviewTile key={e.id} spec={{ effects: [{ id: 'p', effectId: e.id, intensity: 0.7 }] }} label={e.label} on={used.has(e.id)}
                 drag={{ type: 'fx', kind: 'effect', refId: e.id }} />

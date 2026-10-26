@@ -38,7 +38,7 @@ export function addMotionLayer(scene: MotionScene, where: 'playhead' | 'cut' = '
       start = Math.max(0, near - scene.duration / 2);
     }
   }
-  const o = makeOverlay({ kind: 'motion', text: scene.name, start, duration: scene.duration, apply: { scene: JSON.parse(JSON.stringify(scene)), x: 50, y: 50, scale: 1, rotation: 0, opacity: 1, animIn: { id: 'none', duration: 0.01 }, animOut: { id: 'none', duration: 0.01 } } }, p.overlays ?? []);
+  const o = makeOverlay({ kind: 'motion', text: scene.name, start, duration: scene.duration, apply: { scene: JSON.parse(JSON.stringify(scene)), x: 50, y: 50, scale: 1, rotation: 0, opacity: 1, animIn: { id: 'none', duration: 0.01 }, animOut: { id: 'none', duration: 0.01 } } }, p.overlays ?? [], p);
   st.setOverlays((l) => [...l, o]);
   st.selectOverlay(o.id);
   st.notify(`Added “${scene.name}” at ${start.toFixed(1)}s.`, 'success');
@@ -149,9 +149,9 @@ export function MotionPanel() {
         <>
           <Section title={`${ROLE_LABEL[role]}s`}>
             <p className="text-[11px] text-muted-foreground">
-              {role === 'transition' ? 'Plays over a cut between two clips. “At cut” centres it on the nearest cut.' : role === 'background' ? 'Animated backgrounds. Add one, then set a layer’s Depth to sit it behind a cut-out subject.' : 'Animated graphics that play over your video. Hover to preview; they are layers you can move, resize and trim.'}
+              {role === 'transition' ? 'Plays over a cut between two clips. “At cut” centres it on the nearest cut.' : role === 'background' ? 'Animated backgrounds. Add one, then drag it below a cut-out layer on the timeline.' : 'Animated graphics that play over your video. Hover to preview; they are layers you can move, resize and trim.'}
             </p>
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-4 gap-1.5">
               {library.map(({ e, scene }) => (
                 <SceneCard key={e.id} scene={scene} sub={e.note.length > 22 ? `${scene.duration.toFixed(1)}s` : e.note}
                   onAdd={() => addMotionLayer(scene)} onAddCut={role === 'transition' ? () => addMotionLayer(scene, 'cut') : undefined} />
@@ -160,7 +160,7 @@ export function MotionPanel() {
           </Section>
           {saved.filter((s) => s.role === role).length > 0 && (
             <Section title="My scenes">
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-4 gap-1.5">
                 {saved.filter((s) => s.role === role).map((s) => (
                   <SceneCard key={s.name + s.duration} scene={s} onAdd={() => addMotionLayer(s)} onAddCut={role === 'transition' ? () => addMotionLayer(s, 'cut') : undefined}
                     onDelete={() => persist(saved.filter((x) => x !== s))} />

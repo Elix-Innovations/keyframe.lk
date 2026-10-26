@@ -32,20 +32,26 @@ export function trackCount(adj: Timed[]) {
 
 const replace = <T extends Timed>(adj: T[], next: T) => adj.map((a) => (a.id === next.id ? next : a));
 
-/** Move in time (clamped at 0 and against neighbours on the same track) and optionally onto another track if free. */
+/**
+ * Move in time (clamped at 0 and against neighbours on the same track) and optionally onto another track.
+ * If the target track is taken at that time, a new track is opened there and the tracks from it up shift by one.
+ */
 export function moveAdj<T extends Timed>(adj: T[], id: string, dt: number, toTrack?: number): T[] {
   const a = adj.find((x) => x.id === id);
   if (!a) return adj;
-  const track = toTrack !== undefined && toTrack >= 0 && !adj.some((o) => o.id !== id && o.track === toTrack && overlaps(o, { start: a.start + Math.max(dt, -a.start), duration: a.duration })) ? toTrack : a.track;
-  const others = adj.filter((o) => o.id !== id && o.track === track).sort((p, q) => p.start - q.start);
-  let start = Math.max(0, a.start + dt);
+  const start0 = Math.max(0, a.start + dt);
+  if (toTrack !== undefined && toTrack >= 0 && toTrack !== a.track) {
+    const taken = adj.some((o) => o.id !== id && o.track === toTrack && overlaps(o, { start: start0, duration: a.duration }));
+    if (!taken) return replace(adj, { ...a, start: start0, track: toTrack });
+    return adj.map((o) => (o.id === id ? { ...a, start: start0, track: toTrack } : o.track >= toTrack ? { ...o, track: o.track + 1 } : o));
+  }
+  const others = adj.filter((o) => o.id !== id && o.track === a.track).sort((p, q) => p.start - q.start);
+  let start = start0;
   const prev = others.filter((o) => adjEnd(o) <= a.start + EPS).at(-1);
   const next = others.find((o) => o.start >= adjEnd(a) - EPS);
-  if (track === a.track) {
-    if (prev) start = Math.max(start, adjEnd(prev));
-    if (next) start = Math.min(start, next.start - a.duration);
-  }
-  return replace(adj, { ...a, start, track });
+  if (prev) start = Math.max(start, adjEnd(prev));
+  if (next) start = Math.min(start, next.start - a.duration);
+  return replace(adj, { ...a, start, track: a.track });
 }
 
 export function trimAdjLeft<T extends Timed>(adj: T[], id: string, dt: number): T[] {

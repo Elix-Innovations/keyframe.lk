@@ -26,14 +26,14 @@ const SAMPLE_TEXT = 'මේ Effect එක දැකලා තියෙනවා 
  * Put a template on the timeline as its own text layer (a block on the text track the user can move, trim,
  * stretch over the whole video, and edit the words of). `text` / `duration` default to a short sample.
  */
-export async function addTemplateLayer(tpl: Template, start: number, track = 0, text?: string, duration = 3, sound: SoundChoice = templatePrefs.sound): Promise<string | null> {
+export async function addTemplateLayer(tpl: Template, start: number, track?: number, text?: string, duration = 3, sound: SoundChoice = templatePrefs.sound): Promise<string | null> {
   const t = sped(tpl);
   const st = useEditor.getState();
   if (!st.project) return null;
   const o = makeOverlay({
     kind: 'text', text: text?.trim() || SAMPLE_TEXT, start, duration, track,
     apply: { tpl: { id: t.id, style: t.style }, y: t.style.layout.y, animIn: { id: 'none', duration: 0.01 }, animOut: { id: 'none', duration: 0.01 } },
-  }, st.project.overlays ?? []);
+  }, st.project.overlays ?? [], st.project);
   st.setOverlays((l) => [...l, o]);
   st.selectOverlay(o.id);
   const sfx = sound === 'template' ? t.sfx ?? null : sound === 'none' ? null : sound;

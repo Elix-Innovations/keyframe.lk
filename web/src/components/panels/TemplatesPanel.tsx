@@ -242,7 +242,7 @@ export function TemplatesPanel() {
 
       {found ? (
         <Section title={`${found.length} result${found.length === 1 ? '' : 's'}`}>
-          {found.length ? <div className="grid grid-cols-2 gap-2">{found.map((t) => card(t))}</div> : <p className="text-xs text-muted-foreground">No template named “{query}”.</p>}
+          {found.length ? <div className="grid grid-cols-3 gap-1.5">{found.map((t) => card(t))}</div> : <p className="text-xs text-muted-foreground">No template named “{query}”.</p>}
         </Section>
       ) : visible.map((g) => {
         const peek = cat === 'all' && g.list.length > PEEK;
@@ -256,7 +256,7 @@ export function TemplatesPanel() {
               {g.id === 'mine' && <Button variant="ghost" size="xs" onClick={exportAll}><Download />Export</Button>}
               {peek && <Button variant="ghost" size="xs" onClick={() => setCat(g.id)}>See all<ChevronRight /></Button>}
             </div>
-            <div className="grid grid-cols-2 gap-2">{(peek ? g.list.slice(0, PEEK) : g.list).map((t) => card(t))}</div>
+            <div className="grid grid-cols-3 gap-1.5">{(peek ? g.list.slice(0, PEEK) : g.list).map((t) => card(t))}</div>
           </section>
         );
       })}

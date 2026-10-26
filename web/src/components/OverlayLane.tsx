@@ -1,9 +1,11 @@
+import { useBlockThumb } from '@/lib/blockThumb';
 import { copySelection, cutSelection, hasClipboard, pasteAtPlayhead, pasteAttributes } from '@/lib/clipboard';
 import { memo, useRef } from 'react';
-import type { OverlayItem } from '@/types';
+import type { OverlayItem, Project } from '@/types';
 import { useEditor } from '@/store';
 import { currentTime, seek } from '@/lib/player';
-import { adjEnd, deleteAdj, duplicateAdj, moveAdj, splitAdj, trimAdjLeft, trimAdjRight } from '@/lib/adj';
+import { adjEnd, deleteAdj, duplicateAdj, splitAdj } from '@/lib/adj';
+import { freeLayerRow, moveLayer, trimLayer } from '@/lib/layers';
 import { clipEnd } from '@/lib/clips';
 import { laneOf } from '@/lib/videoFx';
 import { makeOverlay, overlayLabel, TEXT_PRESETS, BADGES, type OverlayInit } from '@/lib/overlays';
@@ -20,18 +22,18 @@ const SNAP_PX = 8;
 export const overlayOps = {
   add(init: OverlayInit): string {
     const st = useEditor.getState();
-    const o = makeOverlay(init, st.project?.overlays ?? []);
+    const o = makeOverlay(init, st.project?.overlays ?? [], st.project ?? undefined);
     st.setOverlays((l) => [...l, o]);
     st.selectOverlay(o.id);
     st.setPanel('overlay');
     return o.id;
   },
   /** A new text or sticker overlay with a preset look. `start` defaults to the playhead. */
-  addText(text: string, presetId?: string, start = currentTime(), track = 0) {
+  addText(text: string, presetId?: string, start = currentTime(), track?: number) {
     const preset = TEXT_PRESETS.find((p) => p.id === presetId) ?? BADGES.find((b) => b.id === presetId);
     return overlayOps.add({ kind: 'text', text, start, duration: Math.min(3, Math.max(1, (useEditor.getState().project?.duration ?? 3) - start)), track, apply: preset?.apply });
   },
-  addSticker(text: string, start = currentTime(), track = 0) {
+  addSticker(text: string, start = currentTime(), track?: number) {
     return overlayOps.add({ kind: 'sticker', text, start, duration: Math.min(3, Math.max(1, (useEditor.getState().project?.duration ?? 3) - start)), track });
   },
   splitAtPlayhead(id?: string) {
@@ -43,7 +45,13 @@ export const overlayOps = {
     st.setOverlays(() => r.adj);
     return true;
   },
-  duplicate(id: string) { useEditor.getState().setOverlays((l) => duplicateAdj(l, id)); },
+  duplicate(id: string) {
+    useEditor.getState().update((p) => {
+      const list = duplicateAdj(p.overlays ?? [], id), dup = list.at(-1);
+      if (!dup || dup.id === id) return p;
+      return { ...p, overlays: list.map((o) => (o === dup ? { ...o, track: freeLayerRow(p, o.start, o.duration, o.track) } : o)) };
+    });
+  },
   remove(id: string) { const st = useEditor.getState(); st.setOverlays((l) => deleteAdj(l, id)); st.selectOverlay(null); },
 };
 
@@ -62,7 +70,9 @@ export const OverlayBlock = memo(function OverlayBlock({ item, pps, pad, top, he
   const selected = useEditor((s) => s.selectedOverlayId === item.id);
   const locked = useEditor((s) => !!laneOf(s.project!, overlayLane(item.track)).locked);
   const hidden = useEditor((s) => !!laneOf(s.project!, overlayLane(item.track)).hidden);
-  const drag = useRef<{ kind: 'move' | 'l' | 'r'; x0: number; orig: OverlayItem[] } | null>(null);
+  const drag = useRef<{ kind: 'move' | 'l' | 'r'; x0: number; orig: OverlayItem[]; proj: Project } | null>(null);
+  const cell = Math.max(12, (height - 16) * 1.25, (item.duration * pps) / 150);
+  const thumb = useBlockThumb(item.kind === 'image' ? item.assetId : undefined, 'image');
 
   const down = (e: React.PointerEvent, kind: 'move' | 'l' | 'r') => {
     if (e.button !== 0) return;
@@ -70,7 +80,7 @@ export const OverlayBlock = memo(function OverlayBlock({ item, pps, pad, top, he
     const st = useEditor.getState();
     st.selectOverlay(item.id);
     if (locked) return;
-    drag.current = { kind, x0: e.clientX, orig: st.project?.overlays ?? [] };
+    drag.current = { kind, x0: e.clientX, orig: st.project?.overlays ?? [], proj: st.project! };
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
   };
   const move = (e: React.PointerEvent) => {
@@ -78,25 +88,32 @@ export const OverlayBlock = memo(function OverlayBlock({ item, pps, pad, top, he
     if (!d) return;
     const raw = (e.clientX - d.x0) / pps;
     const a = d.orig.find((x) => x.id === item.id)!;
-    const set = useEditor.getState().setOverlays;
-    if (d.kind === 'move') set(() => moveAdj(d.orig, item.id, snap(d.orig, a, raw, pps), geo.overlayTrackAt(e.clientY)), `overlay-${item.id}`);
-    else if (d.kind === 'l') set(() => trimAdjLeft(d.orig, item.id, raw), `overlay-${item.id}`);
-    else set(() => trimAdjRight(d.orig, item.id, raw), `overlay-${item.id}`);
+    const proj = d.proj;
+    const upd = useEditor.getState().update;
+    if (d.kind === 'move') upd(() => moveLayer(proj, item.id, snap(d.orig, a, raw, pps), geo.videoTrackAt(e.clientY)), `overlay-${item.id}`);
+    else upd(() => trimLayer(proj, item.id, d.kind === 'l' ? 'l' : 'r', raw), `overlay-${item.id}`);
   };
   const canSplit = (() => { const t = currentTime(); return t > item.start && t < adjEnd(item); })();
-  const icon = item.kind === 'text' ? 'T' : item.kind === 'sticker' ? item.text.slice(0, 2) : '▣';
 
   return (
     <ContextMenu onOpenChange={(o) => o && useEditor.getState().selectOverlay(item.id)}>
       <ContextMenuTrigger asChild>
         <div title={`${item.kind === 'text' ? 'Text' : item.kind === 'sticker' ? 'Sticker' : 'Image'}: ${overlayLabel(item)}`}
           onPointerDown={(e) => down(e, 'move')} onPointerMove={move} onPointerUp={() => { drag.current = null; }}
-          className={cn('group absolute flex items-center gap-1.5 overflow-hidden rounded-lg border px-2 text-xs font-medium text-white',
-            item.kind === 'text' ? 'border-chart-1/70 bg-chart-1/60' : item.kind === 'sticker' ? 'border-chart-4/70 bg-chart-4/60' : 'border-chart-2/70 bg-chart-2/60',
+          className={cn('group absolute flex items-center gap-1.5 overflow-hidden rounded-lg border bg-black/40 text-xs font-medium text-white',
+            item.kind === 'text' ? 'border-chart-1/70' : item.kind === 'sticker' ? 'border-chart-4/70' : 'border-chart-2/70',
             selected && 'ring-2 ring-primary', hidden && 'opacity-35', locked ? 'cursor-not-allowed' : 'cursor-grab active:cursor-grabbing')}
           style={{ left: item.start * pps + pad, width: Math.max(8, item.duration * pps), top, height }}>
-          <span className="pointer-events-none shrink-0 font-semibold">{icon}</span>
-          <span className="sinhala pointer-events-none truncate">{item.kind === 'sticker' ? '' : overlayLabel(item)}</span>
+          <span className={cn('pointer-events-none absolute inset-x-0 top-0 z-10 flex h-4 items-center gap-1 truncate px-1.5 text-[10px]', item.kind === 'text' ? 'bg-chart-1' : item.kind === 'sticker' ? 'bg-chart-4' : 'bg-chart-2')}>
+            <span className="shrink-0">{item.kind === 'text' ? 'T' : item.kind === 'sticker' ? '☺' : item.kind === 'motion' ? '✦' : '▣'}</span>
+            <span className="sinhala truncate">{overlayLabel(item)}</span>
+          </span>
+          {thumb
+            ? <div className="pointer-events-none absolute inset-x-0 bottom-0 overflow-hidden" style={{ top: 16 }}>
+              {Array.from({ length: Math.min(150, Math.ceil(Math.max(8, item.duration * pps) / cell)) }, (_, i) => <div key={i} className="absolute top-0 h-full bg-cover bg-center" style={{ left: i * cell, width: cell, backgroundImage: `url(${thumb})` }} />)}
+            </div>
+            : <span className="sinhala pointer-events-none absolute inset-x-0 bottom-0 flex items-center justify-center gap-1 truncate px-2" style={{ top: 16, fontSize: item.kind === 'sticker' ? 22 : 13, color: item.kind === 'text' ? item.color : undefined }}>{item.kind === 'sticker' ? item.text.slice(0, 3) : item.kind === 'text' ? item.text.split('\n')[0] : '✦'}</span>}
+          
           {(item.keyframes ?? []).map((k) => (
             <button key={k.id} type="button" title="Keyframe" aria-label="Keyframe" onPointerDown={(e) => { e.stopPropagation(); useEditor.getState().selectOverlay(item.id); seek(item.start + k.t); }}
               className="keyframe-diamond absolute bottom-0.5 z-10 size-2.5 bg-white hover:scale-125" style={{ left: k.t * pps - 5 }} />

@@ -1,13 +1,15 @@
+import { useFilmstrip, type Filmstrip } from '@/lib/filmstrip';
 import { clipboardKind, copySelection, hasClipboard, pasteAtPlayhead, pasteAttributes } from '@/lib/clipboard';
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
-import type { Clip } from '@/types';
+import type { Clip, Project } from '@/types';
+import { placeOnRow } from '@/lib/layers';
 import { WAVEFORM_RATE } from '@/types';
 import { useEditor } from '@/store';
 import { currentTime } from '@/lib/player';
 import { toast } from 'sonner';
 import { extractCutout } from '@/lib/extractCutout';
 import {
-  changeSpeed, clipEnd, deleteClips, createCutoutLayer, duplicateClip, freezeFrame, link, moveClips, partnerOf, setVideoTrack, splitClips, trimLeft, trimRight, unlink,
+  changeSpeed, clipEnd, deleteClips, createCutoutLayer, duplicateClip, freezeFrame, link, moveClips, partnerOf, splitClips, trimLeft, trimRight, unlink,
 } from '@/lib/clips';
 import { hasClipFx, laneOf, migrateVideo } from '@/lib/videoFx';
 import { geo } from '@/lib/timelineGeo';
@@ -52,7 +54,7 @@ export const clipOps = {
   /** Make an overlay layer from the clip's cut-out so overlays can go behind or in front of the subject. */
   createCutout(id: string) {
     const st = useEditor.getState();
-    const r = createCutoutLayer(st.project?.clips ?? [], id);
+    const r = createCutoutLayer(st.project?.clips ?? [], id, st.project?.overlays);
     if (!r.id) return;
     st.setClips(() => r.clips);
     st.selectClip(r.id);
@@ -144,7 +146,7 @@ export const ClipBlock = memo(function ClipBlock({ clip, pps, pad, top, height }
   const laneKey = clip.kind === 'audio' ? 'audio' : (clip.track ?? 0) === 0 ? 'video' : `video:${clip.track}`;
   const locked = useEditor((s) => !!laneOf(s.project!, laneKey).locked);
   const hidden = useEditor((s) => !!laneOf(s.project!, laneKey).hidden);
-  const drag = useRef<{ kind: 'move' | 'l' | 'r'; x0: number; orig: Clip[] } | null>(null);
+  const drag = useRef<{ kind: 'move' | 'l' | 'r'; x0: number; orig: Clip[]; proj: Project } | null>(null);
   const [wf, setWf] = useState<number[] | null>(null);
   useEffect(() => {
     if (clip.kind !== 'audio') return;
@@ -159,7 +161,7 @@ export const ClipBlock = memo(function ClipBlock({ clip, pps, pad, top, height }
     const st = useEditor.getState();
     st.selectClip(clip.id);
     if (locked) return;
-    drag.current = { kind, x0: e.clientX, orig: st.project?.clips ?? [] };
+    drag.current = { kind, x0: e.clientX, orig: st.project?.clips ?? [], proj: st.project! };
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
   };
   const move = (e: React.PointerEvent) => {
@@ -171,9 +173,10 @@ export const ClipBlock = memo(function ClipBlock({ clip, pps, pad, top, height }
     const dt = d.kind === 'move' ? snapDt(d.orig, group, raw, pps) : raw;
     const op = d.kind === 'move' ? moveClips : d.kind === 'l' ? trimLeft : trimRight;
     const toTrack = d.kind === 'move' && clip.kind === 'video' ? geo.videoTrackAt(e.clientY) : undefined;
-    useEditor.getState().setClips(() => {
-      const moved = op(d.orig, clip.id, dt);
-      return toTrack !== undefined ? setVideoTrack(moved, clip.id, toTrack) : moved;
+    // A taken row opens a new layer there, like dropping an overlay.
+    useEditor.getState().update(() => {
+      const next = { ...d.proj, clips: op(d.orig, clip.id, dt) };
+      return toTrack !== undefined ? placeOnRow(next, clip.id, toTrack) : next;
     }, `clip-${clip.id}`);
   };
 
@@ -192,18 +195,20 @@ export const ClipBlock = memo(function ClipBlock({ clip, pps, pad, top, height }
   }, [wf, clip.in, clip.duration, clip.speed, pps]);
 
   const isVideo = clip.kind === 'video';
-  return (
+  const strip = useFilmstrip(isVideo ? clip.assetId : undefined, clip.sourceDuration);
+    return (
     <Menu clip={clip}>
       <div title={`${clip.name} · ${formatClock(clip.duration, true)}${clip.speed !== 1 ? ` · ${clip.speed}×` : ''}`}
         onPointerDown={(e) => down(e, 'move')} onPointerMove={move} onPointerUp={() => { drag.current = null; }}
         className={cn('group absolute overflow-hidden rounded-lg border text-[10px] font-medium transition-shadow',
-          isVideo ? 'border-foreground/20 bg-secondary' : 'border-chart-3/50 bg-chart-3/20',
+          isVideo ? strip ? 'border-teal-600/70 bg-teal-800' : 'border-foreground/20 bg-secondary' : 'border-chart-3/50 bg-chart-3/20',
           selected ? 'border-primary shadow-md shadow-primary/30 ring-1 ring-primary' : partnerSelected ? 'ring-1 ring-primary/50' : '',
           hidden && 'opacity-35', clip.muted && 'opacity-50', locked ? 'cursor-not-allowed' : 'cursor-grab active:cursor-grabbing')}
         style={{ left: clip.start * pps + pad, width: w, top, height }}>
+        {strip && <Strip fs={strip} clip={clip} pps={pps} w={w} height={height - HEAD} />}
         {path && <svg className="pointer-events-none absolute inset-0 h-full w-full" viewBox={`0 0 ${Math.max(0.01, clip.duration)} 1`} preserveAspectRatio="none"><path d={path} fill="rgba(80,200,140,0.55)" /></svg>}
         {clip.freeze && <div className="pointer-events-none absolute inset-0 bg-[repeating-linear-gradient(45deg,transparent_0_6px,rgba(255,255,255,0.08)_6px_12px)]" />}
-        <span className="pointer-events-none absolute left-1.5 top-0.5 flex max-w-[92%] items-center gap-1 truncate text-foreground/90">
+        <span className={cn("pointer-events-none absolute inset-x-0 top-0 z-10 flex items-center gap-1 truncate px-1.5 text-foreground/90", strip && "bg-teal-700 text-white")} style={{ height: HEAD }}>
           {clip.linkId && <span title="Linked" className="grid size-3 place-items-center rounded-sm bg-primary/80 text-[8px] text-white">⛓</span>}
           {clip.muted && <VolumeOff className="size-3" />}
           <span className="truncate">{clip.freeze ? 'Freeze · ' : ''}{clip.name}</span>
@@ -217,3 +222,20 @@ export const ClipBlock = memo(function ClipBlock({ clip, pps, pad, top, height }
     </Menu>
   );
 });
+
+/** Frames laid along a clip block; each tile shows the source frame at its own time, so trimming and speed stay honest. */
+const HEAD = 16;
+const CELL = 1.25;
+
+function Strip({ fs, clip, pps, w, height }: { fs: Filmstrip; clip: Clip; pps: number; w: number; height: number }) {
+  // Fixed CapCut-like cells (frames are cropped to fill); an extremely long block gets wider ones to bound the element count.
+  const tw = Math.max(12, height * CELL, w / 150);
+  const n = Math.ceil(w / tw);
+  const tiles = [];
+  for (let i = 0; i < n; i++) {
+    const src = clip.in + ((i * tw + tw / 2) / pps) * clip.speed;
+    const f = fs.frames[Math.min(fs.frames.length - 1, Math.max(0, Math.floor(src / fs.step)))];
+    tiles.push(<div key={i} className="absolute top-0 h-full bg-cover bg-center" style={{ left: i * tw, width: tw, backgroundImage: `url(${f})` }} />);
+  }
+  return <div className="pointer-events-none absolute inset-x-0 bottom-0 overflow-hidden" style={{ height }}>{tiles}</div>;
+}

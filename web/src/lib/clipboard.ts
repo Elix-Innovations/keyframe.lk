@@ -1,9 +1,10 @@
 import { nanoid } from 'nanoid';
 import { useEditor } from '../store';
 import { merge } from './style';
-import type { AdjClip, Caption, CaptionStyle, Clip, MusicTrack, OverlayItem, VideoLayer, Word } from '../types';
+import type { AdjClip, Caption, CaptionStyle, Clip, MusicTrack, OverlayItem, Project, VideoLayer, Word } from '../types';
 import { currentTime } from './player';
 import { freeTrack } from './adj';
+import { freeLayerRow } from './layers';
 import { freeLayer } from './sounds';
 import { freeVideoTrack, videoClips, withPartner } from './clips';
 import { migrateVideo } from './videoFx';
@@ -86,11 +87,11 @@ export function pasteAtPlayhead(asOverlay = false): boolean {
   if (held.kind === 'overlay') {
     const first = Math.min(...held.items.map((o) => o.start));
     const copies: OverlayItem[] = [];
-    const list = [...(p.overlays ?? [])];
+    let proj: Project = p;
     for (const o of held.items) {
       const start = Math.max(0, at + (o.start - first));
-      const copy: OverlayItem = { ...clone(o), id: nanoid(8), start, track: freeTrack(list, start, o.duration, o.track) };
-      list.push(copy); copies.push(copy);
+      const copy: OverlayItem = { ...clone(o), id: nanoid(8), start, track: freeLayerRow(proj, start, o.duration, o.track) };
+      proj = { ...proj, overlays: [...(proj.overlays ?? []), copy] }; copies.push(copy);
     }
     st.setOverlays((l) => [...l, ...copies]);
     st.setOverlaySelection(copies.map((c) => c.id));
@@ -101,7 +102,7 @@ export function pasteAtPlayhead(asOverlay = false): boolean {
     const group = asOverlay ? held.items.filter((c) => c.kind === 'video') : held.items;
     const link = !asOverlay && main.linkId ? nanoid(6) : undefined;
     const clips = p.clips ?? [];
-    const vtrack = freeVideoTrack(clips, at, main.duration, asOverlay ? Math.max(1, main.track ?? 0) : main.track ?? 0);
+    const vtrack = freeVideoTrack(clips, at, main.duration, asOverlay ? Math.max(1, main.track ?? 0) : main.track ?? 0, undefined, p.overlays);
     const copies = group.map((g): Clip => {
       const fx = g.kind === 'video' ? migrateVideo(g.fx) : g.fx;
       return {

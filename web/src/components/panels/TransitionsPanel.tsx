@@ -1,5 +1,6 @@
 import type { TransitionId } from '@/types';
 import { TRANSITIONS, TRENDING_TRANSITIONS } from '@/lib/videoFx';
+import { useLibQuery, matches } from '@/lib/libQuery';
 import { Row, Section, Slider } from '../controls';
 import { usePreviewSourceSync } from '../FxPreview';
 import { Button } from '@/components/ui/button';
@@ -11,6 +12,7 @@ import { PreviewTile, TargetBar, useLayer } from './EffectsPanel';
  */
 export function TransitionsPanel() {
   usePreviewSourceSync();
+  const q = useLibQuery((s) => s.q).trim();
   const { layer, set, clip } = useLayer();
   const maxD = Math.max(0.2, Math.min(3, (clip?.duration ?? 6) / 2));
   const label = (id: TransitionId) => TRANSITIONS.find((t) => t.id === id)?.label;
@@ -30,17 +32,17 @@ export function TransitionsPanel() {
         </Row>
         {layer.transitionOut.id !== 'none' && <Row label="End length"><Slider value={layer.transitionOut.duration} min={0.1} max={maxD} step={0.05} format={(v) => `${v.toFixed(2)}s`} onChange={(d) => set((l) => ({ ...l, transitionOut: { ...l.transitionOut, duration: d } }), 'tr-out')} /></Row>}
       </Section>
-      <Section title="Trending" right={<span className="text-[11px] text-muted-foreground">{TRENDING_TRANSITIONS.length}</span>}>
-        <div className="grid grid-cols-3 gap-2">
+      {!q && <Section title="Trending" right={<span className="text-[11px] text-muted-foreground">{TRENDING_TRANSITIONS.length}</span>}>
+        <div className="grid grid-cols-4 gap-1.5">
           {TRANSITIONS.filter((t) => TRENDING_TRANSITIONS.includes(t.id)).map((t) => (
             <PreviewTile key={t.id} spec={{ transition: t.id }} label={t.label}
               on={layer.transitionIn.id === t.id || layer.transitionOut.id === t.id} drag={{ type: 'transition', id: t.id }} />
           ))}
         </div>
-      </Section>
-      <Section title="All transitions" right={<span className="text-[11px] text-muted-foreground">{TRANSITIONS.length - 1} styles</span>}>
-        <div className="grid grid-cols-3 gap-2">
-          {TRANSITIONS.filter((t) => t.id !== 'none').map((t) => (
+      </Section>}
+      <Section title={q ? 'Results' : 'All transitions'} right={<span className="text-[11px] text-muted-foreground">{q ? TRANSITIONS.filter((t) => t.id !== 'none' && matches(t.label, q)).length : TRANSITIONS.length - 1} styles</span>}>
+        <div className="grid grid-cols-4 gap-1.5">
+          {TRANSITIONS.filter((t) => t.id !== 'none' && (!q || matches(t.label, q))).map((t) => (
             <PreviewTile key={t.id} spec={{ transition: t.id }} label={t.label}
               on={layer.transitionIn.id === t.id || layer.transitionOut.id === t.id} drag={{ type: 'transition', id: t.id }} />
           ))}

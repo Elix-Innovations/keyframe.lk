@@ -3,7 +3,8 @@ import type { VideoFilters } from '@/types';
 import { EFFECTS } from '@/render/effects';
 import { NEUTRAL_FILTERS } from '@/lib/videoFx';
 import { Button } from '@/components/ui/button';
-import { Row, Section, Slider } from '../controls';
+import { useState } from 'react';
+import { Row, Section, Segmented, Slider } from '../controls';
 import { ColorGrade } from './ColorGrade';
 import { usePreviewSourceSync } from '../FxPreview';
 import { TargetBar, useLayer } from './EffectsPanel';
@@ -23,20 +24,24 @@ const FIELDS: { k: keyof VideoFilters; label: string; min: number; max: number; 
 export function AdjustPanel() {
   usePreviewSourceSync();
   const { layer, set } = useLayer();
+  const [tab, setTab] = useState<'basic' | 'hsl' | 'curves' | 'wheels'>('basic');
   const label = (id: string) => EFFECTS.find((e) => e.id === id)?.label ?? id;
   return (
     <div>
+      <div className="sticky top-0 z-10 border-b bg-sidebar px-3 py-2">
+        <Segmented fill size="sm" value={tab} onChange={setTab} options={[{ value: 'basic', label: 'Basic' }, { value: 'hsl', label: 'HSL' }, { value: 'curves', label: 'Curves' }, { value: 'wheels', label: 'Colour wheel' }]} />
+      </div>
       <TargetBar pick={(l) => ({ filters: l.filters, presetId: l.presetId, effects: l.effects })} label="adjustments" />
-      <Section title="Adjust" right={<Button variant="ghost" size="xs" onClick={() => set((l) => ({ ...l, presetId: 'none', presetStrength: 100, filters: NEUTRAL_FILTERS }))}>Reset</Button>}>
+      {tab === 'basic' && <Section title="Adjust" right={<Button variant="ghost" size="xs" onClick={() => set((l) => ({ ...l, presetId: 'none', presetStrength: 100, filters: NEUTRAL_FILTERS }))}>Reset</Button>}>
         {FIELDS.map((f) => (
           <Row key={f.k} label={f.label}>
             <Slider value={layer.filters[f.k]} min={f.min} max={f.max} format={(v) => `${v}${f.unit}`}
               onChange={(v) => set((l) => ({ ...l, presetId: null, filters: { ...l.filters, [f.k]: v } }), `flt-${f.k}`)} />
           </Row>
         ))}
-      </Section>
-      <ColorGrade filters={layer.filters} patch={(p, key) => set((l) => ({ ...l, presetId: null, filters: { ...l.filters, ...p } }), key)} />
-      <Section title="Clip effects">
+      </Section>}
+      <ColorGrade part={tab} filters={layer.filters} patch={(p, key) => set((l) => ({ ...l, presetId: null, filters: { ...l.filters, ...p } }), key)} />
+      {tab === 'basic' && <Section title="Clip effects">
         {layer.effects.length === 0 && <p className="text-xs text-muted-foreground">Drag an effect from the Effects tab onto a track on the timeline.</p>}
         {layer.effects.map((e) => (
           <Row key={e.id} label={label(e.effectId)}>
@@ -45,7 +50,7 @@ export function AdjustPanel() {
             <Button variant="ghost" size="icon-xs" aria-label="Remove effect" className="hover:text-destructive" onClick={() => set((l) => ({ ...l, effects: l.effects.filter((x) => x.id !== e.id) }))}><Trash2 /></Button>
           </Row>
         ))}
-      </Section>
+      </Section>}
     </div>
   );
 }

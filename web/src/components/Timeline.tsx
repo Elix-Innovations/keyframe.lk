@@ -1,6 +1,6 @@
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { nanoid } from 'nanoid';
-import { ClipboardPaste, PictureInPicture, WandSparkles, ChevronLeft, ChevronRight, Copy, Plus, Crosshair, Merge, Pencil, Play, Redo2, Scissors, Trash2, Type, Undo2, ZoomIn, ZoomOut } from '@/components/icons';
+import { ClipboardPaste, PictureInPicture, WandSparkles, ChevronLeft, ChevronRight, Copy, Plus, Crosshair, Merge, Pencil, Play, Redo2, Scissors, Trash2, Undo2, ZoomIn, ZoomOut } from '@/components/icons';
 import { clipboardKind, copySelection, hasClipboard, onClipboardChange, pasteAtPlayhead, pasteAttributes, copyCaptionStyle, pasteCaptionStyle } from '@/lib/clipboard';
 import { Eye, EyeOff, Layers, Link, Lock, Magnet, Ripple, Unlock, Volume, VolumeOff } from '@/components/icons-audio';
 import type { Caption, LaneGroup, MusicTrack } from '@/types';
@@ -11,7 +11,7 @@ import { seek, currentTime, playRange } from '@/lib/player';
 import { mergeCaptions, normalizeCaptions, shiftCaptions, splitCaptionAt } from '@/lib/segment';
 import { cn } from '@/lib/utils';
 import { laneOf, migrateVideo } from '@/lib/videoFx';
-import { audioRows, clipEnd, copyClipTo, trackOf, videoClips, videoTrackCount } from '@/lib/clips';
+import { audioRows, clipEnd, copyClipTo, trackOf, videoClips } from '@/lib/clips';
 import { trackCount } from '@/lib/adj';
 import { groupOrder, moveGroup, moveLane, type LaneKind } from '@/lib/laneOrder';
 import { DRAG_MIME, geo, type DragPayload } from '@/lib/timelineGeo';
@@ -20,7 +20,7 @@ import { addTemplateLayer, findTemplate } from '@/lib/templateApply';
 import { addSound, trackOps, waveformForAsset } from '@/lib/sounds';
 import { AdjBlock, adjLane, adjOps } from './AdjLane';
 import { OverlayBlock, overlayOps } from './OverlayLane';
-import { overlayLane } from '@/render/overlays';
+import { rowCount } from '@/lib/layers';
 import { ClipBlock, clipOps } from './ClipLane';
 import { Button } from '@/components/ui/button';
 import { Slider } from '@/components/ui/slider';
@@ -29,12 +29,14 @@ import {
   ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuShortcut, ContextMenuTrigger,
 } from '@/components/ui/context-menu';
 
-const LANE_H = 48;
+const LANE_H = 60;
 const HEAD = 148; // sticky track-header column
 const PAD = HEAD + 12; // time 0 sits just right of the headers
 const MUSIC_H = 46;
 const FX_H = 28;
 const GAP = 6;
+/** Strip above the top layer row that opens a new layer when something is dropped on it. */
+const NEW_ROW_H = 16;
 
 type LaneField = 'hidden' | 'locked';
 function toggleLane(key: string, field: LaneField) {
@@ -322,22 +324,20 @@ export function Timeline() {
   const aRows = audioRows(project.clips ?? []);
   const audioRowCount = Math.max(1, ...aRows.map((r) => r.row + 1));
   const nAdj = trackCount(project.adj ?? []);
-  const nOvl = trackCount(project.overlays ?? []);
-  const nVid = videoTrackCount(project.clips ?? []);
+  const nVid = rowCount(project);
   const nSound = project.audio.tracks.length ? Math.max(...project.audio.tracks.map((t) => t.layer ?? 0)) + 1 : 0;
   const capsTop = 30;
   const order = groupOrder(project);
   const sizes: Record<LaneGroup, number> = {
-    overlay: nOvl * (FX_H + GAP), adj: nAdj * (FX_H + GAP), video: nVid * (LANE_H + GAP),
+    overlay: 0, adj: nAdj * (FX_H + GAP), video: NEW_ROW_H + nVid * (LANE_H + GAP),
     audio: audioRowCount * (AUD_H + 4) + GAP, broll: FX_H + GAP, sound: nSound * (MUSIC_H + GAP),
   };
   const area = {} as Record<LaneGroup, number>;
   let acc = capsTop + LANE_H + GAP;
   for (const g of order) { area[g] = acc; acc += sizes[g]; }
-  const ovlArea = area.overlay, adjArea = area.adj, videoArea = area.video, audioTop = area.audio;
-  const ovlTop = (track: number) => ovlArea + (nOvl - 1 - track) * (FX_H + GAP);
+  const adjArea = area.adj, videoArea = area.video, audioTop = area.audio;
   const adjTop = (track: number) => adjArea + (nAdj - 1 - track) * (FX_H + GAP);
-  const videoTop = (track: number) => videoArea + (nVid - 1 - track) * (LANE_H + GAP);
+  const videoTop = (track: number) => videoArea + NEW_ROW_H + (nVid - 1 - track) * (LANE_H + GAP);
   const rows = { ruler: 0, caps: capsTop, extra: area.broll };
   const musicTop = (layer: number) => area.sound + layer * (MUSIC_H + GAP);
   const bottom = acc + 8;
@@ -347,6 +347,12 @@ export function Timeline() {
     if (y >= area[g] + sizes[g]) return undefined;
     return Math.max(0, Math.min(count - 1, count - 1 - Math.floor((y - area[g]) / h)));
   };
+  /** Layer rows: a slim strip above the top row opens a new layer; below it each row is a track (row 0 is the main video). */
+  const layerRowIn = (y: number) => {
+    if (y < area.video - 4 || y >= area.video + sizes.video) return undefined;
+    if (y < area.video + NEW_ROW_H) return nVid;
+    return Math.max(0, Math.min(nVid - 1, nVid - 1 - Math.floor((y - area.video - NEW_ROW_H) / (LANE_H + GAP))));
+  };
   const groupAt = (clientY: number): LaneGroup => {
     const y = contentY(clientY);
     return order.find((g) => y < area[g] + sizes[g]) ?? order[order.length - 1];
@@ -355,9 +361,10 @@ export function Timeline() {
   // Publish row geometry so clip blocks can turn a pointer position into a track while dragging.
   const contentY = (clientY: number) => clientY - scroller.current!.getBoundingClientRect().top + scroller.current!.scrollTop;
   geo.timeAt = (clientX) => (clientX - scroller.current!.getBoundingClientRect().left + scroller.current!.scrollLeft - PAD) / pps;
-  geo.overlayTrackAt = (clientY) => trackIn('overlay', contentY(clientY), nOvl, FX_H + GAP);
   geo.adjTrackAt = (clientY) => trackIn('adj', contentY(clientY), nAdj, FX_H + GAP);
-  geo.videoTrackAt = (clientY) => trackIn('video', contentY(clientY), nVid, LANE_H + GAP);
+  geo.videoTrackAt = (clientY) => layerRowIn(contentY(clientY));
+  /** The layer row for a dropped overlay: never the main video row. */
+  const layerRowAt = (clientY: number) => { const r = layerRowIn(contentY(clientY)); return r === undefined ? undefined : Math.max(1, r); };
   geo.soundLayerAt = (clientY) => {
     const y = contentY(clientY);
     if (y < area.sound - GAP) return undefined;
@@ -428,15 +435,15 @@ export function Timeline() {
       if (!tpl) return;
       // Dropped on a caption: the layer takes that caption's words and timing. Elsewhere: a sample at the drop point.
       const onCaption = caps.find((c) => t >= c.start && t < c.end);
-      const track = geo.overlayTrackAt(e.clientY);
-      if (onCaption) void addTemplateLayer(tpl, onCaption.start, track ?? 0, onCaption.words.map((w) => w.text).join(' '), onCaption.end - onCaption.start);
-      else void addTemplateLayer(tpl, t, track ?? 0);
+      const track = layerRowAt(e.clientY);
+      if (onCaption) void addTemplateLayer(tpl, onCaption.start, track, onCaption.words.map((w) => w.text).join(' '), onCaption.end - onCaption.start);
+      else void addTemplateLayer(tpl, t, track);
     } else if (payload.type === 'sound') {
       addSound(payload.sound, t, geo.soundLayerAt(e.clientY)).catch((err) => st.notify((err as Error).message, 'error'));
     } else if (payload.type === 'overlay') {
-      const oTrack = geo.overlayTrackAt(e.clientY);
-      if (payload.kind === 'sticker') overlayOps.addSticker(payload.text, t, oTrack ?? 0);
-      else overlayOps.addText(payload.text, payload.presetId, t, oTrack ?? 0);
+      const oTrack = layerRowAt(e.clientY);
+      if (payload.kind === 'sticker') overlayOps.addSticker(payload.text, t, oTrack);
+      else overlayOps.addText(payload.text, payload.presetId, t, oTrack);
     } else if (payload.type === 'fx') {
       const aTrack = geo.adjTrackAt(e.clientY);
       const dur = under ? under.duration : 3;
@@ -447,7 +454,7 @@ export function Timeline() {
       st.setClips((cs) => cs.map((c) => (c.id === under.id ? { ...c, fx: { ...migrateVideo(c.fx), [which]: { id: payload.id, duration: Math.min(0.8, under.duration / 2) } } as never } : c)));
       st.selectClip(under.id);
     } else if (payload.type === 'media') {
-      const r = copyClipTo(clips, payload.clipId, t, vTrack ?? 0);
+      const r = copyClipTo(clips, payload.clipId, t, vTrack ?? 0, st.project?.overlays);
       if (r.id) { st.setClips(() => r.clips); st.selectClip(r.id); }
     }
   };
@@ -497,16 +504,12 @@ export function Timeline() {
             <div className="absolute left-0 top-0 border-r bg-card" style={{ width: HEAD, height: Math.max(bottom, 400) }}>
               <div className="absolute inset-x-0 top-0 h-6 border-b bg-background/40" />
               <LaneHeader top={rows.caps} height={LANE_H} label="Captions" icon={<Pencil />} laneKey="captions" />
-              {Array.from({ length: nOvl }, (_, i) => nOvl - 1 - i).map((tr) => (
-                <LaneHeader key={`ovl${tr}`} top={ovlTop(tr)} height={FX_H} label={tr === 0 ? 'Text & stickers' : `Overlay ${tr + 1}`} icon={<Type />} laneKey={overlayLane(tr)}
-                  order={{ group: 'overlay', groupAt, kind: 'overlay', track: tr, count: nOvl, at: geo.overlayTrackAt }} />
-              ))}
               {Array.from({ length: nAdj }, (_, i) => nAdj - 1 - i).map((tr) => (
                 <LaneHeader key={`adj${tr}`} top={adjTop(tr)} height={FX_H} label={tr === 0 ? 'Filters & FX' : `FX ${tr + 1}`} icon={<Layers />} laneKey={adjLane(tr)}
                   order={{ group: 'adj', groupAt, kind: 'adj', track: tr, count: nAdj, at: geo.adjTrackAt }} />
               ))}
               {Array.from({ length: nVid }, (_, i) => nVid - 1 - i).map((tr) => (
-                <LaneHeader key={`vid${tr}`} top={videoTop(tr)} height={LANE_H} label={tr === 0 ? 'Video' : `Overlay ${tr}`} icon={<Play />} laneKey={tr === 0 ? 'video' : `video:${tr}`}
+                <LaneHeader key={`vid${tr}`} top={videoTop(tr)} height={LANE_H} label={tr === 0 ? 'Video' : `Layer ${tr}`} icon={<Play />} laneKey={tr === 0 ? 'video' : `video:${tr}`}
                   order={{ group: 'video', groupAt, kind: 'video', track: tr, count: nVid, at: geo.videoTrackAt }} />
               ))}
               <LaneHeader top={audioTop} height={audioRowCount * (AUD_H + 4) - 4} label="Audio" icon={<Volume />} laneKey="audio" eye={false} order={{ group: 'audio', groupAt }}
@@ -555,16 +558,17 @@ export function Timeline() {
               );
             })}
           </div>
-          {/* Text, sticker and image overlays on their own tracks. Empty rows are drop targets. */}
-          {Array.from({ length: nOvl }, (_, tr) => (
-            <div key={`ovlrow${tr}`} className="pointer-events-none absolute rounded-lg border border-dashed border-border/60" style={{ left: PAD, width: dur * pps, top: ovlTop(tr), height: FX_H }} />
-          ))}
-          {(project.overlays ?? []).map((o) => <OverlayBlock key={o.id} item={o} pps={pps} pad={PAD} top={ovlTop(o.track)} height={FX_H} />)}
           {/* Filter and effect clips on their own tracks. Empty rows are drop targets. */}
           {Array.from({ length: nAdj }, (_, tr) => (
             <div key={`adjrow${tr}`} className="pointer-events-none absolute rounded-lg border border-dashed border-border/60" style={{ left: PAD, width: dur * pps, top: adjTop(tr), height: FX_H }} />
           ))}
           {(project.adj ?? []).map((a) => <AdjBlock key={a.id} adj={a} pps={pps} pad={PAD} top={adjTop(a.track)} height={FX_H} />)}
+          {/* Layers: one row per track, shared by video clips, cut-outs, images, stickers, text and motion graphics. Empty rows are drop targets. */}
+          <div className="pointer-events-none absolute flex items-center justify-center rounded-lg border border-dashed border-border/40 text-[9px] text-muted-foreground/70" style={{ left: PAD, width: dur * pps, top: area.video, height: NEW_ROW_H - 2 }}>drop here for a new layer</div>
+          {Array.from({ length: nVid }, (_, tr) => (
+            <div key={`vrow${tr}`} className="pointer-events-none absolute rounded-lg border border-dashed border-border/60" style={{ left: PAD, width: dur * pps, top: videoTop(tr), height: LANE_H }} />
+          ))}
+          {(project.overlays ?? []).map((o) => <OverlayBlock key={o.id} item={o} pps={pps} pad={PAD} top={videoTop(o.track)} height={LANE_H} />)}
           {/* Video clips (one row per track) and audio clips (their own layer); linked pairs move together */}
           {videoClips(project.clips ?? []).map((c) => <ClipBlock key={c.id} clip={c} pps={pps} pad={PAD} top={videoTop(trackOf(c))} height={LANE_H} />)}
           {aRows.map(({ clip, row }) => <ClipBlock key={clip.id} clip={clip} pps={pps} pad={PAD} top={audioTop + row * (AUD_H + 4)} height={AUD_H} />)}

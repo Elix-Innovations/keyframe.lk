@@ -48,7 +48,7 @@ export function BackgroundSection() {
   return (
     <>
       <Section title="Cut-out layer">
-        <p className="text-[11px] text-muted-foreground">{clip.cutout ? 'This is a cut-out layer. Move, scale and rotate it in the preview, and set other layers\' Depth to “Behind cut-out” to put them between it and the video.' : 'Make the subject its own layer above the video. Then place text, stickers or images behind it or in front of it, and move or resize the subject like any overlay.'}</p>
+        <p className="text-[11px] text-muted-foreground">{clip.cutout ? 'This is a cut-out layer. Move, scale and rotate it in the preview, and drag other layers below it in the Layers rows to put them between it and the video.' : 'Make the subject its own layer above the video. Then drag text, stickers or images above or below it in the Layers rows, and move or resize the subject like any overlay.'}</p>
         {!clip.cutout && <Button size="sm" onClick={() => clipOps.createCutout(clip.id)}><Plus />Create cut-out layer</Button>}
       </Section>
       <TargetBar pick={(l) => ({ matte: l.matte, regionBlurs: l.regionBlurs })} label="background and blur" />

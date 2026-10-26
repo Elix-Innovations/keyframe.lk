@@ -16,7 +16,8 @@ export interface OverlayHit {
   solidAt?: (x: number, y: number) => boolean;
 }
 
-export const overlayLane = (track: number) => (track === 0 ? 'overlay' : `overlay:${track}`);
+/** Overlays share their row (and its hide / lock state) with video layers. */
+export const overlayLane = (track: number) => (track === 0 ? 'video' : `video:${track}`);
 
 const EMOJI_STACK = '"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif';
 const hasSinhala = (s: string) => /[඀-෿]/.test(s);

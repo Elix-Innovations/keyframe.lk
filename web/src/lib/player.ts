@@ -26,6 +26,24 @@ function pushTime(force = false) {
   if (force || now - lastPush > 50) { lastPush = now; useEditor.getState().setTime(currentTime()); }
 }
 
+// Scrubbing fires seeks faster than a decoder can land them. Keep only the newest target per element and apply it when the current seek ends.
+const wantSeek = new WeakMap<HTMLVideoElement, number>();
+const hooked = new WeakSet<HTMLVideoElement>();
+function seekLatest(el: HTMLVideoElement, t: number) {
+  if (!hooked.has(el)) {
+    hooked.add(el);
+    el.addEventListener('seeked', () => {
+      const n = wantSeek.get(el);
+      if (n === undefined) return;
+      wantSeek.delete(el);
+      if (Math.abs(el.currentTime - n) > 0.005) el.currentTime = n;
+    });
+  }
+  if (el.seeking) { wantSeek.set(el, t); return; }
+  wantSeek.delete(el);
+  el.currentTime = t;
+}
+
 /** Point every video element at the right frame for timeline time t (one per visible clip, so overlay tracks decode too). */
 export function syncVideos(t = currentTime()) {
   const p = useEditor.getState().project;
@@ -43,7 +61,7 @@ export function syncVideos(t = currentTime()) {
       if (el.paused) void el.play().catch(() => {});
     } else {
       if (!el.paused) el.pause();
-      if (Math.abs(el.currentTime - want) > 0.005) el.currentTime = want;
+      if (Math.abs(el.currentTime - want) > 0.005 || el.seeking) seekLatest(el, want);
     }
   }
   for (const { el } of allVideos()) if (!used.has(el) && !el.paused) el.pause();

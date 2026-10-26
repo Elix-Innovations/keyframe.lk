@@ -340,7 +340,9 @@ export type TransitionId =
   | 'none' | 'fade' | 'flash' | 'zoomIn' | 'zoomOut' | 'slideLeft' | 'slideRight' | 'slideUp' | 'slideDown' | 'blur'
   | 'spin' | 'spinZoom' | 'bounce' | 'shake' | 'wipeLeft' | 'wipeRight' | 'wipeUp' | 'wipeDown' | 'circle' | 'flip' | 'glitch'
   | 'whipLeft' | 'whipRight' | 'whipUp' | 'whipDown' | 'zoomBlur' | 'pushZoom' | 'rollLeft' | 'rollRight' | 'swirl' | 'rgbShift'
-  | 'pulse' | 'dolly' | 'strobe' | 'filmBurn' | 'irisOpen' | 'barnDoor' | 'whiteOut' | 'blackOut' | 'jumpCut' | 'tiltDrop';
+  | 'pulse' | 'dolly' | 'strobe' | 'filmBurn' | 'irisOpen' | 'barnDoor' | 'whiteOut' | 'blackOut' | 'jumpCut' | 'tiltDrop'
+  | 'fire' | 'lensFlare' | 'lightLeak' | 'anamorphic' | 'sparkle' | 'lightning' | 'prism' | 'sunrise'
+  | 'earthquake' | 'dizzy' | 'fastZoom' | 'slam' | 'stretch' | 'fadeBlack' | 'vhsRewind' | 'heartbeat';
 
 /** An effect from the effects library applied to the video, with a 0..1 strength. */
 export interface EffectInstance { id: string; effectId: string; intensity: number }
@@ -432,6 +434,10 @@ export interface VideoLayer {
   regionBlurs?: RegionBlur[];
   speed: number;
   hidden: boolean;
+  /** Entrance, exit and idle animations (same ids as overlays). */
+  animIn?: { id: OverlayAnimId; duration: number; speed?: number };
+  animOut?: { id: OverlayAnimId; duration: number; speed?: number };
+  loop?: OverlayLoopId;
 }
 
 // ---- Timeline clips (video and audio on separate, linkable layers) ----
@@ -508,9 +514,9 @@ export interface OverlayItem {
   imgH?: number;
   start: number;
   duration: number;
-  /** Overlay track, 0 is the lowest. */
+  /** Layer row: 1 is the first above the main video; shared with video layers (lib/layers.ts). */
   track: number;
-  /** Painted just before this video track, so it sits behind that layer (e.g. behind a cut-out subject) and above the layers under it. Absent = in front of everything. */
+  /** Old projects only: painted just before this video track. Merged into `track` on load. */
   behind?: number;
   /** Centre, % of the frame. */
   x: number;
@@ -588,6 +594,8 @@ export interface Project {
   clips?: Clip[];
   /** Filters and effects placed on the timeline. */
   adj?: AdjClip[];
+  /** Video layers and overlays share one stack of rows (see lib/layers.ts). Set once an older project has been merged. */
+  layersV2?: boolean;
   /** Text, stickers and images placed over the video. */
   overlays?: OverlayItem[];
   description?: { title: string; body: string; hashtags: string[]; language: 'si' | 'en' };

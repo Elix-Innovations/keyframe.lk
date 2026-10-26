@@ -14,7 +14,7 @@ import {
   TextFontIcon, TextIcon, TextItalicIcon, Tick02Icon, TranslateIcon, Undo02Icon,
   UnfoldMoreIcon, Upload04Icon, Video01Icon, WaveIcon, ZoomInAreaIcon, ZoomOutAreaIcon,
 } from '@hugeicons/core-free-icons';
-import { StarIcon, ClipboardIcon, PictureInPictureIcon } from '@hugeicons/core-free-icons';
+import { StarIcon, ClipboardIcon, PictureInPictureIcon, MaximizeScreenIcon, MinimizeScreenIcon } from '@hugeicons/core-free-icons';
 export const ClipboardPaste = make(ClipboardIcon, 'ClipboardPaste');
 export const PictureInPicture = make(PictureInPictureIcon, 'PictureInPicture');
 import { ArrowDown01Icon, ArrowRight02Icon, Coins01Icon, ComputerIcon, GridViewIcon, Menu01Icon, Search01Icon, SecurityCheckIcon, Moon02Icon, Sun03Icon } from '@hugeicons/core-free-icons';
@@ -95,3 +95,5 @@ export const Moon = make(Moon02Icon, 'Moon');
 export const Sun = make(Sun03Icon, 'Sun');
 
 export const Star = make(StarIcon, 'Star');
+export const Maximize = make(MaximizeScreenIcon, 'Maximize');
+export const Minimize = make(MinimizeScreenIcon, 'Minimize');

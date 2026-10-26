@@ -13,7 +13,7 @@ export interface FxSpec {
   transition?: TransitionId;
 }
 
-const W = 168, H = 126, SCALE = 2;
+const W = 168, H = 126, SCALE = 3;
 
 /** Length of the looped preview clip, and the still shown when the tile is not hovered. */
 function timing(spec: FxSpec) {

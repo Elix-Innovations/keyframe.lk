@@ -1,7 +1,9 @@
 import type { AdjClip, AspectRatio, Clip, FitMode, Project } from '../types';
 import { FILTER_PRESETS, blendFilters, cssFilter, hasCrop, isNeutral, laneOf, migrateVideo, needsGrade, transformAt, transitionAt } from '../lib/videoFx';
+import { drawLight } from './transitionFx';
 import { drawGraded } from './grade';
 import { sourceTimeAt, videoLayersAt } from '../lib/clips';
+import { overlayPose } from '../lib/overlays';
 import { adjAt } from '../lib/adj';
 import { applyEffectPass, drawEffectOverlays, drawVideoWithEffects, effectTransform } from './effects';
 import { needsMatte, processSource } from './matte';
@@ -133,7 +135,10 @@ function drawLayerRaw(
   const none = (x: { id: string; duration: number }) => ({ ...x, id: 'none' as const });
   const tr = transitionAt(fxOn ? layer : { ...layer, transitionIn: none(layer.transitionIn), transitionOut: none(layer.transitionOut) }, lt, clipDur);
   const px = W / 1080;
+  const an = fxOn && (layer.animIn?.id !== undefined && layer.animIn.id !== 'none' || layer.animOut?.id !== undefined && layer.animOut.id !== 'none' || (layer.loop ?? 'none') !== 'none')
+    ? overlayPose({ animIn: layer.animIn ?? { id: 'none', duration: 0 }, animOut: layer.animOut ?? { id: 'none', duration: 0 }, loop: layer.loop ?? 'none', duration: clipDur, speed: 1 }, lt) : null;
   ctx.save();
+  if (an && an.wipe < 1) { ctx.beginPath(); ctx.rect(0, 0, W * an.wipe, H); ctx.clip(); }
   if (tr.clip) {
     const p = tr.clip.p;
     ctx.beginPath();
@@ -145,25 +150,25 @@ function drawLayerRaw(
     else ctx.rect(0, H * (1 - p), W, H * p);
     ctx.clip();
   }
-  ctx.globalAlpha = Math.max(0, Math.min(1, tf.opacity * tr.alpha));
+  ctx.globalAlpha = Math.max(0, Math.min(1, tf.opacity * tr.alpha * (an?.alpha ?? 1)));
   const supportsFilter = typeof (ctx as { filter?: unknown }).filter === 'string';
   if (supportsFilter && fxOn) {
-    const f = { ...layer.filters, blur: layer.filters.blur + tr.blur };
+    const f = { ...layer.filters, blur: layer.filters.blur + tr.blur + (an?.blur ?? 0) };
     const css = isNeutral(f) ? 'none' : cssFilter(f, px);
     if (css !== 'none') ctx.filter = css;
   }
-  const cx = W / 2 + ((tf.x + fxT.x) / 100) * W + tr.dx * W, cy = H / 2 + ((tf.y + fxT.y) / 100) * H + tr.dy * H;
+  const cx = W / 2 + ((tf.x + fxT.x) / 100) * W + tr.dx * W + (an?.dx ?? 0) * W, cy = H / 2 + ((tf.y + fxT.y) / 100) * H + tr.dy * H + (an?.dy ?? 0) * H;
   ctx.translate(cx, cy);
-  ctx.rotate(((tf.rotation + fxT.rotation + tr.rot) * Math.PI) / 180);
-  const sc = tf.scale * fxT.scale * tr.scale;
-  ctx.scale(sc * tr.sx, sc);
+  ctx.rotate(((tf.rotation + fxT.rotation + tr.rot + (an?.rot ?? 0)) * Math.PI) / 180);
+  const sc = tf.scale * fxT.scale * tr.scale * (an?.scale ?? 1) * (an?.sy ?? 1);
+  ctx.scale(sc * tr.sx * (an ? an.sx / an.sy : 1), sc);
   ctx.translate(-W / 2, -H / 2);
   const effects = tr.split > 0 ? [...(fxOn ? layer.effects : []), { id: 'tr-split', effectId: 'rgbSplit', intensity: tr.split }] : fxOn ? layer.effects : [];
   drawVideoWithEffects(ctx, draw, r, W, H, effects, lt);
   ctx.restore();
   if (hits && clip && ((clip.track ?? 0) > 0 || clip.cutout)) {
     // Where this video layer landed, so the preview can select, move, resize and rotate it like an overlay.
-    const rot = tf.rotation + fxT.rotation + tr.rot, a = (rot * Math.PI) / 180, k = sc * tr.sx;
+    const rot = tf.rotation + fxT.rotation + tr.rot + (an?.rot ?? 0), a = (rot * Math.PI) / 180, k = sc * tr.sx * (an ? an.sx / an.sy : 1);
     const mid = { x: r.x + r.w / 2, y: r.y + r.h / 2 };
     const hit: OverlayHit = { id: clip.id, clipId: clip.id, cx: cx + (mid.x - W / 2) * k * Math.cos(a) - (mid.y - H / 2) * sc * Math.sin(a), cy: cy + (mid.x - W / 2) * k * Math.sin(a) + (mid.y - H / 2) * sc * Math.cos(a), w: r.w * k, h: r.h * sc, rot };
     if (matted.alphaAt) {
@@ -185,6 +190,7 @@ function drawLayerRaw(
     ctx.fillRect(0, 0, W, H);
   }
   if (fxOn) drawEffectOverlays(ctx, W, H, layer.effects, lt);
+  if (tr.light) drawLight(ctx, W, H, tr.light.kind, tr.light.q, tr.light.sweep);
   if (tr.flash > 0) { ctx.fillStyle = `rgba(${tr.flashColor},${tr.flash})`; ctx.fillRect(0, 0, W, H); }
 }
 
@@ -203,12 +209,12 @@ export function composeFrame(
     const layers = videoLayersAt(clips, t);
     const fallback: FrameSource | null = drawVideo ? { draw: drawVideo, w: opts.videoSize?.w || project.videoWidth || W, h: opts.videoSize?.h || project.videoHeight || H } : null;
     if (layers.length === 0 && clips.length === 0 && fallback && !laneOf(project, 'video').hidden) drawLayer(c, W, H, project, t, null, fallback, true, fxOn);
-    // Overlays set to sit behind a video layer are painted just before that layer.
+    // One stack of rows: every overlay on a lower row than a video layer is painted before that layer.
     const placed = new Set<string>();
-    const behind = (upTo: number) => { if (!opts.hideOverlays) drawOverlays(c, W, H, project, t, opts.brollImages, opts.overlayHits, (o) => o.behind !== undefined && o.behind <= upTo && !placed.has(o.id), placed); };
+    const below = (row: number) => { if (!opts.hideOverlays) drawOverlays(c, W, H, project, t, opts.brollImages, opts.overlayHits, (o) => o.track < row && !placed.has(o.id), placed); };
     layers.forEach((clip, i) => {
       if (laneOf(project, trackLane(clip.track ?? 0)).hidden) return;
-      behind(clip.track ?? 0);
+      below(clip.track ?? 0);
       const src = opts.frameFor ? opts.frameFor(clip) : i === 0 ? fallback : null;
       if (src && !migrateVideo(clip.fx).hidden) drawLayer(c, W, H, project, t, clip, src, (clip.track ?? 0) === 0 && i === 0, fxOn, opts.overlayHits);
     });

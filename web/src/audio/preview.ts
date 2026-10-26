@@ -4,6 +4,7 @@ import { loadAudioAsset, masterLimiter, scheduleMix, type ScheduledNodes } from 
 import { prepareClipAudio, scheduleClipAudio } from './clips';
 import { getSfx } from './sfx';
 import { currentTime } from '@/lib/player';
+import { beforeProject } from '@/lib/before';
 
 /**
  * Live soundtrack for the editor preview. Every sound is scheduled from the project: audio clips
@@ -31,7 +32,8 @@ class PreviewAudio {
   }
 
   async start() {
-    const p = useEditor.getState().project;
+    const st = useEditor.getState();
+    const p = st.project && (st.before ? beforeProject(st.project) : st.project);
     if (!p) return;
     const ctx = this.ensure();
     await ctx.resume();
@@ -75,6 +77,7 @@ export const previewAudio = new PreviewAudio();
 // Re-schedule when anything that affects the soundtrack changes during playback.
 let timer: ReturnType<typeof setTimeout> | null = null;
 useEditor.subscribe((s, prev) => {
+  if (s.before !== prev.before && s.playing) void previewAudio.start();
   const p = s.project, q = prev.project;
   if (!p || !q || p === q) return;
   const changed = p.clips !== q.clips || p.audio.original !== q.audio.original || p.audio.tracks !== q.audio.tracks || p.audio.ducking !== q.audio.ducking ||

@@ -7,6 +7,7 @@ import { segmentWords, normalizeCaptions } from './lib/segment';
 import { migrateVideo } from './lib/videoFx';
 import { brollOverlay } from './lib/overlays';
 import { clipsFromLegacy, withClips } from './lib/clips';
+import { migrateLayers } from './lib/layers';
 import * as db from './lib/db';
 
 const HISTORY_LIMIT = 200;
@@ -44,7 +45,7 @@ export function migrateProject(p: Project): Project {
     migrated.overlays = list;
     migrated.broll = [];
   }
-  const withC = migrated.clips ? migrated : withClips(migrated, clipsFromLegacy(migrated));
+  const withC = migrateLayers(migrated.clips ? migrated : withClips(migrated, clipsFromLegacy(migrated)));
   // Filters, effects, transitions and keyframes used to be project-wide; they now live on each video clip.
   const legacy = p.video;
   const give = !!legacy && (legacy.effects?.length || legacy.keyframes?.length || legacy.presetId || legacy.transitionIn?.id !== 'none' || legacy.transitionOut?.id !== 'none');
@@ -91,6 +92,9 @@ interface EditorState {
 
   time: number;
   playing: boolean;
+  /** Preview only: play the original, without noise removal, grade, filters or effects. */
+  before: boolean;
+  setBefore: (v: boolean) => void;
   selectedCaptionId: string | null;
   /** Selected timeline clip (its linked partner is implied unless unlinked). */
   selectedClipId: string | null;
@@ -148,10 +152,10 @@ interface EditorState {
 
 export type PanelId =
   | 'media' | 'captions' | 'overlays' | 'sounds' | 'transitions' | 'effects' | 'filters' | 'templates' | 'motion'
-  | 'style' | 'display' | 'animation' | 'layout' | 'clip' | 'adjust' | 'layer' | 'overlay' | 'audio' | 'ai' | 'export' | 'usage';
+  | 'style' | 'display' | 'animation' | 'layout' | 'clip' | 'adjust' | 'layer' | 'overlay' | 'caudio' | 'cspeed' | 'canim' | 'audio' | 'ai' | 'export' | 'usage';
 /** Left pane tabs (library) and right pane tabs (inspector), in shortcut order (keys 1-9 pick the first nine). */
 export const LEFT_PANELS: PanelId[] = ['media', 'captions', 'overlays', 'sounds', 'transitions', 'effects', 'filters', 'templates', 'motion'];
-export const RIGHT_PANELS: PanelId[] = ['style', 'display', 'animation', 'layout', 'clip', 'adjust', 'layer', 'overlay', 'audio', 'ai', 'export'];
+export const RIGHT_PANELS: PanelId[] = ['style', 'display', 'animation', 'layout', 'clip', 'caudio', 'cspeed', 'canim', 'adjust', 'layer', 'overlay', 'audio', 'ai', 'export'];
 export const PANELS: PanelId[] = [...LEFT_PANELS, ...RIGHT_PANELS, 'usage'];
 
 /** What the inspector (right pane) shows, depending on what is selected on the timeline: like CapCut's contextual panel. */
@@ -166,8 +170,8 @@ export function inspectorContext(s: Pick<EditorState, 'selectedOverlayId' | 'sel
 export const INSPECTOR_TABS: Record<InspectorContext, PanelId[]> = {
   overlay: ['overlay', 'export'],
   adj: ['layer', 'export'],
-  video: ['clip', 'adjust', 'audio', 'export'],
-  audio: ['clip', 'audio', 'export'],
+  video: ['clip', 'caudio', 'cspeed', 'canim', 'adjust'],
+  audio: ['caudio', 'cspeed'],
   caption: ['style', 'display', 'animation', 'layout', 'ai', 'export'],
   none: ['style', 'display', 'animation', 'layout', 'audio', 'ai', 'export'],
 };
@@ -182,6 +186,7 @@ export const useEditor = create<EditorState>((set, get) => ({
   savedAt: null,
   time: 0,
   playing: false,
+  before: false,
   selectedCaptionId: null,
   selectedClipId: null,
   selectedAdjId: null,
@@ -200,7 +205,7 @@ export const useEditor = create<EditorState>((set, get) => ({
   load: (p) => {
     void saveNow(); // switching projects: keep the previous one's pending edits
     rememberLastProject(p.id);
-    set({ project: migrateProject(p), past: [], future: [], time: 0, playing: false, selectedCaptionId: null, selectedClipId: null, selectedAdjId: null, selectedOverlayId: null, extraOverlayIds: [], selectedTrackId: null, dirty: false, savedAt: p.updatedAt });
+    set({ project: migrateProject(p), past: [], future: [], time: 0, playing: false, before: false, selectedCaptionId: null, selectedClipId: null, selectedAdjId: null, selectedOverlayId: null, extraOverlayIds: [], selectedTrackId: null, dirty: false, savedAt: p.updatedAt });
   },
   close: () => {
     void saveNow();
@@ -253,6 +258,7 @@ export const useEditor = create<EditorState>((set, get) => ({
 
   setTime: (t) => set({ time: t }),
   setPlaying: (playing) => set({ playing }),
+  setBefore: (before) => set({ before }),
   select: (id) => set({ extraOverlayIds: [], selectedTrackId: id ? null : get().selectedTrackId, selectedCaptionId: id, selectedClipId: id ? null : get().selectedClipId, selectedAdjId: id ? null : get().selectedAdjId, selectedOverlayId: id ? null : get().selectedOverlayId }),
   selectClip: (id) => set({ extraOverlayIds: [], selectedTrackId: id ? null : get().selectedTrackId, selectedClipId: id, selectedCaptionId: id ? null : get().selectedCaptionId, selectedAdjId: id ? null : get().selectedAdjId, selectedOverlayId: id ? null : get().selectedOverlayId }),
   selectAdj: (id) => set({ extraOverlayIds: [], selectedTrackId: id ? null : get().selectedTrackId, selectedAdjId: id, selectedClipId: id ? null : get().selectedClipId, selectedCaptionId: id ? null : get().selectedCaptionId, selectedOverlayId: id ? null : get().selectedOverlayId }),

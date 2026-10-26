@@ -135,21 +135,21 @@ export function loadPrecise(): Promise<void> {
  * the biggest one, so a poster or lamp the model half-mistook for a person disappears while the person (and a raised hand
  * that touches them) stays.
  */
-function dropIslands(arr: Float32Array, w: number, h: number, keep = 0.12) {
+function dropIslands(arr: Float32Array | Uint8Array, w: number, h: number, keep = 0.12, lo = 0.15) {
   const n = w * h, label = new Int32Array(n), stack = new Int32Array(n);
   const sizes: number[] = [0];
   let next = 1;
   for (let i = 0; i < n; i++) {
-    if (label[i] || arr[i] <= 0.15) continue;
+    if (label[i] || arr[i] <= lo) continue;
     let sp = 0, count = 0;
     stack[sp++] = i; label[i] = next;
     while (sp) {
       const p = stack[--sp]; count++;
       const x = p % w, y = (p / w) | 0;
-      if (x > 0 && !label[p - 1] && arr[p - 1] > 0.15) { label[p - 1] = next; stack[sp++] = p - 1; }
-      if (x < w - 1 && !label[p + 1] && arr[p + 1] > 0.15) { label[p + 1] = next; stack[sp++] = p + 1; }
-      if (y > 0 && !label[p - w] && arr[p - w] > 0.15) { label[p - w] = next; stack[sp++] = p - w; }
-      if (y < h - 1 && !label[p + w] && arr[p + w] > 0.15) { label[p + w] = next; stack[sp++] = p + w; }
+      if (x > 0 && !label[p - 1] && arr[p - 1] > lo) { label[p - 1] = next; stack[sp++] = p - 1; }
+      if (x < w - 1 && !label[p + 1] && arr[p + 1] > lo) { label[p + 1] = next; stack[sp++] = p + 1; }
+      if (y > 0 && !label[p - w] && arr[p - w] > lo) { label[p - w] = next; stack[sp++] = p - w; }
+      if (y < h - 1 && !label[p + w] && arr[p + w] > lo) { label[p + w] = next; stack[sp++] = p + w; }
     }
     sizes.push(count); next++;
   }
@@ -429,7 +429,7 @@ function chromaKey(img: ImageData, m: MatteSettings) {
 
 // ---------- shared canvases ----------
 
-interface Work { w: number; h: number; base: Cvs; out: Cvs; tmp: Cvs; mask: Cvs; blur: Cvs; person: Cvs }
+interface Work { w: number; h: number; base: Cvs; out: Cvs; tmp: Cvs; mask: Cvs; blur: Cvs; person: Cvs; mc?: { c: Cvs; d: ImageData; key: string; src: unknown } }
 const works = new Map<string, Work>();
 
 function workFor(id: string, w: number, h: number): Work {
@@ -500,6 +500,14 @@ function applyRegion(w: Work, r: RegionBlur) {
   out.drawImage(w.blur as CanvasImageSource, 0, 0);
 }
 
+/** Matte with stray blobs removed, computed once per matte (playback shows the same one for several rendered frames). */
+const cleanedOf = new WeakMap<PreciseMask, Uint8Array>();
+function cleaned(m: PreciseMask): Uint8Array {
+  let c = cleanedOf.get(m);
+  if (!c) { c = m.alpha.slice(); dropIslands(c, m.w, m.h, 0.12, 38); cleanedOf.set(m, c); }
+  return c;
+}
+
 /**
  * Run a clip's background removal and blurred areas over its source frame. Returns the processed frame (same shape as
  * the source, so cropping and fitting are unchanged), or the source itself when nothing is set or the AI model is still loading.
@@ -524,7 +532,7 @@ export function processSource(id: string, src: FrameSource, layer: Pick<VideoLay
       chromaKey(img, m);
       person.putImageData(img, 0, 0);
     } else {
-      let pm: { arr: Float32Array; w: number; h: number } | null;
+      let pm: { arr: Float32Array | Uint8Array; w: number; h: number; u8: boolean; id: unknown } | null;
       const precise = (m.engine ?? 'precise') === 'precise';
       const asset = at?.asset ?? id, srcT = at?.srcT ?? t;
       if (precise) {
@@ -534,22 +542,41 @@ export function processSource(id: string, src: FrameSource, layer: Pick<VideoLay
           if (!storeOf(asset).live.has(gridKey(srcT))) { const copy = make(pw, ph); ctxOf(copy).drawImage(w.base as CanvasImageSource, 0, 0); requestPrecise(asset, srcT, copy); }
           got = matteAt(asset, srcT, 1);
         }
-        pm = got ? { arr: Float32Array.from(got.alpha, (v) => v / 255), w: got.w, h: got.h } : null;
-        if (!pm && matteHints.playing) { void loadSegmenter(); pm = personMask(id, w.base, t); } // not prepared: real-time engine while playing
-        if (pm && m.cleanup !== false) dropIslands(pm.arr, pm.w, pm.h);
-      } else pm = personMask(id, w.base, t);
+        pm = got ? { arr: m.cleanup !== false ? cleaned(got) : got.alpha, w: got.w, h: got.h, u8: true, id: got } : null;
+        if (!pm && matteHints.playing) { // not prepared: real-time engine while playing
+          void loadSegmenter();
+          const f = personMask(id, w.base, t);
+          if (f) { if (m.cleanup !== false) dropIslands(f.arr, f.w, f.h); pm = { arr: f.arr, w: f.w, h: f.h, u8: false, id: f }; }
+        }
+      } else {
+        const f = personMask(id, w.base, t);
+        pm = f ? { arr: f.arr, w: f.w, h: f.h, u8: false, id: f } : null;
+      }
       if (!pm) ok = false;
       else {
-        // Mask canvas from the model's confidence.
-        const mc = make(pm.w, pm.h), mx = ctxOf(mc), md = mx.createImageData(pm.w, pm.h);
+        // Mask canvas from the model's confidence; rebuilt only when the matte or the settings change.
         const band = precise ? 0.14 : 0.12; // a tight ramp: wide ones leave a bright wall-coloured fringe around the person
         const thr = m.threshold / 100, lo = Math.max(0, thr - band), hi = Math.min(1, thr + band);
-        for (let i = 0; i < pm.arr.length; i++) {
-          let a = (pm.arr[i] - lo) / Math.max(0.01, hi - lo);
-          a = a < 0 ? 0 : a > 1 ? 1 : a;
-          md.data[i * 4] = 255; md.data[i * 4 + 1] = 255; md.data[i * 4 + 2] = 255; md.data[i * 4 + 3] = (m.invert ? 1 - a : a) * 255;
+        const key = `${pm.w}x${pm.h}|${lo}|${hi}|${m.invert}|${m.cleanup !== false}`;
+        let mcw = w.mc;
+        if (!mcw || mcw.d.width !== pm.w || mcw.d.height !== pm.h) {
+          const c = make(pm.w, pm.h);
+          mcw = w.mc = { c, d: ctxOf(c).createImageData(pm.w, pm.h), key: '', src: null };
+          mcw.d.data.fill(255);
         }
-        mx.putImageData(md, 0, 0);
+        if (mcw.src !== pm.id || mcw.key !== key) {
+          const dd = mcw.d.data, n = pm.arr.length, span = Math.max(0.01, hi - lo);
+          if (pm.u8) {
+            const lut = new Uint8ClampedArray(256);
+            for (let v = 0; v < 256; v++) { let a = (v / 255 - lo) / span; a = a < 0 ? 0 : a > 1 ? 1 : a; lut[v] = (m.invert ? 1 - a : a) * 255; }
+            for (let i = 0, j = 3; i < n; i++, j += 4) dd[j] = lut[pm.arr[i]];
+          } else {
+            for (let i = 0, j = 3; i < n; i++, j += 4) { let a = (pm.arr[i] - lo) / span; a = a < 0 ? 0 : a > 1 ? 1 : a; dd[j] = (m.invert ? 1 - a : a) * 255; }
+          }
+          ctxOf(mcw.c).putImageData(mcw.d, 0, 0);
+          mcw.src = pm.id; mcw.key = key;
+        }
+        const mc = mcw.c;
         const k = clear(w.mask);
         k.imageSmoothingQuality = 'high';
         k.drawImage(mc as CanvasImageSource, 0, 0, pw, ph);

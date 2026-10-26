@@ -265,20 +265,21 @@ export function setVideoTrack(clips: Clip[], id: string, track: number): Clip[] 
   return busy ? clips : clips.map((x) => (x.id === id ? { ...x, track, linkId: x.linkId } : x));
 }
 
-/** First track at or above `preferred` where a video clip of this length fits at `start`. */
-export function freeVideoTrack(clips: Clip[], start: number, duration: number, preferred: number, ignoreId?: string): number {
+/** First track at or above `preferred` where a video clip of this length fits at `start`. `overlays` share the rows, so they count as busy too. */
+export function freeVideoTrack(clips: Clip[], start: number, duration: number, preferred: number, ignoreId?: string, overlays: { start: number; duration: number; track: number }[] = []): number {
   for (let t = Math.max(0, preferred); ; t++) {
-    if (!videoClips(clips).some((o) => o.id !== ignoreId && trackOf(o) === t && o.start < start + duration - EPS && start < clipEnd(o) - EPS)) return t;
+    if (!videoClips(clips).some((o) => o.id !== ignoreId && trackOf(o) === t && o.start < start + duration - EPS && start < clipEnd(o) - EPS)
+      && !overlays.some((o) => o.track === t && o.start < start + duration - EPS && start < o.start + o.duration - EPS)) return t;
   }
 }
 
 /** Copy a clip, and its linked partner, to `start` (video goes on `track` or the first free track above it). */
-export function copyClipTo(clips: Clip[], id: string, start: number, track = 0): { clips: Clip[]; id: string | null } {
+export function copyClipTo(clips: Clip[], id: string, start: number, track = 0, overlays: { start: number; duration: number; track: number }[] = []): { clips: Clip[]; id: string | null } {
   const c = clips.find((x) => x.id === id);
   if (!c) return { clips, id: null };
   const group = withPartner(clips, c);
   const l = c.linkId ? nanoid(6) : undefined;
-  const vtrack = freeVideoTrack(clips, start, c.duration, track);
+  const vtrack = freeVideoTrack(clips, start, c.duration, track, undefined, overlays);
   const copies = group.map((g) => ({ ...g, id: nanoid(8), start: start + (g.start - c.start), linkId: g.linkId ? l : undefined, track: g.kind === 'video' ? vtrack : g.track }));
   return { clips: [...clips, ...copies], id: copies.find((x) => x.kind === c.kind)!.id };
 }
@@ -288,10 +289,10 @@ export function copyClipTo(clips: Clip[], id: string, start: number, track = 0):
  * timing, framing, grade and keyframes and the AI cut-out switched on. The original clip stays underneath as the full-frame
  * background (its own cut-out is switched off), so overlays can be placed between the two or in front of both.
  */
-export function createCutoutLayer(clips: Clip[], id: string): { clips: Clip[]; id: string | null } {
+export function createCutoutLayer(clips: Clip[], id: string, overlays: { start: number; duration: number; track: number }[] = []): { clips: Clip[]; id: string | null } {
   const c = clips.find((x) => x.id === id);
   if (!c || c.kind !== 'video') return { clips, id: null };
-  const track = freeVideoTrack(clips, c.start, c.duration, trackOf(c) + 1);
+  const track = freeVideoTrack(clips, c.start, c.duration, trackOf(c) + 1, undefined, overlays);
   const fx = migrateVideo(c.fx);
   const matte = { ...DEFAULT_MATTE, ...fx.matte, mode: 'ai' as const, engine: fx.matte?.engine ?? ('precise' as const), background: 'transparent' as const, invert: false };
   const layer: Clip = {

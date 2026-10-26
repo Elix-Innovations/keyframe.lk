@@ -3,7 +3,6 @@ export const geo = {
   /** Adjustment track under a pointer y (a new track, one above the highest, when the pointer is above them all). */
   adjTrackAt: (_clientY: number): number | undefined => undefined,
   /** Overlay track under a pointer y (a new track above the highest when the pointer is above them all). */
-  overlayTrackAt: (_clientY: number): number | undefined => undefined,
   /** Video track under a pointer y (a new overlay when above the highest). */
   videoTrackAt: (_clientY: number): number | undefined => undefined,
   /** Sound layer under a pointer y (a new layer below the last when the pointer is below them all). */

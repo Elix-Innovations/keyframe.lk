@@ -7,6 +7,7 @@ export const SHORTCUTS = {
   secFwd: { keys: ['⇧', '→'], label: 'Forward 1 second' },
   nudge: { keys: ['⌥', '← / →'], label: 'Nudge selected caption ±30 ms' },
   split: { keys: ['S'], label: 'Split caption at playhead' },
+  before: { keys: ['B'], label: 'Preview the original (hold to compare)' },
   merge: { keys: ['M'], label: 'Merge selected caption with next' },
   del: { keys: ['Del'], label: 'Delete selected caption' },
   save: { keys: ['⌘', 'S'], label: 'Save now (also autosaves every 5 s)' },
