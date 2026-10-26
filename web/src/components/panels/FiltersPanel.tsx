@@ -1,5 +1,5 @@
 import { useEditor } from '@/store';
-import { FILTER_PRESETS, NEUTRAL_FILTERS, TRENDING_FILTERS } from '@/lib/videoFx';
+import { FILTER_PRESETS, GRADE_GROUPS, GRADE_LOOKS, NEUTRAL_FILTERS, TRENDING_FILTERS } from '@/lib/videoFx';
 import { usePreviewSourceSync } from '../FxPreview';
 import { Section } from '../controls';
 import { PreviewTile } from './EffectsPanel';
@@ -23,9 +23,19 @@ export function FiltersPanel() {
           ))}
         </div>
       </Section>
-      <Section title="All filters" right={<span className="text-[11px] text-muted-foreground">{FILTER_PRESETS.length - 1} looks</span>}>
+      {GRADE_GROUPS.map((g) => (
+        <Section key={g} title={g} collapsible defaultOpen={false} right={<span className="text-[11px] text-muted-foreground">{GRADE_LOOKS.filter((l) => l.group === g).length}</span>}>
+          <div className="grid grid-cols-3 gap-2">
+            {GRADE_LOOKS.filter((l) => l.group === g).map((p) => (
+              <PreviewTile key={p.id} spec={{ filters: { ...NEUTRAL_FILTERS, ...p.filters } }} label={p.label} on={used.has(p.id)}
+                drag={{ type: 'fx', kind: 'filter', refId: p.id }} />
+            ))}
+          </div>
+        </Section>
+      ))}
+      <Section title="Classic" collapsible right={<span className="text-[11px] text-muted-foreground">{FILTER_PRESETS.length - 1 - GRADE_LOOKS.length} looks</span>}>
         <div className="grid grid-cols-3 gap-2">
-          {FILTER_PRESETS.filter((p) => p.id !== 'none').map((p) => (
+          {FILTER_PRESETS.filter((p) => p.id !== 'none' && !p.id.startsWith('hp')).map((p) => (
             <PreviewTile key={p.id} spec={{ filters: { ...NEUTRAL_FILTERS, ...p.filters } }} label={p.label} on={used.has(p.id)}
               drag={{ type: 'fx', kind: 'filter', refId: p.id }} />
           ))}

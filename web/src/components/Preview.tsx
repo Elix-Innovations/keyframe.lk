@@ -498,7 +498,7 @@ export function Preview() {
           </div>
         )}
       </div>
-      <div className="flex h-12 shrink-0 items-center gap-2 border-t bg-card px-3">
+      <div className="flex min-h-12 shrink-0 flex-wrap items-center gap-x-2 gap-y-1.5 border-t bg-card px-3 py-1.5 [&_*]:whitespace-nowrap">
         <Button variant="ghost" size="icon-sm" onClick={() => seek(0)} aria-label="Go to start"><SkipBack /></Button>
         <Tooltip>
           <TooltipTrigger asChild>
@@ -507,7 +507,7 @@ export function Preview() {
           <TooltipContent className="flex items-center gap-2">Play / pause <Keys keys={['Space']} /></TooltipContent>
         </Tooltip>
         <span className="ml-1 font-mono text-xs tabular-nums"><span>{formatClock(time, true)}</span><span className="text-muted-foreground"> / {formatClock(dur, true)}</span></span>
-        <div className="ml-auto flex items-center gap-3">
+        <div className="ml-auto flex flex-wrap items-center justify-end gap-x-3 gap-y-1.5">
           <div className="flex items-center gap-2">
             <Switch id="magnet" checked={magnet} onCheckedChange={setMagnet} />
             <Label htmlFor="magnet" className="text-xs font-normal text-muted-foreground" title="Snap to the frame centre, edges and other items while dragging. Hold Alt to move freely.">Magnet</Label>
@@ -515,7 +515,7 @@ export function Preview() {
           <div className="flex items-center gap-2">
             <Label className="text-xs font-normal text-muted-foreground"><Smartphone className="size-3.5" />Safe zones</Label>
             <Select value={safeZone} onValueChange={(v) => setSafeZone(v as SafeZoneId | 'off')}>
-              <SelectTrigger size="sm" className="w-40"><SelectValue /></SelectTrigger>
+              <SelectTrigger size="sm" className="w-36"><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="off">Off</SelectItem>
                 {(Object.keys(SAFE_ZONES) as SafeZoneId[]).map((k) => <SelectItem key={k} value={k}>{SAFE_ZONES[k].label}</SelectItem>)}

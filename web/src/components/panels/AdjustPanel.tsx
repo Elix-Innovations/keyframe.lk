@@ -4,6 +4,7 @@ import { EFFECTS } from '@/render/effects';
 import { NEUTRAL_FILTERS } from '@/lib/videoFx';
 import { Button } from '@/components/ui/button';
 import { Row, Section, Slider } from '../controls';
+import { ColorGrade } from './ColorGrade';
 import { TargetBar, useLayer } from './EffectsPanel';
 
 const FIELDS: { k: keyof VideoFilters; label: string; min: number; max: number; unit: string }[] = [
@@ -32,6 +33,7 @@ export function AdjustPanel() {
           </Row>
         ))}
       </Section>
+      <ColorGrade filters={layer.filters} patch={(p, key) => set((l) => ({ ...l, presetId: null, filters: { ...l.filters, ...p } }), key)} />
       <Section title="Clip effects">
         {layer.effects.length === 0 && <p className="text-xs text-muted-foreground">Drag an effect from the Effects tab onto a track on the timeline.</p>}
         {layer.effects.map((e) => (

@@ -1,7 +1,18 @@
 import { nanoid } from 'nanoid';
 import type { Ease, EffectInstance, LaneState, MatteSettings, Project, RegionBlur, TransitionId, VideoFilters, VideoKeyframe, VideoLayer } from '../types';
 
-export const NEUTRAL_FILTERS: VideoFilters = { brightness: 100, contrast: 100, saturate: 100, hue: 0, blur: 0, grayscale: 0, sepia: 0, vignette: 0 };
+export const HSL_BANDS = ['Red', 'Orange', 'Yellow', 'Green', 'Aqua', 'Blue', 'Purple', 'Magenta'] as const;
+const HSL_NEUTRAL = Object.fromEntries(HSL_BANDS.flatMap((b) => [`hue${b}`, `sat${b}`, `lum${b}`].map((k) => [k, 0])));
+
+export const NEUTRAL_FILTERS: VideoFilters = {
+  brightness: 100, contrast: 100, saturate: 100, hue: 0, blur: 0, grayscale: 0, sepia: 0, vignette: 0,
+  exposure: 0, temperature: 0, tint: 0, highlights: 0, shadows: 0, whites: 0, blacks: 0, vibrance: 0, fade: 0, sharpen: 0, grain: 0, clarity: 0,
+  lvInBlack: 0, lvInWhite: 255, lvGamma: 100, lvOutBlack: 0, lvOutWhite: 255,
+  gainR: 0, gainG: 0, gainB: 0,
+  curveShadows: 0, curveDarks: 0, curveLights: 0, curveHighlights: 0,
+  shadowHue: 220, shadowAmt: 0, midHue: 40, midAmt: 0, highHue: 40, highAmt: 0,
+  ...HSL_NEUTRAL,
+} as VideoFilters;
 
 export const DEFAULT_VIDEO: VideoLayer = {
   filters: NEUTRAL_FILTERS,
@@ -88,6 +99,50 @@ export const FILTER_PRESETS = [
   F('lofi', 'Lo-fi', { contrast: 90, saturate: 80, sepia: 20, blur: 0.5, vignette: 25 }),
 ];
 
+/** Graded looks in the style of phone photo apps (Hypic, Lightroom mobile): each uses the full grade, not only the CSS sliders. */
+export const GRADE_GROUPS = ['Portrait', 'Food', 'Scenery', 'Film', 'Retro', 'Black & white', 'Night', 'Aesthetic'] as const;
+export type GradeGroup = (typeof GRADE_GROUPS)[number];
+const G = (group: GradeGroup, id: string, label: string, filters: Partial<VideoFilters>) => ({ id, label, group, filters });
+export const GRADE_LOOKS = [
+  G('Portrait', 'hpGlow', 'Glow Skin', { exposure: 8, highlights: -15, shadows: 18, vibrance: 20, clarity: -12, temperature: 8, tint: 4, fade: 6, highAmt: 18, highHue: 30 }),
+  G('Portrait', 'hpPorcelain', 'Porcelain', { exposure: 14, saturate: 92, shadows: 25, clarity: -18, temperature: -4, tint: 6, satOrange: -15, lumOrange: 12, fade: 8 }),
+  G('Portrait', 'hpSunKiss', 'Sun Kissed', { exposure: 6, temperature: 28, saturate: 108, vibrance: 22, highlights: -10, highAmt: 22, highHue: 38, shadowAmt: 12, shadowHue: 15 }),
+  G('Portrait', 'hpBlush', 'Blush', { exposure: 8, temperature: 8, tint: 14, vibrance: 18, saturate: 104, fade: 10, clarity: -10, satRed: 10, hueRed: -6, midAmt: 10, midHue: 345 }),
+  G('Portrait', 'hpStudio', 'Studio Pop', { contrast: 112, clarity: 22, sharpen: 25, vibrance: 15, shadows: 10, highlights: -12, whites: 8, blacks: -8 }),
+  G('Portrait', 'hpMoodyP', 'Moody Portrait', { exposure: -8, contrast: 115, saturate: 85, shadows: 8, blacks: -14, shadowAmt: 20, shadowHue: 200, highAmt: 12, highHue: 30, vignette: 25 }),
+  G('Food', 'hpYummy', 'Yummy', { saturate: 118, vibrance: 28, contrast: 108, temperature: 14, clarity: 18, sharpen: 18, satOrange: 18, satRed: 10, lumYellow: 6 }),
+  G('Food', 'hpFresh', 'Fresh', { exposure: 10, saturate: 112, vibrance: 24, temperature: -2, clarity: 14, satGreen: 22, lumGreen: 8, highlights: -10, sharpen: 15 }),
+  G('Food', 'hpBakery', 'Bakery', { temperature: 24, tint: 4, contrast: 104, saturate: 106, fade: 8, satOrange: 14, lumOrange: 8, shadowAmt: 14, shadowHue: 25 }),
+  G('Food', 'hpBrunch', 'Brunch', { exposure: 12, contrast: 94, saturate: 98, temperature: 10, fade: 12, clarity: -6, vibrance: 18 }),
+  G('Scenery', 'hpVista', 'Vista', { saturate: 112, vibrance: 30, contrast: 108, clarity: 28, highlights: -22, shadows: 18, satBlue: 20, lumBlue: -10, satGreen: 14, sharpen: 20 }),
+  G('Scenery', 'hpBlueHour', 'Blue Hour', { exposure: -4, temperature: -22, tint: 6, contrast: 110, saturate: 112, shadowAmt: 22, shadowHue: 230, highAmt: 14, highHue: 20, vibrance: 18 }),
+  G('Scenery', 'hpGolden', 'Golden Hour+', { exposure: 4, temperature: 38, tint: 6, contrast: 108, saturate: 112, highlights: -14, highAmt: 30, highHue: 35, shadowAmt: 16, shadowHue: 300, vignette: 18 }),
+  G('Scenery', 'hpTropic', 'Tropical', { saturate: 120, vibrance: 32, contrast: 106, temperature: 6, satAqua: 28, hueAqua: -10, satGreen: 14, lumAqua: 6, clarity: 12, exposure: 4 }),
+  G('Scenery', 'hpMisty', 'Misty', { exposure: 8, contrast: 86, saturate: 88, fade: 22, clarity: -22, temperature: -6, shadows: 20, highlights: -8 }),
+  G('Film', 'hpPortra', 'Portra 400', { temperature: 10, tint: 3, contrast: 96, saturate: 96, fade: 10, highlights: -12, shadows: 14, satOrange: 8, grain: 18, midAmt: 8, midHue: 35 }),
+  G('Film', 'hpFuji', 'Fuji Velvia', { saturate: 128, vibrance: 14, contrast: 116, temperature: -4, satGreen: 22, satBlue: 14, hueGreen: 6, blacks: -10, grain: 14 }),
+  G('Film', 'hpCine', 'Teal & Orange', { contrast: 114, saturate: 105, shadowAmt: 38, shadowHue: 195, highAmt: 32, highHue: 32, midAmt: 6, midHue: 30, blacks: -8, vignette: 22 }),
+  G('Film', 'hpKodakVision', 'Vision 500T', { temperature: -6, contrast: 108, saturate: 100, shadowAmt: 28, shadowHue: 205, highAmt: 18, highHue: 40, grain: 26, fade: 6, clarity: 8 }),
+  G('Film', 'hpExpired', 'Expired Film', { temperature: 14, tint: -8, contrast: 92, saturate: 92, fade: 28, grain: 34, shadowAmt: 30, shadowHue: 170, highAmt: 22, highHue: 50, vignette: 30 }),
+  G('Retro', 'hpPolaroid', 'Polaroid 600', { temperature: 12, tint: 4, contrast: 92, saturate: 96, fade: 24, exposure: 8, vignette: 28, grain: 16, shadowAmt: 20, shadowHue: 190, highAmt: 14, highHue: 45 }),
+  G('Retro', 'hpDisposable', 'Disposable', { exposure: 10, contrast: 118, saturate: 112, temperature: 8, highlights: 14, blacks: -4, grain: 30, sharpen: 14, vignette: 24, tint: -4 }),
+  G('Retro', 'hp80s', '80s Neon', { contrast: 118, saturate: 120, shadowAmt: 36, shadowHue: 280, highAmt: 30, highHue: 330, fade: 10, grain: 12, vibrance: 14 }),
+  G('Retro', 'hpSepiaTone', 'Old Photo', { sepia: 55, contrast: 92, fade: 30, grain: 26, vignette: 38, blacks: 6, saturate: 90 }),
+  G('Black & white', 'hpMonoSoft', 'Soft Mono', { grayscale: 100, contrast: 94, fade: 14, exposure: 6, highlights: -10, shadows: 12, clarity: -8 }),
+  G('Black & white', 'hpMonoPunch', 'Punch Mono', { grayscale: 100, contrast: 128, clarity: 30, blacks: -22, whites: 14, sharpen: 24, vignette: 22 }),
+  G('Black & white', 'hpMonoGrain', 'Film Mono', { grayscale: 100, contrast: 112, grain: 40, fade: 8, vignette: 26, clarity: 10 }),
+  G('Black & white', 'hpDuoBlue', 'Blue Duotone', { grayscale: 100, contrast: 112, shadowAmt: 70, shadowHue: 225, highAmt: 40, highHue: 195, midAmt: 24, midHue: 210 }),
+  G('Night', 'hpNeonCity', 'Neon City', { exposure: -6, contrast: 120, saturate: 118, vibrance: 20, shadowAmt: 34, shadowHue: 255, highAmt: 28, highHue: 325, blacks: -12, clarity: 14, vignette: 22 }),
+  G('Night', 'hpMoonlit', 'Moonlit', { exposure: -12, temperature: -30, contrast: 112, saturate: 88, shadowAmt: 34, shadowHue: 225, shadows: 14, vignette: 34 }),
+  G('Night', 'hpClub', 'Club Lights', { exposure: -8, contrast: 122, saturate: 130, vibrance: 22, shadowAmt: 40, shadowHue: 285, highAmt: 26, highHue: 340, whites: 10, grain: 16, vignette: 28 }),
+  G('Aesthetic', 'hpDreamPink', 'Dream Pink', { exposure: 10, temperature: 4, tint: 18, saturate: 104, vibrance: 22, fade: 14, clarity: -16, shadowAmt: 20, shadowHue: 330, highAmt: 18, highHue: 350 }),
+  G('Aesthetic', 'hpMintFresh', 'Mint Fresh', { exposure: 8, temperature: -8, tint: -10, saturate: 96, vibrance: 20, fade: 10, satGreen: 14, hueGreen: -10, clarity: -6, highAmt: 14, highHue: 150 }),
+  G('Aesthetic', 'hpCreamy', 'Creamy', { exposure: 10, temperature: 14, contrast: 90, saturate: 92, fade: 18, clarity: -14, shadowAmt: 14, shadowHue: 30, highAmt: 14, highHue: 45 }),
+  G('Aesthetic', 'hpLilac', 'Lilac Haze', { exposure: 6, temperature: -6, tint: 14, contrast: 94, saturate: 98, fade: 18, shadowAmt: 26, shadowHue: 270, highAmt: 16, highHue: 300, clarity: -10 }),
+  G('Aesthetic', 'hpSage', 'Sage', { exposure: 4, temperature: 4, tint: -8, contrast: 96, saturate: 82, fade: 16, satGreen: -10, hueGreen: 12, midAmt: 12, midHue: 100, vibrance: 10 }),
+];
+FILTER_PRESETS.push(...GRADE_LOOKS.map(({ id, label, filters }) => F(id, label, filters)));
+
 export const TRANSITIONS: { id: TransitionId; label: string }[] = [
   { id: 'none', label: 'None' }, { id: 'fade', label: 'Fade' }, { id: 'flash', label: 'Flash' },
   { id: 'zoomIn', label: 'Zoom in' }, { id: 'zoomOut', label: 'Zoom out' },
@@ -136,6 +191,7 @@ export function blendFilters(preset: Partial<VideoFilters>, strength: number): V
   const out = { ...NEUTRAL_FILTERS };
   for (const key of Object.keys(NEUTRAL_FILTERS) as (keyof VideoFilters)[]) {
     const to = preset[key] ?? NEUTRAL_FILTERS[key];
+    if (WHEEL_HUES.includes(key)) { out[key] = k > 0 ? to : NEUTRAL_FILTERS[key]; continue; }
     out[key] = Math.round((NEUTRAL_FILTERS[key] + (to - NEUTRAL_FILTERS[key]) * k) * 10) / 10;
   }
   return out;
@@ -192,6 +248,13 @@ export function transformAt(kfs: VideoKeyframe[], t: number, base: Transform = I
 
 export const newKeyframe = (t: number, from: Transform): VideoKeyframe => ({ id: nanoid(8), t, ...from, ease: 'easeInOut' });
 export const newEffect = (effectId: string): EffectInstance => ({ id: nanoid(8), effectId, intensity: 0.6 });
+
+const WHEEL_HUES: (keyof VideoFilters)[] = ['shadowHue', 'midHue', 'highHue'];
+const CSS_KEYS: (keyof VideoFilters)[] = ['brightness', 'contrast', 'saturate', 'hue', 'blur', 'grayscale', 'sepia', 'vignette'];
+const GRADE_KEYS = (Object.keys(NEUTRAL_FILTERS) as (keyof VideoFilters)[]).filter((k) => !CSS_KEYS.includes(k) && !WHEEL_HUES.includes(k));
+
+/** Does the grade shader have anything to do (anything beyond the CSS-filter sliders)? */
+export const needsGrade = (f: VideoFilters) => GRADE_KEYS.some((k) => f[k] !== NEUTRAL_FILTERS[k]);
 
 export const isNeutral = (f: VideoFilters) => (Object.keys(NEUTRAL_FILTERS) as (keyof VideoFilters)[]).every((k) => f[k] === NEUTRAL_FILTERS[k]);
 
@@ -275,5 +338,5 @@ export function transitionAt(v: VideoLayer, t: number, duration: number): Transi
 }
 
 /** Looks that are most used on TikTok, Reels and Shorts, shown first in the panels. */
-export const TRENDING_FILTERS = ['y2k', 'cleanGirl', 'vhs90s', 'kodak', 'ccd', 'dreamy', 'darkAcademia', 'cyberpunk', 'blockbuster', 'softPeach', 'lofi', 'summer'];
+export const TRENDING_FILTERS = ['y2k', 'cleanGirl', 'vhs90s', 'kodak', 'ccd', 'dreamy', 'darkAcademia', 'cyberpunk', 'blockbuster', 'softPeach', 'lofi', 'summer', 'hpGlow', 'hpCine', 'hpPortra', 'hpDreamPink'];
 export const TRENDING_TRANSITIONS: TransitionId[] = ['whipLeft', 'whipRight', 'zoomBlur', 'rgbShift', 'pulse', 'swirl', 'filmBurn', 'whiteOut', 'jumpCut', 'glitch', 'tiltDrop', 'flash'];

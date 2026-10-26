@@ -304,6 +304,36 @@ export interface VideoFilters {
   grayscale: number; // 0..100
   sepia: number; // 0..100
   vignette: number; // 0..100
+  // ---- Colour grading (rendered by the WebGL grade pass; all neutral at 0 unless noted) ----
+  exposure: number; // -100..100 (±2 stops)
+  temperature: number; // -100 cool .. 100 warm
+  tint: number; // -100 green .. 100 magenta
+  highlights: number; // -100..100
+  shadows: number; // -100..100
+  whites: number; // -100..100
+  blacks: number; // -100..100
+  vibrance: number; // -100..100
+  fade: number; // 0..100 lifted blacks
+  sharpen: number; // 0..100
+  grain: number; // 0..100
+  clarity: number; // -100..100 midtone contrast
+  /** Levels: input black / white (0..255), gamma (100 = 1.0), output black / white (0..255). */
+  lvInBlack: number; lvInWhite: number; lvGamma: number; lvOutBlack: number; lvOutWhite: number;
+  /** RGB balance (per-channel gain), -100..100. */
+  gainR: number; gainG: number; gainB: number;
+  /** Parametric curve: -100..100 per tonal zone. */
+  curveShadows: number; curveDarks: number; curveLights: number; curveHighlights: number;
+  /** Colour wheels: hue 0..360, amount 0..100. */
+  shadowHue: number; shadowAmt: number; midHue: number; midAmt: number; highHue: number; highAmt: number;
+  /** Hue/saturation/luminance per colour band. */
+  hueRed: number; satRed: number; lumRed: number;
+  hueOrange: number; satOrange: number; lumOrange: number;
+  hueYellow: number; satYellow: number; lumYellow: number;
+  hueGreen: number; satGreen: number; lumGreen: number;
+  hueAqua: number; satAqua: number; lumAqua: number;
+  hueBlue: number; satBlue: number; lumBlue: number;
+  huePurple: number; satPurple: number; lumPurple: number;
+  hueMagenta: number; satMagenta: number; lumMagenta: number;
 }
 
 export type TransitionId =

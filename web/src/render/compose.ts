@@ -1,5 +1,6 @@
 import type { AdjClip, AspectRatio, Clip, FitMode, Project } from '../types';
-import { FILTER_PRESETS, blendFilters, cssFilter, hasCrop, isNeutral, laneOf, migrateVideo, transformAt, transitionAt } from '../lib/videoFx';
+import { FILTER_PRESETS, blendFilters, cssFilter, hasCrop, isNeutral, laneOf, migrateVideo, needsGrade, transformAt, transitionAt } from '../lib/videoFx';
+import { drawGraded } from './grade';
 import { sourceTimeAt, videoLayersAt } from '../lib/clips';
 import { adjAt } from '../lib/adj';
 import { applyEffectPass, drawEffectOverlays, drawVideoWithEffects, effectTransform } from './effects';
@@ -72,8 +73,23 @@ function buffer(i: number, W: number, H: number) {
 
 const trackLane = (track: number) => (track === 0 ? 'video' : `video:${track}`);
 
-/** Draw one video clip with its own crop, transform, keyframes, filters, effects and transitions. */
+/** Draw one video clip; a clip with a colour grade is painted into a buffer first and graded as one image. */
 function drawLayer(
+  ctx: Ctx2D, W: number, H: number, project: Project, t: number, clip: Clip | null, src: FrameSource, main: boolean, fxOn: boolean, hits?: OverlayHit[],
+) {
+  const f = fxOn ? migrateVideo(clip?.fx ?? project.video).filters : null;
+  if (f && needsGrade(f)) {
+    const b = buffer(3, W, H);
+    drawLayerRaw(b.x, W, H, project, t, clip, src, main, fxOn, hits);
+    if (drawGraded(ctx, b.c, f, t)) return;
+    ctx.drawImage(b.c, 0, 0);
+    return;
+  }
+  drawLayerRaw(ctx, W, H, project, t, clip, src, main, fxOn, hits);
+}
+
+/** Draw one video clip with its own crop, transform, keyframes, filters, effects and transitions. */
+function drawLayerRaw(
   ctx: Ctx2D, W: number, H: number, project: Project, t: number, clip: Clip | null, src: FrameSource, main: boolean, fxOn: boolean, hits?: OverlayHit[],
 ) {
   const layer = migrateVideo(clip?.fx ?? project.video);
@@ -262,6 +278,12 @@ function applyFilterPass(out: Ctx2D, src: OffscreenCanvas, W: number, H: number,
   if (!isNeutral(f) && typeof (out as { filter?: unknown }).filter === 'string') out.filter = cssFilter(f, W / 1080);
   out.drawImage(src, 0, 0);
   out.restore();
+  if (needsGrade(f)) {
+    const b = buffer(3, W, H);
+    b.x.drawImage((out as unknown as { canvas: OffscreenCanvas }).canvas, 0, 0);
+    out.clearRect(0, 0, W, H);
+    drawGraded(out, b.c, f, a.start);
+  }
   if (f.vignette > 0) {
     const g = out.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.25, W / 2, H / 2, Math.max(W, H) * 0.75);
     g.addColorStop(0, 'rgba(0,0,0,0)');
