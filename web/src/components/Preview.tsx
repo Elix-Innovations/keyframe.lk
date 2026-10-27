@@ -12,7 +12,8 @@ import { getBlob, grantFileAccess, NeedsPermissionError } from '../lib/db';
 import { ensureFonts, onFontsChanged } from '../lib/fonts';
 import { projectFontIds } from '../lib/util';
 import { formatClock } from '../lib/srt';
-import { Maximize, Minimize, Pause, Play, SkipBack, Smartphone } from '@/components/icons';
+import { Ellipsis, Maximize, Minimize, Pause, Play, SkipBack, Smartphone } from '@/components/icons';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import type { AspectRatio, Clip } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
@@ -521,7 +522,7 @@ export function Preview() {
           </div>
         )}
       </div>
-      <div className="flex min-h-12 shrink-0 flex-wrap items-center gap-x-2 gap-y-1.5 border-t bg-card px-3 py-1.5 [&_*]:whitespace-nowrap">
+      <div className="flex h-12 shrink-0 items-center gap-2 overflow-hidden border-t bg-card px-3 [&_*]:whitespace-nowrap">
         <Button variant="ghost" size="icon-sm" onClick={() => seek(0)} aria-label="Go to start"><SkipBack /></Button>
         <Tooltip>
           <TooltipTrigger asChild>
@@ -530,7 +531,7 @@ export function Preview() {
           <TooltipContent className="flex items-center gap-2">Play / pause <Keys keys={['Space']} /></TooltipContent>
         </Tooltip>
         <span className="ml-1 font-mono text-xs tabular-nums"><span>{formatClock(time, true)}</span><span className="text-muted-foreground"> / {formatClock(dur, true)}</span></span>
-        <div className="ml-auto flex flex-wrap items-center justify-end gap-x-3 gap-y-1.5">
+        <div className="ml-auto flex min-w-0 items-center justify-end gap-2">
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
@@ -540,26 +541,39 @@ export function Preview() {
             </TooltipTrigger>
             <TooltipContent className="flex items-center gap-2">Hear and see the original, without noise removal, grade or effects <Keys keys={['B']} /></TooltipContent>
           </Tooltip>
-          <div className="flex items-center gap-2">
-            <Switch id="magnet" checked={magnet} onCheckedChange={setMagnet} />
-            <Label htmlFor="magnet" className="text-xs font-normal text-muted-foreground" title="Snap to the frame centre, edges and other items while dragging. Hold Alt to move freely.">Magnet</Label>
-          </div>
-          <div className="flex items-center gap-2">
-            <Label className="text-xs font-normal text-muted-foreground"><Smartphone className="size-3.5" />Safe zones</Label>
-            <Select value={safeZone} onValueChange={(v) => setSafeZone(v as SafeZoneId | 'off')}>
-              <SelectTrigger size="sm" className="w-36"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="off">Off</SelectItem>
-                {(Object.keys(SAFE_ZONES) as SafeZoneId[]).map((k) => <SelectItem key={k} value={k}>{SAFE_ZONES[k].label}</SelectItem>)}
-              </SelectContent>
-            </Select>
-          </div>
-          <Select value={project.aspectRatio} onValueChange={(v) => useEditor.getState().update((p) => ({ ...p, aspectRatio: v as AspectRatio }))}>
-            <SelectTrigger size="sm" className="w-28"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              {(['original', '9:16', '4:5', '1:1', '16:9'] as AspectRatio[]).map((r) => <SelectItem key={r} value={r}>{r === 'original' ? 'Original' : r}</SelectItem>)}
-            </SelectContent>
-          </Select>
+          <Popover>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <PopoverTrigger asChild><Button variant="ghost" size="icon-sm" aria-label="View options"><Ellipsis /></Button></PopoverTrigger>
+              </TooltipTrigger>
+              <TooltipContent>Magnet, safe zones, aspect ratio</TooltipContent>
+            </Tooltip>
+            <PopoverContent align="end" side="top" className="w-64 space-y-3 p-3">
+              <div className="flex items-center justify-between gap-2">
+                <Label htmlFor="magnet" className="text-xs font-normal" title="Snap to the frame centre, edges and other items while dragging. Hold Alt to move freely.">Magnet</Label>
+                <Switch id="magnet" checked={magnet} onCheckedChange={setMagnet} />
+              </div>
+              <div className="flex items-center justify-between gap-2">
+                <Label className="text-xs font-normal"><Smartphone className="size-3.5" />Safe zones</Label>
+                <Select value={safeZone} onValueChange={(v) => setSafeZone(v as SafeZoneId | 'off')}>
+                  <SelectTrigger size="sm" className="w-32"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="off">Off</SelectItem>
+                    {(Object.keys(SAFE_ZONES) as SafeZoneId[]).map((k) => <SelectItem key={k} value={k}>{SAFE_ZONES[k].label}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex items-center justify-between gap-2">
+                <Label className="text-xs font-normal">Aspect ratio</Label>
+                <Select value={project.aspectRatio} onValueChange={(v) => useEditor.getState().update((p) => ({ ...p, aspectRatio: v as AspectRatio }))}>
+                  <SelectTrigger size="sm" className="w-32"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {(['original', '9:16', '4:5', '1:1', '16:9'] as AspectRatio[]).map((r) => <SelectItem key={r} value={r}>{r === 'original' ? 'Original' : r}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+            </PopoverContent>
+          </Popover>
           <span className="rounded-md bg-muted px-2 py-1 font-mono text-[11px] text-muted-foreground">{out.width}×{out.height}</span>
           <Tooltip>
             <TooltipTrigger asChild>

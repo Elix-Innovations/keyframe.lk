@@ -101,10 +101,6 @@ function drawLayerRaw(
   const matted = needsMatte(layer) ? processSource(clip?.id ?? 'main', src, layer, lt, clip ? { asset: clip.assetId, srcT: sourceTimeAt(clip, t), cutout: clip.cutout } : undefined) : src;
   const drawVideo = matted.draw;
   const fit: FitMode = main || clip?.cutout ? project.fit : project.fit === 'cover' ? 'cover' : 'contain';
-  if (main && project.fit === 'color') {
-    ctx.fillStyle = project.fitColor ?? '#000000';
-    ctx.fillRect(0, 0, W, H);
-  }
   if (main && project.fit === 'blur') {
     const c = fitRect(vw, vh, W, H, true);
     ctx.save();
@@ -208,7 +204,7 @@ export function composeFrame(
 
   const scene = (c: Ctx2D) => {
     if (opts.background === 'transparent') c.clearRect(0, 0, W, H);
-    else { c.fillStyle = opts.background ?? '#000'; c.fillRect(0, 0, W, H); }
+    else { c.fillStyle = opts.background ?? (project.fit === 'color' ? project.fitColor ?? '#000000' : '#000'); c.fillRect(0, 0, W, H); } // the backdrop colour is there from the first frame, even before the video has decoded
     const clips = project.clips ?? [];
     const layers = videoLayersAt(clips, t);
     const fallback: FrameSource | null = drawVideo ? { draw: drawVideo, w: opts.videoSize?.w || project.videoWidth || W, h: opts.videoSize?.h || project.videoHeight || H } : null;
