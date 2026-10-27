@@ -1,17 +1,18 @@
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { nanoid } from 'nanoid';
 import { ClipboardPaste, PictureInPicture, WandSparkles, ChevronLeft, ChevronRight, Copy, Plus, Crosshair, Merge, Pencil, Play, Redo2, Scissors, Trash2, Undo2, ZoomIn, ZoomOut } from '@/components/icons';
-import { clipboardKind, copySelection, hasClipboard, onClipboardChange, pasteAtPlayhead, pasteAttributes, copyCaptionStyle, pasteCaptionStyle } from '@/lib/clipboard';
+import { clipboardKind, copyEdits, hasEdits, pasteEdits, copySelection, hasClipboard, onClipboardChange, pasteAtPlayhead, pasteAttributes, copyCaptionStyle, pasteCaptionStyle } from '@/lib/clipboard';
 import { Eye, EyeOff, Layers, Link, Lock, Magnet, Ripple, Unlock, Volume, VolumeOff } from '@/components/icons-audio';
-import type { Caption, LaneGroup, MusicTrack } from '@/types';
+import type { Caption, LaneGroup, MusicTrack, Project } from '@/types';
 import { WAVEFORM_RATE } from '@/types';
 import { nearestBeat, trackGainCurve, trackSegments } from '@/audio/mix';
 import { useEditor } from '@/store';
+import { beginGroup, deleteSelection, dragGroup, endGroup, groupSelection, pressBlock, selectedIds, selectionGrouped, splitSelection, withGroupMates, type Group } from '@/lib/multiSelect';
 import { seek, currentTime, playRange } from '@/lib/player';
 import { mergeCaptions, normalizeCaptions, shiftCaptions, splitCaptionAt } from '@/lib/segment';
 import { cn } from '@/lib/utils';
 import { laneOf, migrateVideo } from '@/lib/videoFx';
-import { audioRows, clipEnd, copyClipTo, trackOf, videoClips } from '@/lib/clips';
+import { audioRows, clipEnd, copyClipTo, foldedIntoVideo, trackOf, videoClips } from '@/lib/clips';
 import { trackCount } from '@/lib/adj';
 import { groupOrder, moveGroup, moveLane, type LaneKind } from '@/lib/laneOrder';
 import { DRAG_MIME, geo, type DragPayload } from '@/lib/timelineGeo';
@@ -21,9 +22,11 @@ import { addSound, trackOps, waveformForAsset } from '@/lib/sounds';
 import { AdjBlock, adjLane, adjOps } from './AdjLane';
 import { OverlayBlock, overlayOps } from './OverlayLane';
 import { rowCount } from '@/lib/layers';
-import { ClipBlock, clipOps } from './ClipLane';
+import { ClipBlock, clipOps, WAVE_K } from './ClipLane';
 import { Button } from '@/components/ui/button';
 import { Slider } from '@/components/ui/slider';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { Ellipsis } from '@/components/icons';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import {
   ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuShortcut, ContextMenuTrigger,
@@ -38,19 +41,32 @@ const GAP = 6;
 /** Strip above the top layer row that opens a new layer when something is dropped on it. */
 const NEW_ROW_H = 16;
 
+const SIZE_K: Record<'short' | 'default' | 'tall', number> = { short: 0.7, default: 1, tall: 1.5 };
+const MIN_ROW = 18, MAX_ROW = 260;
+/** Row height for a track: the dragged height if set, else the preset applied to the default. */
+const laneH = (p: Project, key: string, base: number) => { const l = laneOf(p, key); return l.h ?? Math.round(base * SIZE_K[l.size ?? 'default']); };
+function setLane(key: string, patch: { size?: 'short' | 'default' | 'tall'; h?: number; wave?: 'short' | 'default' | 'tall' }, coalesce?: string) {
+  useEditor.getState().update((p) => ({ ...p, lanes: { ...p.lanes, [key]: { ...p.lanes?.[key], ...patch } } }), coalesce);
+}
+
 type LaneField = 'hidden' | 'locked';
 function toggleLane(key: string, field: LaneField) {
   useEditor.getState().update((p) => ({ ...p, lanes: { ...p.lanes, [key]: { ...p.lanes?.[key], [field]: !p.lanes?.[key]?.[field] } } }));
 }
 
 /** Header cell for one timeline row: icon, name and the hide / lock / mute switches. */
-function LaneHeader({ top, height, label, icon, laneKey, eye = true, lock = true, mute, order }: {
+function LaneHeader({ top, height, label, icon, laneKey, eye = true, lock = true, mute, order, wave, resize }: {
   top: number; height: number; label: string; icon: React.ReactNode; laneKey: string; eye?: boolean; lock?: boolean;
+  /** Offer the waveform size choice (audio rows). */
+  wave?: boolean;
+  /** Dragging the header's bottom edge sets the row height; `rowH` is one row's height, `rows` how many rows the header spans. */
+  resize?: { rowH: number; rows?: number };
   mute?: { on: boolean; toggle: () => void };
   /** Makes the header draggable: drop it on another group to move the whole group, or on another track of its own group to reorder tracks. */
   order?: { group: LaneGroup; groupAt: (clientY: number) => LaneGroup; kind?: LaneKind; track?: number; count?: number; at?: (clientY: number) => number | undefined };
 }) {
   const [drag, setDrag] = useState<{ y0: number; dy: number } | null>(null);
+  const rz = useRef<{ y0: number; h0: number } | null>(null);
   const grab = (e: React.PointerEvent) => {
     if (!order || e.button !== 0) return;
     e.preventDefault();
@@ -76,40 +92,84 @@ function LaneHeader({ top, height, label, icon, laneKey, eye = true, lock = true
       className={cn('grid size-5 place-items-center rounded transition-colors [&_svg]:size-3.5', on ? 'bg-primary/20 text-primary' : 'text-muted-foreground hover:bg-sidebar-accent hover:text-foreground')}>{children}</button>
   );
   return (
-    <div className={cn('absolute left-0 border-b border-r bg-card px-2', drag && 'z-30 bg-accent shadow-lg', height < 36 ? 'flex flex-row items-center gap-1' : 'flex flex-col justify-center gap-1')} style={{ top, height, width: HEAD, ...(drag ? { transform: `translateY(${drag.dy}px)` } : {}) }}>
-      <div className="flex min-w-0 flex-1 items-center gap-1.5 text-[11px] font-medium text-foreground/90 [&_svg]:size-3.5 [&_svg]:shrink-0 [&_svg]:text-muted-foreground">{order && <span title="Drag to reorder" aria-label="Drag to reorder" onPointerDown={grab} onPointerMove={move} onPointerUp={drop} onPointerCancel={() => setDrag(null)}
-          className="-ml-1 grid size-5 shrink-0 cursor-grab touch-none select-none place-items-center rounded text-muted-foreground hover:bg-sidebar-accent hover:text-foreground active:cursor-grabbing">⠿</span>}
-        {icon}<span className="truncate">{label}</span></div>
+    <div className={cn('absolute left-0 flex flex-row items-center justify-between gap-0.5 border-b border-r bg-card px-2', drag && 'z-30 bg-accent shadow-lg')} style={{ top, height, width: HEAD, ...(drag ? { transform: `translateY(${drag.dy}px)` } : {}) }}>
+      {/* CapCut style: just the track-type icon (drag it to reorder), then the switches. The name is in the tooltip. */}
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span aria-label={label} onPointerDown={order ? grab : undefined} onPointerMove={order ? move : undefined} onPointerUp={order ? drop : undefined} onPointerCancel={() => setDrag(null)}
+            className={cn('grid size-5 shrink-0 touch-none select-none place-items-center rounded text-muted-foreground [&_svg]:size-3.5', order && 'cursor-grab hover:bg-sidebar-accent hover:text-foreground active:cursor-grabbing')}>{icon}</span>
+        </TooltipTrigger>
+        <TooltipContent side="right">{label}{order ? ' · drag to reorder' : ''}</TooltipContent>
+      </Tooltip>
       <div className="flex shrink-0 gap-0.5">
         {eye && <Btn on={!!lane.hidden} title={lane.hidden ? 'Show' : 'Hide'} onClick={() => toggleLane(laneKey, 'hidden')}>{lane.hidden ? <EyeOff /> : <Eye />}</Btn>}
         {lock && <Btn on={!!lane.locked} title={lane.locked ? 'Unlock' : 'Lock'} onClick={() => toggleLane(laneKey, 'locked')}>{lane.locked ? <Lock /> : <Unlock />}</Btn>}
         {mute && <Btn on={mute.on} title={mute.on ? 'Unmute' : 'Mute'} onClick={mute.toggle}>{mute.on ? <VolumeOff /> : <Volume />}</Btn>}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button title="More" aria-label="More" className="grid size-5 place-items-center rounded text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-foreground data-[state=open]:bg-sidebar-accent [&_svg]:size-3.5"><Ellipsis /></button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="w-44">
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger>Track height</DropdownMenuSubTrigger>
+              <DropdownMenuSubContent>
+                <DropdownMenuRadioGroup value={lane.size ?? 'default'} onValueChange={(v) => setLane(laneKey, { size: v as 'short', h: undefined })}>
+                  <DropdownMenuRadioItem value="short">Short</DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="default">Default</DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="tall">Tall</DropdownMenuRadioItem>
+                </DropdownMenuRadioGroup>
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
+            {wave && (
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger>Audio waveform size</DropdownMenuSubTrigger>
+                <DropdownMenuSubContent>
+                  <DropdownMenuRadioGroup value={lane.wave ?? 'default'} onValueChange={(v) => setLane(laneKey, { wave: v as 'short' })}>
+                    <DropdownMenuRadioItem value="short">Short</DropdownMenuRadioItem>
+                    <DropdownMenuRadioItem value="default">Default</DropdownMenuRadioItem>
+                    <DropdownMenuRadioItem value="tall">Tall</DropdownMenuRadioItem>
+                  </DropdownMenuRadioGroup>
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
+      {resize && (
+        <div title="Drag to resize the track" aria-label="Resize track" onPointerDown={(e) => { if (e.button !== 0) return; e.preventDefault(); e.stopPropagation(); rz.current = { y0: e.clientY, h0: resize.rowH }; (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); }}
+          onPointerMove={(e) => { const r = rz.current; if (r) setLane(laneKey, { h: Math.round(Math.min(MAX_ROW, Math.max(MIN_ROW, r.h0 + (e.clientY - r.y0) / (resize.rows ?? 1)))), size: undefined }, `lane-h-${laneKey}`); }}
+          onPointerUp={() => { rz.current = null; }} onPointerCancel={() => { rz.current = null; }}
+          className="absolute inset-x-0 bottom-0 z-10 h-1.5 cursor-row-resize touch-none hover:bg-primary/40" />
+      )}
     </div>
   );
 }
 
 /** One music track on the timeline: waveform, beat ticks, ducking curve; drag to move, trim either end. */
-const MusicBlock = memo(function MusicBlock({ t, pps, top }: { t: MusicTrack; pps: number; top: number }) {
+const MusicBlock = memo(function MusicBlock({ t, pps, top, height }: { t: MusicTrack; pps: number; top: number; height: number }) {
   const captions = useEditor((s) => s.project!.captions);
   const ducking = useEditor((s) => s.project!.audio.ducking);
   const normalize = useEditor((s) => s.project!.audio.normalize);
   const update = useEditor((s) => s.update);
-  const drag = useRef<{ kind: 'move' | 'l' | 'r'; x0: number; orig: MusicTrack } | null>(null);
+  const drag = useRef<{ kind: 'move' | 'l' | 'r'; x0: number; orig: MusicTrack; group?: Group } | null>(null);
   const locked = useEditor((s) => !!laneOf(s.project!, `music:${t.id}`).locked);
-  const selected = useEditor((s) => s.selectedTrackId === t.id);
+  const waveK = useEditor((s) => WAVE_K[laneOf(s.project!, `sound:${t.layer ?? 0}`).wave ?? 'default']);
+  const selected = useEditor((s) => s.selectedTrackId === t.id || s.multiIds.includes(t.id));
   const patch = (p: Partial<MusicTrack>) => update((pr) => ({ ...pr, audio: { ...pr.audio, tracks: pr.audio.tracks.map((x) => (x.id === t.id ? { ...x, ...p } : x)) } }), `music-${t.id}`);
   const onDown = (e: React.PointerEvent, kind: 'move' | 'l' | 'r') => {
     if (e.button !== 0) return;
     e.stopPropagation();
-    useEditor.getState().selectTrack(t.id);
+    const press = kind === 'move' ? pressBlock(e, t.id) : 'single';
+    if (press === 'toggled') return;
+    if (press === 'single') useEditor.getState().selectTrack(t.id);
     if (locked) return;
-    drag.current = { kind, x0: e.clientX, orig: t };
+    drag.current = { kind, x0: e.clientX, orig: t, group: press === 'group' ? beginGroup(t.id, e.clientX) : undefined };
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
   };
   const onMove = (e: React.PointerEvent) => {
     const d = drag.current;
     if (!d) return;
+    if (d.group) { dragGroup(d.group, e.clientX, pps); return; }
     const dt = (e.clientX - d.x0) / pps, o = d.orig;
     const maxLen = o.loop ? Infinity : o.fileDuration - o.offset;
     if (d.kind === 'move') patch({ start: Math.max(0, o.start + dt), layer: geo.soundLayerAt(e.clientY) ?? (o.layer ?? 0) });
@@ -120,6 +180,21 @@ const MusicBlock = memo(function MusicBlock({ t, pps, top }: { t: MusicTrack; pp
     }
   };
   const w = Math.max(6, t.duration * pps);
+  // The wave grows and shrinks with the track's volume; the line on the block sets it.
+  const gain = t.muted ? 0 : Math.pow(10, t.volume / 20);
+  const volDrag = (e: React.PointerEvent) => {
+    e.stopPropagation();
+    if (locked) return;
+    const box = (e.currentTarget as HTMLElement).parentElement!.getBoundingClientRect();
+    const set = (ev: PointerEvent) => {
+      const f = Math.min(1, Math.max(0, (ev.clientY - box.top) / box.height));
+      patch({ volume: Math.round((12 - f * 42) * 2) / 2 });
+    };
+    const up = () => { window.removeEventListener('pointermove', set); window.removeEventListener('pointerup', up); };
+    window.addEventListener('pointermove', set);
+    window.addEventListener('pointerup', up);
+    set(e.nativeEvent);
+  };
   // Tracks saved without analysis (older sounds) get their peaks decoded on demand.
   const stored = t.analysis?.waveform;
   const [lazy, setLazy] = useState<number[] | null>(null);
@@ -144,12 +219,12 @@ const MusicBlock = memo(function MusicBlock({ t, pps, top }: { t: MusicTrack; pp
         let v = 0;
         for (let i = i0; i <= i1; i++) if (wf[i] > v) v = wf[i];
         const lx = (sg.when - t.start + x).toFixed(3);
-        top.push(`${lx},${(0.5 - v * 0.45).toFixed(3)}`);
-        bot.push(`${lx},${(0.5 + v * 0.45).toFixed(3)}`);
+        top.push(`${lx},${(0.5 - Math.min(0.5, v * 0.6 * waveK * gain)).toFixed(3)}`);
+        bot.push(`${lx},${(0.5 + Math.min(0.5, v * 0.6 * waveK * gain)).toFixed(3)}`);
       }
     }
     return `M${top.join('L')}L${bot.reverse().join('L')}Z`;
-  }, [t, pps, wf]);
+  }, [t, pps, wf, waveK, gain]);
   const duck = useMemo(() => {
     const project = useEditor.getState().project!;
     const curve = trackGainCurve(t, { ...project, captions, audio: { ...project.audio, ducking, normalize } });
@@ -159,16 +234,23 @@ const MusicBlock = memo(function MusicBlock({ t, pps, top }: { t: MusicTrack; pp
   }, [t, captions, ducking, normalize]);
   const beats = useMemo(() => (t.analysis?.beats ?? []).flatMap((b) => trackSegments(t).filter((sg) => b >= sg.offset && b <= sg.offset + sg.dur).map((sg) => sg.when - t.start + (b - sg.offset))), [t]);
   return (
-    <ContextMenu onOpenChange={(o) => o && useEditor.getState().selectTrack(t.id)}>
+    <ContextMenu onOpenChange={(o) => o && !useEditor.getState().multiIds.includes(t.id) && useEditor.getState().selectTrack(t.id)}>
     <ContextMenuTrigger asChild>
     <div className={cn('group absolute overflow-hidden rounded-md border border-chart-5/40 bg-chart-5/10', selected && 'ring-2 ring-primary', t.muted && 'opacity-40', locked && 'cursor-not-allowed')}
-      style={{ left: t.start * pps + PAD, width: w, top, height: MUSIC_H }}
-      onPointerDown={(e) => onDown(e, 'move')} onPointerMove={onMove} onPointerUp={() => { drag.current = null; }}>
+      style={{ left: t.start * pps + PAD, width: w, top, height }}
+      onPointerDown={(e) => onDown(e, 'move')} onPointerMove={onMove} onPointerUp={() => { endGroup(drag.current?.group); drag.current = null; }}>
       <svg className="pointer-events-none absolute inset-0 h-full w-full" viewBox={`0 0 ${Math.max(0.01, t.duration)} 1`} preserveAspectRatio="none">
         {path && <path d={path} fill="rgba(214,92,184,0.5)" />}
         {beats.map((b, i) => <line key={i} x1={b} x2={b} y1={0.82} y2={1} stroke="rgba(255,255,255,0.35)" strokeWidth={1} vectorEffect="non-scaling-stroke" />)}
         <polyline points={duck} fill="none" stroke="rgb(255,200,80)" strokeWidth={1.5} vectorEffect="non-scaling-stroke" />
       </svg>
+      {path && selected && (
+        <div onPointerDown={volDrag} title={`Volume ${t.volume > 0 ? '+' : ''}${t.volume} dB: drag up or down`}
+          className="absolute inset-x-0 z-10 flex h-3 -translate-y-1/2 cursor-ns-resize items-center" style={{ top: `${(1 - (t.volume + 30) / 42) * 100}%` }}>
+          <span className="h-px w-full bg-white/90 shadow-[0_0_2px_rgba(0,0,0,0.8)]" />
+          <span className="absolute left-1/2 size-2 -translate-x-1/2 rounded-full border border-black/70 bg-white" />
+        </div>
+      )}
       <span className="pointer-events-none absolute left-1.5 top-0.5 max-w-[90%] truncate text-[10px] font-medium text-foreground/90">♪ {t.name}</span>
       <span onPointerDown={(e) => onDown(e, 'l')} className="absolute inset-y-0 left-0 w-1.5 cursor-ew-resize group-hover:bg-foreground/30" />
       <span onPointerDown={(e) => onDown(e, 'r')} className="absolute inset-y-0 right-0 w-1.5 cursor-ew-resize group-hover:bg-foreground/30" />
@@ -201,7 +283,7 @@ function CaptionMenu({ c, children }: { c: Caption; children: React.ReactNode })
   const t = currentTime();
   const canSplit = t > c.start && t < c.end && c.words.length > 1;
   return (
-    <ContextMenu onOpenChange={(o) => o && st().select(c.id)}>
+    <ContextMenu onOpenChange={(o) => o && !st().multiIds.includes(c.id) && st().select(c.id)}>
       <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
       <ContextMenuContent className="w-56">
         <ContextMenuItem onClick={() => playRange(c.start, c.end)}><Play />Play caption</ContextMenuItem>
@@ -243,6 +325,7 @@ export function Timeline() {
   const playing = useEditor((s) => s.playing);
   const selected = useEditor((s) => s.selectedCaptionId);
   const select = useEditor((s) => s.select);
+  const multi = useEditor((s) => s.multiIds);
   const setCaptions = useEditor((s) => s.setCaptions);
   const scroller = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(800);
@@ -276,18 +359,21 @@ export function Timeline() {
   }, [pps, dur]);
 
   // Dragging captions: move or resize edges.
-  const drag = useRef<{ id: string; kind: 'move' | 'l' | 'r'; x0: number; orig: Caption; others: Caption[] } | null>(null);
+  const drag = useRef<{ id: string; kind: 'move' | 'l' | 'r'; x0: number; orig: Caption; others: Caption[]; group?: Group } | null>(null);
   const onBlockDown = (e: React.PointerEvent, c: Caption, kind: 'move' | 'l' | 'r') => {
     if (e.button !== 0) return;
     e.stopPropagation();
-    select(c.id);
+    const press = kind === 'move' ? pressBlock(e, c.id) : 'single';
+    if (press === 'toggled') return;
+    if (press === 'single') select(c.id);
     if (laneOf(useEditor.getState().project!, 'captions').locked) return;
-    drag.current = { id: c.id, kind, x0: e.clientX, orig: c, others: project.captions };
+    drag.current = { id: c.id, kind, x0: e.clientX, orig: c, others: project.captions, group: press === 'group' ? beginGroup(c.id, e.clientX) : undefined };
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
   };
   const onBlockMove = (e: React.PointerEvent) => {
     const d = drag.current;
     if (!d) return;
+    if (d.group) { dragGroup(d.group, e.clientX, pps); return; }
     const dt = (e.clientX - d.x0) / pps;
     const i = d.others.findIndex((c) => c.id === d.id);
     const prevEnd = i > 0 ? d.others[i - 1].end : 0;
@@ -304,10 +390,13 @@ export function Timeline() {
     else en = Math.max(Math.min(o.end + dt, nextStart), o.start + 0.1);
     setCaptions(normalizeCaptions(d.others.map((c) => (c.id === d.id ? retime(o, s, en) : c))), `drag-${d.id}`);
   };
-  const onBlockUp = () => { drag.current = null; };
+  const onBlockUp = () => { endGroup(drag.current?.group); drag.current = null; };
 
   // Scrub on ruler / empty area.
   const scrub = useRef(false);
+  /** Drag on empty track space draws a selection box; a plain click there still moves the playhead. */
+  const mq = useRef<{ x0: number; y0: number; base: string[]; active: boolean; key: string } | null>(null);
+  const [box, setBox] = useState<{ l: number; t: number; w: number; h: number } | null>(null);
   const tAt = (e: React.PointerEvent) => {
     const r = scroller.current!.getBoundingClientRect();
     return (e.clientX - r.left + scroller.current!.scrollLeft - PAD) / pps;
@@ -321,37 +410,56 @@ export function Timeline() {
   };
 
   const AUD_H = 40;
-  const aRows = audioRows(project.clips ?? []);
-  const audioRowCount = Math.max(1, ...aRows.map((r) => r.row + 1));
+  const aRows = audioRows((project.clips ?? []).filter((c) => !foldedIntoVideo(c, project.clips ?? [])));
+  // No Audio row when every audio clip is folded into its video: music keeps the only audio row.
+  const audioRowCount = aRows.length ? Math.max(...aRows.map((r) => r.row + 1)) : 0;
   const nAdj = trackCount(project.adj ?? []);
   const nVid = rowCount(project);
   const nSound = project.audio.tracks.length ? Math.max(...project.audio.tracks.map((t) => t.layer ?? 0)) + 1 : 0;
   const capsTop = 30;
   const order = groupOrder(project);
+  // Row heights follow each track's size setting; rows stack top-down with the highest track first.
+  const capsH = laneH(project, 'captions', LANE_H);
+  const vH = (tr: number) => laneH(project, tr === 0 ? 'video' : `video:${tr}`, LANE_H);
+  const aH = (tr: number) => laneH(project, adjLane(tr), FX_H);
+  const mH = (l: number) => laneH(project, `sound:${l}`, MUSIC_H);
+  const audH = laneH(project, 'audio', AUD_H);
+  const stack = (n: number, h: (i: number) => number, from: number) => {
+    const tops: number[] = [];
+    let y = from;
+    for (let i = n - 1; i >= 0; i--) { tops[i] = y; y += h(i) + GAP; }
+    return { tops, end: y };
+  };
+  // The 'new layer' strip only takes room once there is a layer above the main video, so a lone video row sits flush with its header.
+  const newH = nVid > 1 ? NEW_ROW_H : 0;
+  const adjStack = stack(nAdj, aH, 0), vidStack = stack(nVid, vH, 0);
   const sizes: Record<LaneGroup, number> = {
-    overlay: 0, adj: nAdj * (FX_H + GAP), video: NEW_ROW_H + nVid * (LANE_H + GAP),
-    audio: audioRowCount * (AUD_H + 4) + GAP, broll: FX_H + GAP, sound: nSound * (MUSIC_H + GAP),
+    overlay: 0, adj: adjStack.end, video: newH + vidStack.end,
+    audio: audioRowCount ? audioRowCount * (audH + 4) + GAP : 0, broll: project.hook.enabled && project.hook.text ? FX_H + GAP : 0,
+    sound: Array.from({ length: nSound }, (_, l) => mH(l) + GAP).reduce((a, b) => a + b, 0),
   };
   const area = {} as Record<LaneGroup, number>;
-  let acc = capsTop + LANE_H + GAP;
+  let acc = capsTop + capsH + GAP;
   for (const g of order) { area[g] = acc; acc += sizes[g]; }
   const adjArea = area.adj, videoArea = area.video, audioTop = area.audio;
-  const adjTop = (track: number) => adjArea + (nAdj - 1 - track) * (FX_H + GAP);
-  const videoTop = (track: number) => videoArea + NEW_ROW_H + (nVid - 1 - track) * (LANE_H + GAP);
+  const adjTop = (track: number) => adjArea + adjStack.tops[track];
+  const videoTop = (track: number) => videoArea + newH + vidStack.tops[track];
   const rows = { ruler: 0, caps: capsTop, extra: area.broll };
-  const musicTop = (layer: number) => area.sound + layer * (MUSIC_H + GAP);
+  const musicTop = (layer: number) => area.sound + Array.from({ length: layer }, (_, l) => mH(l) + GAP).reduce((a, b) => a + b, 0);
   const bottom = acc + 8;
   /** Row under a pointer y inside one group; a new track above when the pointer is just above the top group. */
-  const trackIn = (g: LaneGroup, y: number, count: number, h: number) => {
+  const trackIn = (g: LaneGroup, y: number, count: number, tops: number[]) => {
     if (y < area[g] - 4) return order[0] === g ? count : undefined;
     if (y >= area[g] + sizes[g]) return undefined;
-    return Math.max(0, Math.min(count - 1, count - 1 - Math.floor((y - area[g]) / h)));
+    for (let i = count - 1; i > 0; i--) if (y < area[g] + tops[i - 1]) return i; // tops[i] is the row's offset in its group
+    return 0;
   };
   /** Layer rows: a slim strip above the top row opens a new layer; below it each row is a track (row 0 is the main video). */
   const layerRowIn = (y: number) => {
-    if (y < area.video - 4 || y >= area.video + sizes.video) return undefined;
-    if (y < area.video + NEW_ROW_H) return nVid;
-    return Math.max(0, Math.min(nVid - 1, nVid - 1 - Math.floor((y - area.video - NEW_ROW_H) / (LANE_H + GAP))));
+    if (y < area.video - (newH ? 4 : 8) || y >= area.video + sizes.video) return undefined;
+    if (y < area.video + newH) return nVid;
+    for (let i = nVid - 1; i > 0; i--) if (y < area.video + newH + vidStack.tops[i - 1]) return i;
+    return 0;
   };
   const groupAt = (clientY: number): LaneGroup => {
     const y = contentY(clientY);
@@ -361,14 +469,15 @@ export function Timeline() {
   // Publish row geometry so clip blocks can turn a pointer position into a track while dragging.
   const contentY = (clientY: number) => clientY - scroller.current!.getBoundingClientRect().top + scroller.current!.scrollTop;
   geo.timeAt = (clientX) => (clientX - scroller.current!.getBoundingClientRect().left + scroller.current!.scrollLeft - PAD) / pps;
-  geo.adjTrackAt = (clientY) => trackIn('adj', contentY(clientY), nAdj, FX_H + GAP);
+  geo.adjTrackAt = (clientY) => trackIn('adj', contentY(clientY), nAdj, adjStack.tops);
   geo.videoTrackAt = (clientY) => layerRowIn(contentY(clientY));
   /** The layer row for a dropped overlay: never the main video row. */
   const layerRowAt = (clientY: number) => { const r = layerRowIn(contentY(clientY)); return r === undefined ? undefined : Math.max(1, r); };
   geo.soundLayerAt = (clientY) => {
     const y = contentY(clientY);
     if (y < area.sound - GAP) return undefined;
-    return Math.max(0, Math.min(nSound, Math.floor((y - area.sound) / (MUSIC_H + GAP))));
+    for (let l = 0; l < nSound; l++) if (y < musicTop(l) + mH(l) + GAP) return l;
+    return nSound;
   };
   // CapCut's "+": add media right after the last clip of a video track.
   const plusInput = useRef<HTMLInputElement>(null);
@@ -388,6 +497,7 @@ export function Timeline() {
   const sel = project.captions.find((c) => c.id === selected) ?? null;
   const canUndo = useEditor((s) => s.past.length > 0), canRedo = useEditor((s) => s.future.length > 0);
 
+  const nMulti = useEditor((s) => s.multiIds.length);
   const selOverlay = useEditor((s) => s.selectedOverlayId);
   const selTrack = useEditor((s) => s.selectedTrackId);
   const selAdj = useEditor((s) => s.selectedAdjId);
@@ -395,6 +505,7 @@ export function Timeline() {
   useEffect(() => onClipboardChange(() => bump((n) => n + 1)), []);
   const hasClip = hasClipboard(), clipKind = clipboardKind();
   const splitHere = () => {
+    if (splitSelection()) return;
     if (selTrack && trackOps.splitAtPlayhead()) return;
     if (selOverlay && overlayOps.splitAtPlayhead()) return;
     if (clipOps.splitAtPlayhead()) return;
@@ -466,13 +577,16 @@ export function Timeline() {
         <Tool label="Redo" disabled={!canRedo} onClick={() => useEditor.getState().redo()}><Redo2 /></Tool>
         <span className="mx-1 h-5 w-px bg-border" />
         <Tool label="Split at playhead (S)" onClick={splitHere}><Scissors /></Tool>
-        <Tool label="Copy selected (⌘C)" disabled={!sel && !selectedClip && !selOverlay && !selTrack && !selAdj} onClick={() => copySelection()}><Copy /></Tool>
+        <Tool label="Copy selected (⌘C)" disabled={!sel && !selectedClip && !selOverlay && !selTrack && !selAdj && nMulti < 2} onClick={() => copySelection()}><Copy /></Tool>
         <Tool label="Paste at playhead (⌘V)" disabled={!hasClip} onClick={() => pasteAtPlayhead(false)}><ClipboardPaste /></Tool>
         <Tool label="Paste a copied video clip as an overlay window (⌥⌘V)" disabled={clipKind !== 'clip'} onClick={() => pasteAtPlayhead(true)}><PictureInPicture /></Tool>
         <Tool label="Paste only the look: filters, cut-out, blur, effects, style (⇧⌘V)" disabled={!hasClip} onClick={() => pasteAttributes()}><WandSparkles /></Tool>
-        <Tool label="Delete selected (Del)" disabled={!sel && !selectedClip && !selOverlay && !selTrack} onClick={() => { if (selTrack) trackOps.remove(selTrack); else if (selOverlay) overlayOps.remove(selOverlay); else if (selectedClip) clipOps.remove(selectedClip.id); else if (sel) { setCaptions(project.captions.filter((c) => c.id !== sel.id)); select(null); } }}><Trash2 /></Tool>
+        <Tool label="Copy all edits of the selected clip (⌥⌘C)" disabled={!selectedClip} onClick={() => copyEdits()}><Copy /></Tool>
+        <Tool label="Paste copied edits onto the selected clip (⌥⇧⌘V)" disabled={!selectedClip || !hasEdits()} onClick={() => pasteEdits()}><ClipboardPaste /></Tool>
+        <Tool label="Delete selected (Del)" disabled={!sel && !selectedClip && !selOverlay && !selTrack && nMulti < 2} onClick={() => { if (deleteSelection()) return; if (selTrack) trackOps.remove(selTrack); else if (selOverlay) overlayOps.remove(selOverlay); else if (selectedClip) clipOps.remove(selectedClip.id); else if (sel) { setCaptions(project.captions.filter((c) => c.id !== sel.id)); select(null); } }}><Trash2 /></Tool>
         <Tool label={selectedClip?.linkId ? 'Unlink video and audio' : 'Link selected clip with its audio / video'} disabled={!selectedClip}
           active={!!selectedClip?.linkId} onClick={() => { if (selectedClip) { if (selectedClip.linkId) clipOps.unlink(selectedClip.id); else clipOps.link(selectedClip.id); } }}><Link /></Tool>
+        <Tool label={selectionGrouped() ? 'Ungroup (⇧⌘G)' : 'Group the selected items (⌘G)'} disabled={nMulti < 2} active={selectionGrouped()} onClick={() => groupSelection()}><Layers /></Tool>
         <Tool label="Ripple delete: closing the gap when a clip is deleted" active={rippleDelete} onClick={() => useEditor.getState().setRippleDelete(!rippleDelete)}><Ripple /></Tool>
         <span className="mx-1 h-5 w-px bg-border" />
         <Tool label="Snap to beats" active={project.audio.snapToBeats} onClick={() => useEditor.getState().update((p) => ({ ...p, audio: { ...p.audio, snapToBeats: !p.audio.snapToBeats } }))}><Magnet /></Tool>
@@ -495,31 +609,76 @@ export function Timeline() {
         onDragLeave={(e) => { if (e.currentTarget === e.target) setDropAt(null); }}
         onDrop={(e) => void onDrop(e)}
         onWheel={(e) => { if (e.ctrlKey || e.metaKey) { e.preventDefault(); setZoom((z) => Math.min(40, Math.max(1, z * (e.deltaY < 0 ? 1.15 : 1 / 1.15)))); } }}
-        onPointerDown={(e) => { if (e.button !== 0) return; scrub.current = true; seek(tAt(e)); select(null); useEditor.getState().selectClip(null); useEditor.getState().selectOverlay(null); useEditor.getState().selectAdj(null); useEditor.getState().selectTrack(null); (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); }}
-        onPointerMove={(e) => { if (scrub.current) seek(tAt(e)); }}
-        onPointerUp={() => { scrub.current = false; }}>
+        onPointerDown={(e) => {
+          if (e.button !== 0) return;
+          const el = e.currentTarget as HTMLElement, r = el.getBoundingClientRect();
+          const x0 = e.clientX - r.left + el.scrollLeft, y0 = e.clientY - r.top + el.scrollTop;
+          const additive = e.shiftKey || e.metaKey || e.ctrlKey;
+          if (y0 > 24) mq.current = { x0, y0, base: additive ? selectedIds(useEditor.getState()) : [], active: false, key: '' };
+          else { scrub.current = true; seek(tAt(e)); }
+          if (!additive) { select(null); useEditor.getState().selectClip(null); useEditor.getState().selectOverlay(null); useEditor.getState().selectAdj(null); useEditor.getState().selectTrack(null); }
+          el.setPointerCapture(e.pointerId);
+        }}
+        onPointerMove={(e) => {
+          if (scrub.current) { seek(tAt(e)); return; }
+          const m = mq.current;
+          if (!m) return;
+          const el = e.currentTarget as HTMLElement, r = el.getBoundingClientRect();
+          const x = e.clientX - r.left + el.scrollLeft, y = e.clientY - r.top + el.scrollTop;
+          if (!m.active && Math.hypot(x - m.x0, y - m.y0) < 4) return;
+          m.active = true;
+          const l = Math.min(x, m.x0), t = Math.min(y, m.y0), w = Math.abs(x - m.x0), h = Math.abs(y - m.y0);
+          setBox({ l, t, w, h });
+          const hit = (bl: number, bt: number, bw: number, bh: number) => bl < l + w && bl + bw > l && bt < t + h && bt + bh > t;
+          const ids = [
+            ...(project.clips ?? []).flatMap((c) => {
+              if (foldedIntoVideo(c, project.clips ?? [])) return [];
+              const top = c.kind === 'audio' ? audioTop + (aRows.find((a) => a.clip.id === c.id)?.row ?? 0) * (audH + 4) : videoTop(trackOf(c));
+              return hit(c.start * pps + PAD, top, Math.max(6, c.duration * pps), c.kind === 'audio' ? audH : vH(trackOf(c))) ? [c.id] : [];
+            }),
+            ...(project.overlays ?? []).filter((o) => hit(o.start * pps + PAD, videoTop(o.track), Math.max(8, o.duration * pps), vH(o.track))).map((o) => o.id),
+            ...(project.adj ?? []).filter((a) => hit(a.start * pps + PAD, adjTop(a.track), Math.max(8, a.duration * pps), aH(a.track))).map((a) => a.id),
+          ];
+          ids.push(
+            ...project.captions.filter((c) => hit(c.start * pps + PAD, rows.caps, Math.max(4, (c.end - c.start) * pps), capsH)).map((c) => c.id),
+            ...project.audio.tracks.filter((t) => hit(t.start * pps + PAD, musicTop(t.layer ?? 0), Math.max(6, t.duration * pps), mH(t.layer ?? 0))).map((t) => t.id),
+          );
+          const all = withGroupMates(project, [...new Set([...m.base, ...ids])]);
+          const key = all.join();
+          if (key === m.key) return;
+          m.key = key;
+          useEditor.getState().setMulti(all);
+        }}
+        onPointerUp={(e) => {
+          scrub.current = false;
+          const m = mq.current;
+          mq.current = null;
+          setBox(null);
+          if (m && !m.active && !(e.shiftKey || e.metaKey || e.ctrlKey)) seek(tAt(e));
+        }}
+        onPointerCancel={() => { scrub.current = false; mq.current = null; setBox(null); }}>
         <div className="relative" style={{ width: total, height: bottom, minHeight: '100%' }}>
           {/* Sticky track headers: zero footprint in flow, absolute cells inside. */}
           <div className="sticky left-0 z-30 h-0 w-0" onPointerDown={(e) => e.stopPropagation()}>
             <div className="absolute left-0 top-0 border-r bg-card" style={{ width: HEAD, height: Math.max(bottom, 400) }}>
               <div className="absolute inset-x-0 top-0 h-6 border-b bg-background/40" />
-              <LaneHeader top={rows.caps} height={LANE_H} label="Captions" icon={<Pencil />} laneKey="captions" />
+              <LaneHeader top={rows.caps} height={capsH} resize={{ rowH: capsH }} label="Captions" icon={<Pencil />} laneKey="captions" />
               {Array.from({ length: nAdj }, (_, i) => nAdj - 1 - i).map((tr) => (
-                <LaneHeader key={`adj${tr}`} top={adjTop(tr)} height={FX_H} label={tr === 0 ? 'Filters & FX' : `FX ${tr + 1}`} icon={<Layers />} laneKey={adjLane(tr)}
+                <LaneHeader key={`adj${tr}`} top={adjTop(tr)} height={aH(tr)} resize={{ rowH: aH(tr) }} label={tr === 0 ? 'Filters & FX' : `FX ${tr + 1}`} icon={<Layers />} laneKey={adjLane(tr)}
                   order={{ group: 'adj', groupAt, kind: 'adj', track: tr, count: nAdj, at: geo.adjTrackAt }} />
               ))}
               {Array.from({ length: nVid }, (_, i) => nVid - 1 - i).map((tr) => (
-                <LaneHeader key={`vid${tr}`} top={videoTop(tr)} height={LANE_H} label={tr === 0 ? 'Video' : `Layer ${tr}`} icon={<Play />} laneKey={tr === 0 ? 'video' : `video:${tr}`}
+                <LaneHeader key={`vid${tr}`} top={videoTop(tr)} height={vH(tr)} resize={{ rowH: vH(tr) }} label={tr === 0 ? 'Video' : `Layer ${tr}`} icon={<Play />} laneKey={tr === 0 ? 'video' : `video:${tr}`}
                   order={{ group: 'video', groupAt, kind: 'video', track: tr, count: nVid, at: geo.videoTrackAt }} />
               ))}
-              <LaneHeader top={audioTop} height={audioRowCount * (AUD_H + 4) - 4} label="Audio" icon={<Volume />} laneKey="audio" eye={false} order={{ group: 'audio', groupAt }}
-                mute={{ on: !!laneOf(project, 'audio').muted, toggle: () => useEditor.getState().update((p) => ({ ...p, lanes: { ...p.lanes, audio: { ...p.lanes?.audio, muted: !p.lanes?.audio?.muted } } })) }} />
-              <LaneHeader top={rows.extra} height={FX_H} label="B-roll" icon={<Copy />} laneKey="broll" lock={false} order={{ group: 'broll', groupAt }} />
+              {audioRowCount > 0 && <LaneHeader top={audioTop} height={audioRowCount * (audH + 4) - 4} label="Audio" icon={<Volume />} laneKey="audio" eye={false} wave resize={{ rowH: audH, rows: audioRowCount }} order={{ group: 'audio', groupAt }}
+                mute={{ on: !!laneOf(project, 'audio').muted, toggle: () => useEditor.getState().update((p) => ({ ...p, lanes: { ...p.lanes, audio: { ...p.lanes?.audio, muted: !p.lanes?.audio?.muted } } })) }} />}
+              {project.hook.enabled && project.hook.text && <LaneHeader top={rows.extra} height={FX_H} label="Hook" icon={<Pencil />} laneKey="broll" lock={false} order={{ group: 'broll', groupAt }} />}
               {Array.from({ length: nSound }, (_, l) => {
                 const inLayer = project.audio.tracks.filter((t) => (t.layer ?? 0) === l);
                 const allMuted = inLayer.length > 0 && inLayer.every((t) => t.muted);
                 return (
-                  <LaneHeader key={`snd${l}`} top={musicTop(l)} height={MUSIC_H} label={`Sound ${l + 1}`} icon={<Volume />} laneKey={`sound:${l}`} eye={false} lock={false}
+                  <LaneHeader key={`snd${l}`} top={musicTop(l)} height={mH(l)} wave resize={{ rowH: mH(l) }} label={`Sound ${l + 1}`} icon={<Volume />} laneKey={`sound:${l}`} eye={false} lock={false}
                     order={{ group: 'sound', groupAt, kind: 'sound', track: l, count: nSound, at: geo.soundLayerAt }}
                     mute={{ on: allMuted, toggle: () => useEditor.getState().update((p) => ({ ...p, audio: { ...p.audio, tracks: p.audio.tracks.map((x) => ((x.layer ?? 0) === l ? { ...x, muted: !allMuted } : x)) } })) }} />
                 );
@@ -534,7 +693,7 @@ export function Timeline() {
             ))}
           </div>
           {/* Captions */}
-          <div className={cn('absolute inset-x-0', laneOf(project, 'captions').hidden && 'opacity-35')} style={{ top: rows.caps, height: LANE_H }}>
+          <div className={cn('absolute inset-x-0', laneOf(project, 'captions').hidden && 'opacity-35')} style={{ top: rows.caps, height: capsH }}>
             {project.captions.map((c) => {
               const left = c.start * pps + PAD, w = Math.max(4, (c.end - c.start) * pps);
               const active = time >= c.start && time < c.end;
@@ -546,7 +705,7 @@ export function Timeline() {
                     onPointerDown={(e) => onBlockDown(e, c, 'move')} onPointerMove={onBlockMove} onPointerUp={onBlockUp}
                     onDoubleClick={(e) => { e.stopPropagation(); seek(c.start); useEditor.getState().setPanel('captions'); }}
                     className={cn('group absolute top-0 flex h-full cursor-grab items-center overflow-hidden rounded-lg border px-2 text-xs transition-colors active:cursor-grabbing',
-                      selected === c.id ? 'border-primary bg-primary/45 text-foreground shadow-md shadow-primary/30'
+                      selected === c.id || multi.includes(c.id) ? 'border-primary bg-primary/45 text-foreground shadow-md shadow-primary/30'
                         : active ? 'border-primary/60 bg-primary/30' : 'border-primary/25 bg-primary/15 hover:bg-primary/25')}
                     style={{ left, width: w }}>
                     {emph && <span className="absolute left-0 top-0 h-0.5 w-full bg-warn/80" />}
@@ -560,25 +719,25 @@ export function Timeline() {
           </div>
           {/* Filter and effect clips on their own tracks. Empty rows are drop targets. */}
           {Array.from({ length: nAdj }, (_, tr) => (
-            <div key={`adjrow${tr}`} className="pointer-events-none absolute rounded-lg border border-dashed border-border/60" style={{ left: PAD, width: dur * pps, top: adjTop(tr), height: FX_H }} />
+            <div key={`adjrow${tr}`} className="pointer-events-none absolute rounded-lg border border-dashed border-border/60" style={{ left: PAD, width: dur * pps, top: adjTop(tr), height: aH(tr) }} />
           ))}
-          {(project.adj ?? []).map((a) => <AdjBlock key={a.id} adj={a} pps={pps} pad={PAD} top={adjTop(a.track)} height={FX_H} />)}
+          {(project.adj ?? []).map((a) => <AdjBlock key={a.id} adj={a} pps={pps} pad={PAD} top={adjTop(a.track)} height={aH(a.track)} />)}
           {/* Layers: one row per track, shared by video clips, cut-outs, images, stickers, text and motion graphics. Empty rows are drop targets. */}
-          <div className="pointer-events-none absolute flex items-center justify-center rounded-lg border border-dashed border-border/40 text-[9px] text-muted-foreground/70" style={{ left: PAD, width: dur * pps, top: area.video, height: NEW_ROW_H - 2 }}>drop here for a new layer</div>
+          {newH > 0 && <div className="pointer-events-none absolute flex items-center justify-center rounded-lg border border-dashed border-border/40 text-[9px] text-muted-foreground/70" style={{ left: PAD, width: dur * pps, top: area.video, height: newH - 2 }}>drop here for a new layer</div>}
           {Array.from({ length: nVid }, (_, tr) => (
-            <div key={`vrow${tr}`} className="pointer-events-none absolute rounded-lg border border-dashed border-border/60" style={{ left: PAD, width: dur * pps, top: videoTop(tr), height: LANE_H }} />
+            <div key={`vrow${tr}`} className="pointer-events-none absolute rounded-lg border border-dashed border-border/60" style={{ left: PAD, width: dur * pps, top: videoTop(tr), height: vH(tr) }} />
           ))}
-          {(project.overlays ?? []).map((o) => <OverlayBlock key={o.id} item={o} pps={pps} pad={PAD} top={videoTop(o.track)} height={LANE_H} />)}
+          {(project.overlays ?? []).map((o) => <OverlayBlock key={o.id} item={o} pps={pps} pad={PAD} top={videoTop(o.track)} height={vH(o.track)} />)}
           {/* Video clips (one row per track) and audio clips (their own layer); linked pairs move together */}
-          {videoClips(project.clips ?? []).map((c) => <ClipBlock key={c.id} clip={c} pps={pps} pad={PAD} top={videoTop(trackOf(c))} height={LANE_H} />)}
-          {aRows.map(({ clip, row }) => <ClipBlock key={clip.id} clip={clip} pps={pps} pad={PAD} top={audioTop + row * (AUD_H + 4)} height={AUD_H} />)}
+          {videoClips(project.clips ?? []).map((c) => <ClipBlock key={c.id} clip={c} pps={pps} pad={PAD} top={videoTop(trackOf(c))} height={vH(trackOf(c))} />)}
+          {aRows.map(({ clip, row }) => <ClipBlock key={clip.id} clip={clip} pps={pps} pad={PAD} top={audioTop + row * (audH + 4)} height={audH} />)}
           {Array.from({ length: nVid }, (_, tr) => {
             const end = Math.max(0, ...videoClips(project.clips ?? []).filter((c) => trackOf(c) === tr).map(clipEnd));
             return (
               <button key={`plus${tr}`} type="button" title="Add media after the last clip" aria-label="Add media after the last clip"
                 onClick={() => { plusTarget.current = { track: tr, start: end }; plusInput.current?.click(); }}
                 className="absolute z-10 grid place-items-center rounded-md bg-foreground/90 text-background shadow transition-transform hover:scale-105"
-                style={{ left: end * pps + PAD + 8, top: videoTop(tr) + (LANE_H - 28) / 2, width: 28, height: 28 }}><Plus className="size-4" /></button>
+                style={{ left: end * pps + PAD + 8, top: videoTop(tr) + (vH(tr) - 28) / 2, width: 28, height: 28 }}><Plus className="size-4" /></button>
             );
           })}
           <input ref={plusInput} type="file" multiple accept="video/*,audio/*,image/*" hidden onChange={(e) => { void addAfterEnd(e.target.files); e.target.value = ''; }} />
@@ -586,22 +745,19 @@ export function Timeline() {
             <button key={k.id} title="Keyframe" aria-label="Keyframe"
               onPointerDown={(e) => { e.stopPropagation(); useEditor.getState().selectClip(c.id); seek(c.start + k.t); useEditor.getState().setPanel('clip'); }}
               className="keyframe-diamond absolute z-10 size-3 bg-primary hover:scale-125"
-              style={{ left: (c.start + k.t) * pps + PAD - 6, top: videoTop(trackOf(c)) + LANE_H - 15 }} />
+              style={{ left: (c.start + k.t) * pps + PAD - 6, top: videoTop(trackOf(c)) + vH(trackOf(c)) - 15 }} />
           )))}
-          {/* Hook and b-roll */}
-          <div className={cn('absolute inset-x-0', laneOf(project, 'broll').hidden && 'opacity-35')} style={{ top: rows.extra, height: FX_H }}>
-            {project.hook.enabled && project.hook.text && (
+          {/* Hook (the row only exists while a hook is set) */}
+          {project.hook.enabled && project.hook.text && (
+            <div className={cn('absolute inset-x-0', laneOf(project, 'broll').hidden && 'opacity-35')} style={{ top: rows.extra, height: FX_H }}>
               <div className="absolute top-0 h-full truncate rounded-lg border border-warn/40 bg-warn/15 px-2 text-[11px] leading-[26px]"
                 style={{ left: project.hook.start * pps + PAD, width: (project.hook.end - project.hook.start) * pps }}>Hook · {project.hook.text}</div>
-            )}
-            {project.broll.map((b) => (
-              <div key={b.id} className="absolute top-0 h-full truncate rounded-lg border border-ok/40 bg-ok/15 px-2 text-[11px] leading-[26px]"
-                style={{ left: b.start * pps + PAD, width: (b.end - b.start) * pps }}>{b.note || 'B-roll'}</div>
-            ))}
-          </div>
+            </div>
+          )}
           {project.audio.tracks.map((t) => (
-            <MusicBlock key={t.id} t={t} pps={pps} top={musicTop(t.layer ?? 0)} />
+            <MusicBlock key={t.id} t={t} pps={pps} top={musicTop(t.layer ?? 0)} height={mH(t.layer ?? 0)} />
           ))}
+          {box && <div className="pointer-events-none absolute z-40 rounded-sm border border-primary bg-primary/15" style={{ left: box.l, top: box.t, width: box.w, height: box.h }} />}
           {dropAt && <div className="pointer-events-none absolute bottom-0 top-0 z-20 w-0.5 bg-primary/70" style={{ left: Math.max(0, geo.timeAt(dropAt.x)) * pps + PAD }} />}
           <div className="pointer-events-none absolute bottom-0 top-0 z-20 w-px bg-destructive" style={{ left: time * pps + PAD }}>
             <div className="absolute -left-[5px] top-0 h-2.5 w-[11px] rounded-b-sm bg-destructive" />

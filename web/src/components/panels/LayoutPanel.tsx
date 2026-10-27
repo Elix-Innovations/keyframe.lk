@@ -4,7 +4,7 @@ import { AlignVerticalJustifyCenter, AlignVerticalJustifyEnd, AlignVerticalJusti
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Row, Section, Segmented, Slider } from '../controls';
+import { ColorInput, Row, Section, Segmented, Slider } from '../controls';
 
 const RATIOS: { value: AspectRatio; label: string }[] = [
   { value: 'original', label: 'Original' }, { value: '9:16', label: '9:16' }, { value: '4:5', label: '4:5' }, { value: '1:1', label: '1:1' }, { value: '16:9', label: '16:9' },
@@ -42,9 +42,10 @@ export function LayoutPanel() {
         </Row>
         <Row label="Video fit">
           <Segmented size="sm" value={project.fit} onChange={(fit: FitMode) => update((p) => ({ ...p, fit }))}
-            options={[{ value: 'blur', label: 'Blur fill' }, { value: 'contain', label: 'Fit' }, { value: 'cover', label: 'Fill' }]} />
+            options={[{ value: 'blur', label: 'Blur' }, { value: 'color', label: 'Color' }, { value: 'contain', label: 'Fit' }, { value: 'cover', label: 'Fill' }]} />
         </Row>
-        <p className="text-xs text-muted-foreground">Turn a landscape or square clip into a 9:16 Reel — "Blur fill" puts a blurred copy of the video behind it.</p>
+        {project.fit === 'color' && <Row label="Background"><ColorInput value={project.fitColor ?? '#000000'} onChange={(fitColor) => update((p) => ({ ...p, fitColor }), 'fit-color')} /></Row>}
+        <p className="text-xs text-muted-foreground">Turn a landscape or square clip into a 9:16 Reel — "Blur fill" puts a blurred copy of the video behind it; "Color" uses a solid colour instead. Both show behind the video during transitions.</p>
       </Section>
     </div>
   );

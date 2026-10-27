@@ -47,6 +47,11 @@ export function makeVideoClip(o: { assetId: string; name: string; sourceDuration
   };
 }
 
+/** A video's own sound, linked to it: the video block draws its waveform, so it gets no row of its own. */
+export function foldedIntoVideo(c: Clip, clips: Clip[]): boolean {
+  return c.kind === 'audio' && !!c.fromVideo && !!c.linkId && clips.some((v) => v.kind === 'video' && v.linkId === c.linkId);
+}
+
 export function makeAudioClip(o: { assetId: string; name: string; sourceDuration: number; start: number; linkId?: string; fromVideo?: boolean }): Clip {
   return {
     id: nanoid(8), kind: 'audio', assetId: o.assetId, name: o.name, sourceDuration: o.sourceDuration, start: o.start, in: 0,

@@ -763,6 +763,97 @@ const BG_GRIDS: LibraryEntry[] = [
   { id: 'bg-tilt', name: 'Tilted grid', role: 'background', note: 'Swinging grid, warm glow', build: tiltGrid },
 ];
 
+/** Contour lines of a smooth random height field (marching squares), as smooth path nodes. */
+const contours = (w: number, h: number, seed: number, levels: number, stroke: string, width: number, opacity: number, freq = 1): SceneNode[] => {
+  const cell = 24, nx = Math.ceil(w / cell) + 1, ny = Math.ceil(h / cell) + 1;
+  const waves = Array.from({ length: 6 }, (_, i) => ({ fx: (0.0016 + rnd(seed + i) * 0.0032) * freq, fy: (0.0016 + rnd(seed + i + 9) * 0.0032) * freq, ph: rnd(seed + i + 18) * 6.28, a: 0.5 + rnd(seed + i + 27) }));
+  const hv = (x: number, y: number) => waves.reduce((acc, q, i) => acc + q.a * Math.sin(x * q.fx * (i % 2 ? 1 : -0.7) + y * q.fy * (i % 3 ? 1 : -1) + q.ph + Math.sin(y * q.fx * 0.8 + q.ph) * 0.9), 0);
+  const field = Array.from({ length: nx * ny }, (_, n) => hv((n % nx) * cell, Math.floor(n / nx) * cell));
+  const lo = Math.min(...field), hi = Math.max(...field);
+  const out: SceneNode[] = [];
+  for (let li = 1; li <= levels; li++) {
+    const L = lo + ((hi - lo) * li) / (levels + 1);
+    const at = (i: number, j: number) => field[j * nx + i];
+    // Edge ids: horizontal edge (i,j)-(i+1,j) = 2*(j*nx+i), vertical edge (i,j)-(i,j+1) = 2*(j*nx+i)+1.
+    const pos = new Map<number, [number, number]>(), adj = new Map<number, number[]>();
+    const edge = (i: number, j: number, horiz: boolean): number => {
+      const id = 2 * (j * nx + i) + (horiz ? 0 : 1);
+      if (!pos.has(id)) {
+        const a = at(i, j), b = horiz ? at(i + 1, j) : at(i, j + 1), u = (L - a) / (b - a);
+        pos.set(id, horiz ? [(i + u) * cell, j * cell] : [i * cell, (j + u) * cell]);
+      }
+      return id;
+    };
+    const link = (a: number, b: number) => { (adj.get(a) ?? adj.set(a, []).get(a)!).push(b); (adj.get(b) ?? adj.set(b, []).get(b)!).push(a); };
+    for (let j = 0; j < ny - 1; j++) for (let i = 0; i < nx - 1; i++) {
+      const tl = at(i, j) > L, tr = at(i + 1, j) > L, br = at(i + 1, j + 1) > L, bl = at(i, j + 1) > L;
+      const es: number[] = [];
+      if (tl !== tr) es.push(edge(i, j, true));
+      if (tr !== br) es.push(edge(i + 1, j, false));
+      if (bl !== br) es.push(edge(i, j + 1, true));
+      if (tl !== bl) es.push(edge(i, j, false));
+      if (es.length === 2) link(es[0], es[1]);
+      else if (es.length === 4) { link(es[0], es[1]); link(es[2], es[3]); }
+    }
+    const seen = new Set<number>();
+    const walk = (start: number): number[] => {
+      const line = [start]; seen.add(start);
+      for (let cur = start; ;) { const nxt = (adj.get(cur) ?? []).find((e) => !seen.has(e)); if (nxt === undefined) break; seen.add(nxt); line.push(nxt); cur = nxt; }
+      return line;
+    };
+    const emit = (ids: number[], closed: boolean) => {
+      if (ids.length < 6) return;
+      const pts: number[] = [];
+      ids.forEach((id, n) => { if (n % 2 === 0 || n === ids.length - 1) { const q = pos.get(id)!; pts.push(Math.round(q[0]), Math.round(q[1])); } });
+      if (pts.length >= 6) out.push({ type: 'path', name: `contour ${out.length + 1}`, points: pts, closed, stroke, strokeWidth: width, opacity });
+    };
+    for (const [id, nb] of adj) if (nb.length === 1 && !seen.has(id)) emit(walk(id), false);
+    for (const id of adj.keys()) if (!seen.has(id)) emit(walk(id), true);
+  }
+  return out;
+};
+
+/** Topographic map: thin contour lines drifting over a dark base. */
+const topo = (name: string, base: string, line: string, seed: number, levels: number): LibraryEntry['build'] => (f) => {
+  const D = 12, m = 160;
+  return scene(name, D, 'background', f, [
+    { type: 'group', name: 'map', x: keys(k(0, -m + 40, 'inOut'), k(D / 2, -m - 40, 'inOut'), k(D, -m + 40)), y: keys(k(0, -m - 30, 'inOut'), k(D / 2, -m + 30, 'inOut'), k(D, -m - 30)), rotation: keys(k(0, -0.6, 'inOut'), k(D / 2, 0.6, 'inOut'), k(D, -0.6)), children: contours(f.w + m * 2, f.h + m * 2, seed, levels, line, 2.6, 1) },
+    { type: 'ellipse', name: 'glow', x: sway(f.w * 0.5, 120, D), y: sway(f.h * 0.4, 160, D, 2), w: f.w * 1.2, h: f.w * 1.2, fill: line, blur: 180, opacity: 0.1, blend: 'screen' },
+    vignette(f, 0.45),
+  ], base);
+};
+
+/** Flowing lines: parallel curves that ripple like silk. */
+const flowLines: LibraryEntry['build'] = (f) => {
+  const D = 8, n = 34, rows: SceneNode[] = Array.from({ length: n }, (_, i): SceneNode => {
+    const y0 = (i / (n - 1)) * f.h * 1.2 - f.h * 0.1, ph = i * 0.22, pts: number[] = [];
+    for (let x = -60; x <= f.w + 60; x += 90) pts.push(x, Math.round(y0 + Math.sin(x * 0.006 + ph) * 90 + Math.sin(x * 0.0021 + ph * 1.7) * 130));
+    return { type: 'path', name: `flow ${i + 1}`, points: pts, stroke: i % 5 === 0 ? '#ffd9a0' : '#c58a4a', strokeWidth: i % 5 === 0 ? 2.6 : 1.6, opacity: 0.35 + 0.5 * Math.abs(Math.sin(i * 0.4)), y: keys(k(0, 0), k(D / 2, 26 * (i % 2 ? 1 : -1), 'inOut'), k(D, 0)), x: keys(k(0, 0), k(D / 2, 40, 'inOut'), k(D, 0)) };
+  });
+  return scene('Flowing lines', D, 'background', f, [
+    ...rows,
+    { type: 'ellipse', name: 'glow', x: sway(f.w * 0.6, 90, D), y: f.h * 0.45, w: f.w * 1.1, h: f.w * 0.9, fill: '#7a3b12', blur: 170, opacity: 0.35, blend: 'screen' },
+    vignette(f, 0.6),
+  ], '#14100d');
+};
+
+const BG_LINES: LibraryEntry[] = [
+  { id: 'bg-topo', name: 'Topographic', role: 'background', note: 'Contour map lines', build: topo('Topographic', '#0f1e2b', '#c79a5a', 7, 16) },
+  { id: 'bg-topo-fine', name: 'Topo fine', role: 'background', note: 'Dense contour rings', build: topo('Topo fine', '#0b0f14', '#8fd0c0', 31, 30) },
+  { id: 'bg-flow', name: 'Flowing lines', role: 'background', note: 'Silky ripple lines', build: flowLines },
+];
+
+/** Background library groups, in display order: id -> group. Anything not listed lands in "Animated". */
+export const BG_GROUPS = ['Solid colours', 'Gradients', 'Studio', 'Lines & grids', 'Animated', 'Retro & pop'] as const;
+const BG_GROUP_OF: Record<string, (typeof BG_GROUPS)[number]> = {
+  'bg-cycle-pop': 'Solid colours', 'bg-cycle-beat': 'Solid colours',
+  'bg-sunset': 'Gradients', 'bg-night': 'Gradients', 'bg-mesh': 'Gradients', 'bg-grain': 'Gradients', 'bg-duotone': 'Gradients', 'bg-ripple': 'Gradients', 'bg-aurora': 'Gradients', 'bg-lava': 'Gradients',
+  'bg-ribbed': 'Studio', 'bg-arcs': 'Studio', 'bg-orbit': 'Studio', 'bg-leaf': 'Studio', 'bg-satin': 'Studio', 'bg-beams': 'Studio', 'bg-glass-rings': 'Studio', 'bg-spotlight': 'Studio', 'bg-film': 'Studio', 'glow-bg': 'Studio',
+  'bg-blueprint': 'Lines & grids', 'bg-graph': 'Lines & grids', 'bg-cyber': 'Lines & grids', 'bg-dotgrid': 'Lines & grids', 'bg-cross': 'Lines & grids', 'bg-tiles': 'Lines & grids', 'bg-floor': 'Lines & grids', 'bg-tilt': 'Lines & grids', 'bg-checker': 'Lines & grids', 'bg-halftone': 'Lines & grids', 'bg-topo': 'Lines & grids', 'bg-topo-fine': 'Lines & grids', 'bg-flow': 'Lines & grids',
+  'bg-sunburst': 'Retro & pop', 'bg-memphis': 'Retro & pop', 'bg-vapor': 'Retro & pop', 'bg-chrome': 'Retro & pop', 'bg-synth': 'Retro & pop', 'bg-code': 'Retro & pop',
+};
+export const bgGroup = (e: LibraryEntry): (typeof BG_GROUPS)[number] => (e.id.startsWith('solid-') ? 'Solid colours' : BG_GROUP_OF[e.id] ?? 'Animated');
+
 export const MOTION_LIBRARY: LibraryEntry[] = [
   { id: 'lower-third', name: 'Lower third', role: 'graphic', note: 'Name and role on a sliding plate', build: lowerThird },
   { id: 'title-pop', name: 'Title pop', role: 'graphic', note: 'Big title that pops in with an underline', build: titleCard },
@@ -803,4 +894,5 @@ export const MOTION_LIBRARY: LibraryEntry[] = [
   ...BG2,
   ...BG3,
   ...BG_GRIDS,
+  ...BG_LINES,
 ];

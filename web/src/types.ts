@@ -219,6 +219,8 @@ export interface Word {
 
 export interface Caption {
   id: string;
+  /** Items sharing a group id are selected and moved together. */
+  groupId?: string;
   start: number;
   end: number;
   words: Word[];
@@ -261,6 +263,8 @@ export const WAVEFORM_RATE = 50;
 
 export interface MusicTrack {
   id: string;
+  /** Items sharing a group id are selected and moved together. */
+  groupId?: string;
   assetId: string;
   name: string;
   source: 'upload' | 'library';
@@ -349,7 +353,8 @@ export interface EffectInstance { id: string; effectId: string; intensity: numbe
 
 /** Per-row timeline switches. Keys: captions, fx, video, broll. */
 export type LaneGroup = 'overlay' | 'adj' | 'video' | 'audio' | 'broll' | 'sound';
-export interface LaneState { hidden?: boolean; locked?: boolean; muted?: boolean }
+export type LaneSize = 'short' | 'default' | 'tall';
+export interface LaneState { hidden?: boolean; locked?: boolean; muted?: boolean; /** Track height preset. */ size?: LaneSize; /** Track height in px, set by dragging the header edge (wins over `size`). */ h?: number; /** Audio waveform amplitude. */ wave?: LaneSize }
 export type Ease = 'linear' | 'easeIn' | 'easeOut' | 'easeInOut' | 'hold';
 
 /** Transform at one moment. Between keyframes values are interpolated with the earlier keyframe's ease. */
@@ -444,6 +449,8 @@ export interface VideoLayer {
 
 export interface Clip {
   id: string;
+  /** Items sharing a group id are selected and moved together. */
+  groupId?: string;
   kind: 'video' | 'audio';
   assetId: string;
   name: string;
@@ -480,6 +487,8 @@ export interface Clip {
 /** A filter or effect placed on the timeline over a time range; it applies to everything below its track (like CapCut's filter and effect tracks). */
 export interface AdjClip {
   id: string;
+  /** Items sharing a group id are selected and moved together. */
+  groupId?: string;
   kind: 'filter' | 'effect';
   /** Filter preset id or effect id. */
   refId: string;
@@ -503,6 +512,8 @@ export type OverlayBlend = 'normal' | 'screen' | 'multiply' | 'overlay' | 'light
 
 export interface OverlayItem {
   id: string;
+  /** Items sharing a group id are selected and moved together. */
+  groupId?: string;
   kind: 'text' | 'sticker' | 'image' | 'motion';
   /** Motion graphic or transition: the scene this layer plays (its time starts when the layer starts). */
   scene?: MotionScene;
@@ -555,7 +566,7 @@ export interface OverlayItem {
 }
 
 export type AspectRatio = 'original' | '9:16' | '1:1' | '4:5' | '16:9';
-export type FitMode = 'contain' | 'cover' | 'blur';
+export type FitMode = 'contain' | 'cover' | 'blur' | 'color';
 
 export interface SegmentationOptions {
   maxWords: number;
@@ -582,6 +593,8 @@ export interface Project {
   segmentation: SegmentationOptions;
   aspectRatio: AspectRatio;
   fit: FitMode;
+  /** Fill behind the video when `fit` is 'color'. */
+  fitColor?: string;
   hook: TextHook;
   broll: BrollItem[];
   audio: ProjectAudio;
@@ -750,7 +763,7 @@ export interface SceneKey<T> { t: number; v: T; ease?: SceneEase }
 export type SceneProp<T> = T | { keys: SceneKey<T>[] };
 
 export interface SceneNode {
-  type: 'rect' | 'ellipse' | 'line' | 'text' | 'group';
+  type: 'rect' | 'ellipse' | 'line' | 'path' | 'text' | 'group';
   name?: string;
   /** Seconds in the scene when the node appears / disappears (default: the whole scene). */
   start?: number; end?: number;
@@ -772,6 +785,8 @@ export interface SceneNode {
   blend?: 'normal' | 'screen' | 'multiply' | 'overlay' | 'lighter' | 'difference' | 'soft-light';
   /** Line: end point (the start is x, y) and how much of it is drawn, 0..1. */
   x2?: SceneProp<number>; y2?: SceneProp<number>; trim?: SceneProp<number>; cap?: 'round' | 'butt';
+  /** Path: flat [x0,y0,x1,y1,…] points relative to the node origin, drawn as a smooth curve through them. `trim` draws part of it. */
+  points?: number[]; closed?: boolean;
   /** Text. */
   text?: string; size?: SceneProp<number>; font?: string; weight?: number; letterSpacing?: number; align?: 'left' | 'center' | 'right'; italic?: boolean;
   /** Text: how much of it is shown, 0..1 (type-on). */

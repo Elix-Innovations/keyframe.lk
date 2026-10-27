@@ -4,6 +4,7 @@ import {
   Coins, LayoutTemplate, Loader2, Redo2, Save, Sparkles, Type, Undo2, WandSparkles,
 } from '@/components/icons';
 import { useDefaultLayout } from 'react-resizable-panels';
+import { groupSelection, allSelectableIds, deleteSelection, splitSelection } from '@/lib/multiSelect';
 import { useEditor, selectors, saveNow, LEFT_PANELS, PANELS, INSPECTOR_TABS, inspectorContext, type PanelId } from '@/store';
 import { currentTime, seek, togglePlay } from '@/lib/player';
 import { splitCaptionAt, mergeCaptions, shiftCaptions } from '@/lib/segment';
@@ -48,7 +49,7 @@ import { SoundsPanel } from './panels/SoundsPanel';
 import { OverlayItemPanel } from './panels/OverlayItemPanel';
 import { overlayOps } from './OverlayLane';
 import { trackOps } from '@/lib/sounds';
-import { canCopy, copySelection, cutSelection, hasClipboard, pasteAtPlayhead, pasteAttributes } from '@/lib/clipboard';
+import { canCopy, copyEdits, copySelection, cutSelection, hasClipboard, pasteAtPlayhead, pasteAttributes, pasteEdits } from '@/lib/clipboard';
 import { adjOps } from './AdjLane';
 import { useLibQuery } from '@/lib/libQuery';
 import { Search } from '@/components/icons';
@@ -225,6 +226,10 @@ export function Editor() {
       if (mod && e.key.toLowerCase() === 'k') { e.preventDefault(); st.setConverterOpen(!st.converterOpen); return; }
       // Copy / cut / paste on the timeline (⌘C, ⌘X, ⌘V; ⌥⌘V pastes a video clip as an overlay; ⇧⌘V pastes only the look).
       if (mod && !isTyping(e) && !window.getSelection()?.toString()) {
+        if (e.altKey && e.code === 'KeyC') { e.preventDefault(); copyEdits(); return; }
+        if (e.altKey && e.shiftKey && e.code === 'KeyV') { e.preventDefault(); pasteEdits(); return; }
+        if (e.code === 'KeyG') { e.preventDefault(); groupSelection(e.shiftKey ? true : undefined); return; }
+        if (e.code === 'KeyA' && st.project) { e.preventDefault(); st.setMulti(allSelectableIds(st.project)); return; }
         if (e.code === 'KeyC' && canCopy()) { e.preventDefault(); copySelection(); return; }
         if (e.code === 'KeyX' && canCopy()) { e.preventDefault(); cutSelection(); return; }
         if (e.code === 'KeyV' && hasClipboard()) { e.preventDefault(); if (e.shiftKey) pasteAttributes(); else pasteAtPlayhead(e.altKey); return; }
@@ -247,6 +252,7 @@ export function Editor() {
           break;
         }
         case 's': case 'S': {
+          if (splitSelection()) break;
           if (st.selectedTrackId) { trackOps.splitAtPlayhead(); break; }
           if (st.selectedOverlayId) { overlayOps.splitAtPlayhead(); break; }
           if (st.selectedAdjId) { adjOps.splitAtPlayhead(); break; }
@@ -265,6 +271,7 @@ export function Editor() {
           break;
         }
         case 'Delete': case 'Backspace':
+          if (deleteSelection()) break;
           if (st.selectedTrackId) { trackOps.remove(st.selectedTrackId); break; }
           if (st.selectedOverlayId) {
             const gone = new Set([st.selectedOverlayId, ...st.extraOverlayIds]); // everything picked in the preview goes together
@@ -276,7 +283,7 @@ export function Editor() {
           if (st.selectedClipId) { clipOps.remove(st.selectedClipId); break; }
           if (sel) { st.setCaptions(p.captions.filter((c) => c.id !== sel.id)); st.select(null); }
           break;
-        case 'Escape': st.select(null); st.selectClip(null); st.selectAdj(null); st.selectOverlay(null); st.selectTrack(null); break;
+        case 'Escape': st.select(null); st.selectClip(null); st.selectAdj(null); st.selectOverlay(null); st.selectTrack(null); st.setMulti([]); break;
       }
     };
     window.addEventListener('keydown', onKey);

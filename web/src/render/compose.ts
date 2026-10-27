@@ -101,6 +101,10 @@ function drawLayerRaw(
   const matted = needsMatte(layer) ? processSource(clip?.id ?? 'main', src, layer, lt, clip ? { asset: clip.assetId, srcT: sourceTimeAt(clip, t), cutout: clip.cutout } : undefined) : src;
   const drawVideo = matted.draw;
   const fit: FitMode = main || clip?.cutout ? project.fit : project.fit === 'cover' ? 'cover' : 'contain';
+  if (main && project.fit === 'color') {
+    ctx.fillStyle = project.fitColor ?? '#000000';
+    ctx.fillRect(0, 0, W, H);
+  }
   if (main && project.fit === 'blur') {
     const c = fitRect(vw, vh, W, H, true);
     ctx.save();

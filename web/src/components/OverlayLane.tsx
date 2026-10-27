@@ -1,4 +1,5 @@
 import { useBlockThumb } from '@/lib/blockThumb';
+import { deleteSelection, beginGroup, dragGroup, endGroup, pressBlock, type Group } from '@/lib/multiSelect';
 import { copySelection, cutSelection, hasClipboard, pasteAtPlayhead, pasteAttributes } from '@/lib/clipboard';
 import { memo, useRef } from 'react';
 import type { OverlayItem, Project } from '@/types';
@@ -67,10 +68,10 @@ function snap(list: OverlayItem[], a: OverlayItem, dt: number, pps: number): num
 }
 
 export const OverlayBlock = memo(function OverlayBlock({ item, pps, pad, top, height }: { item: OverlayItem; pps: number; pad: number; top: number; height: number }) {
-  const selected = useEditor((s) => s.selectedOverlayId === item.id);
+  const selected = useEditor((s) => s.selectedOverlayId === item.id || s.multiIds.includes(item.id));
   const locked = useEditor((s) => !!laneOf(s.project!, overlayLane(item.track)).locked);
   const hidden = useEditor((s) => !!laneOf(s.project!, overlayLane(item.track)).hidden);
-  const drag = useRef<{ kind: 'move' | 'l' | 'r'; x0: number; orig: OverlayItem[]; proj: Project } | null>(null);
+  const drag = useRef<{ kind: 'move' | 'l' | 'r'; x0: number; orig: OverlayItem[]; proj: Project; group?: Group } | null>(null);
   const cell = Math.max(12, (height - 16) * 1.25, (item.duration * pps) / 150);
   const thumb = useBlockThumb(item.kind === 'image' ? item.assetId : undefined, 'image');
 
@@ -78,14 +79,17 @@ export const OverlayBlock = memo(function OverlayBlock({ item, pps, pad, top, he
     if (e.button !== 0) return;
     e.stopPropagation();
     const st = useEditor.getState();
-    st.selectOverlay(item.id);
+    const press = kind === 'move' ? pressBlock(e, item.id) : 'single';
+    if (press === 'toggled') return;
+    if (press === 'single') st.selectOverlay(item.id);
     if (locked) return;
-    drag.current = { kind, x0: e.clientX, orig: st.project?.overlays ?? [], proj: st.project! };
+    drag.current = { kind, x0: e.clientX, orig: st.project?.overlays ?? [], proj: st.project!, group: press === 'group' ? beginGroup(item.id, e.clientX) : undefined };
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
   };
   const move = (e: React.PointerEvent) => {
     const d = drag.current;
     if (!d) return;
+    if (d.group) { dragGroup(d.group, e.clientX, pps); return; }
     const raw = (e.clientX - d.x0) / pps;
     const a = d.orig.find((x) => x.id === item.id)!;
     const proj = d.proj;
@@ -96,10 +100,10 @@ export const OverlayBlock = memo(function OverlayBlock({ item, pps, pad, top, he
   const canSplit = (() => { const t = currentTime(); return t > item.start && t < adjEnd(item); })();
 
   return (
-    <ContextMenu onOpenChange={(o) => o && useEditor.getState().selectOverlay(item.id)}>
+    <ContextMenu onOpenChange={(o) => o && !useEditor.getState().multiIds.includes(item.id) && useEditor.getState().selectOverlay(item.id)}>
       <ContextMenuTrigger asChild>
         <div title={`${item.kind === 'text' ? 'Text' : item.kind === 'sticker' ? 'Sticker' : 'Image'}: ${overlayLabel(item)}`}
-          onPointerDown={(e) => down(e, 'move')} onPointerMove={move} onPointerUp={() => { drag.current = null; }}
+          onPointerDown={(e) => down(e, 'move')} onPointerMove={move} onPointerUp={() => { endGroup(drag.current?.group); drag.current = null; }}
           className={cn('group absolute flex items-center gap-1.5 overflow-hidden rounded-lg border bg-black/40 text-xs font-medium text-white',
             item.kind === 'text' ? 'border-chart-1/70' : item.kind === 'sticker' ? 'border-chart-4/70' : 'border-chart-2/70',
             selected && 'ring-2 ring-primary', hidden && 'opacity-35', locked ? 'cursor-not-allowed' : 'cursor-grab active:cursor-grabbing')}
@@ -131,7 +135,7 @@ export const OverlayBlock = memo(function OverlayBlock({ item, pps, pad, top, he
         <ContextMenuItem disabled={!hasClipboard()} onClick={() => pasteAtPlayhead(false)}>Paste at playhead<ContextMenuShortcut>⌘V</ContextMenuShortcut></ContextMenuItem>
         <ContextMenuItem disabled={!hasClipboard()} onClick={() => pasteAttributes()}>Paste look only<ContextMenuShortcut>⇧⌘V</ContextMenuShortcut></ContextMenuItem>
         <ContextMenuSeparator />
-        <ContextMenuItem variant="destructive" onClick={() => overlayOps.remove(item.id)}><Trash2 />Delete<ContextMenuShortcut>Del</ContextMenuShortcut></ContextMenuItem>
+        <ContextMenuItem variant="destructive" onClick={() => { if (!deleteSelection()) overlayOps.remove(item.id); }}><Trash2 />Delete<ContextMenuShortcut>Del</ContextMenuShortcut></ContextMenuItem>
       </ContextMenuContent>
     </ContextMenu>
   );

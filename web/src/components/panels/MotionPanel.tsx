@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { MotionScene } from '@/types';
 import { useEditor } from '@/store';
 import { ai, ApiError, claudeStatus, type ClaudeStatus } from '@/lib/api';
-import { MOTION_LIBRARY } from '@/lib/motionLibrary';
+import { BG_GROUPS, bgGroup, MOTION_LIBRARY } from '@/lib/motionLibrary';
 import { makeOverlay } from '@/lib/overlays';
 import { currentTime } from '@/lib/player';
 import { clipEnd, videoClips } from '@/lib/clips';
@@ -153,12 +153,24 @@ export function MotionPanel() {
               {role === 'transition' ? 'Plays over a cut between two clips. “At cut” centres it on the nearest cut.' : role === 'background' ? 'Animated backgrounds. Add one, then drag it below a cut-out layer on the timeline.' : 'Animated graphics that play over your video. Hover to preview; they are layers you can move, resize and trim.'}
             </p>
             {role === 'background' && <Row label="Hue"><Slider value={hue} min={-180} max={180} format={(v) => `${v}°`} onChange={setHue} /></Row>}
-            <div className="grid grid-cols-4 gap-1.5">
-              {library.map(({ e, scene }) => (
-                <SceneCard key={e.id} scene={scene} sub={e.note.length > 22 ? `${scene.duration.toFixed(1)}s` : e.note}
-                  onAdd={() => addMotionLayer(scene)} onAddCut={role === 'transition' ? () => addMotionLayer(scene, 'cut') : undefined} />
-              ))}
-            </div>
+            {role === 'background' ? BG_GROUPS.map((g) => {
+              const items = library.filter(({ e }) => bgGroup(e) === g);
+              return items.length > 0 && (
+                <div key={g} className="flex flex-col gap-1">
+                  <div className="text-[11px] font-medium text-muted-foreground">{g}</div>
+                  <div className="grid grid-cols-4 gap-1.5">
+                    {items.map(({ e, scene }) => <SceneCard key={e.id} scene={scene} sub={e.note.length > 22 ? `${scene.duration.toFixed(1)}s` : e.note} onAdd={() => addMotionLayer(scene)} />)}
+                  </div>
+                </div>
+              );
+            }) : (
+              <div className="grid grid-cols-4 gap-1.5">
+                {library.map(({ e, scene }) => (
+                  <SceneCard key={e.id} scene={scene} sub={e.note.length > 22 ? `${scene.duration.toFixed(1)}s` : e.note}
+                    onAdd={() => addMotionLayer(scene)} onAddCut={role === 'transition' ? () => addMotionLayer(scene, 'cut') : undefined} />
+                ))}
+              </div>
+            )}
           </Section>
           {saved.filter((s) => s.role === role).length > 0 && (
             <Section title="My scenes">

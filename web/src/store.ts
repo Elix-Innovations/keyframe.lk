@@ -104,6 +104,9 @@ interface EditorState {
   selectedOverlayId: string | null;
   /** Overlays selected along with `selectedOverlayId` (shift-click, drag-select in the preview). */
   extraOverlayIds: string[];
+  /** Timeline multi-selection (clips, overlays, filter / effect blocks), primary included. Empty when at most one item is selected. */
+  multiIds: string[];
+  setMulti: (ids: string[]) => void;
   /** Selected audio track (music or sound effect). */
   selectedTrackId: string | null;
   /** Deleting a clip closes the gap it leaves. */
@@ -192,6 +195,7 @@ export const useEditor = create<EditorState>((set, get) => ({
   selectedAdjId: null,
   selectedOverlayId: null,
   extraOverlayIds: [],
+  multiIds: [],
   selectedTrackId: null,
   rippleDelete: false,
   setRippleDelete: (rippleDelete) => set({ rippleDelete }),
@@ -205,7 +209,7 @@ export const useEditor = create<EditorState>((set, get) => ({
   load: (p) => {
     void saveNow(); // switching projects: keep the previous one's pending edits
     rememberLastProject(p.id);
-    set({ project: migrateProject(p), past: [], future: [], time: 0, playing: false, before: false, selectedCaptionId: null, selectedClipId: null, selectedAdjId: null, selectedOverlayId: null, extraOverlayIds: [], selectedTrackId: null, dirty: false, savedAt: p.updatedAt });
+    set({ project: migrateProject(p), past: [], future: [], time: 0, playing: false, before: false, selectedCaptionId: null, selectedClipId: null, selectedAdjId: null, selectedOverlayId: null, extraOverlayIds: [], multiIds: [], selectedTrackId: null, dirty: false, savedAt: p.updatedAt });
   },
   close: () => {
     void saveNow();
@@ -259,12 +263,26 @@ export const useEditor = create<EditorState>((set, get) => ({
   setTime: (t) => set({ time: t }),
   setPlaying: (playing) => set({ playing }),
   setBefore: (before) => set({ before }),
-  select: (id) => set({ extraOverlayIds: [], selectedTrackId: id ? null : get().selectedTrackId, selectedCaptionId: id, selectedClipId: id ? null : get().selectedClipId, selectedAdjId: id ? null : get().selectedAdjId, selectedOverlayId: id ? null : get().selectedOverlayId }),
-  selectClip: (id) => set({ extraOverlayIds: [], selectedTrackId: id ? null : get().selectedTrackId, selectedClipId: id, selectedCaptionId: id ? null : get().selectedCaptionId, selectedAdjId: id ? null : get().selectedAdjId, selectedOverlayId: id ? null : get().selectedOverlayId }),
-  selectAdj: (id) => set({ extraOverlayIds: [], selectedTrackId: id ? null : get().selectedTrackId, selectedAdjId: id, selectedClipId: id ? null : get().selectedClipId, selectedCaptionId: id ? null : get().selectedCaptionId, selectedOverlayId: id ? null : get().selectedOverlayId }),
-  selectOverlay: (id) => set({ extraOverlayIds: [], selectedTrackId: id ? null : get().selectedTrackId, selectedOverlayId: id, selectedClipId: id ? null : get().selectedClipId, selectedCaptionId: id ? null : get().selectedCaptionId, selectedAdjId: id ? null : get().selectedAdjId }),
-  selectTrack: (id) => set({ extraOverlayIds: [], selectedTrackId: id, selectedClipId: id ? null : get().selectedClipId, selectedCaptionId: id ? null : get().selectedCaptionId, selectedAdjId: id ? null : get().selectedAdjId, selectedOverlayId: id ? null : get().selectedOverlayId }),
-  setOverlaySelection: (ids) => set({ selectedOverlayId: ids[0] ?? null, extraOverlayIds: ids.slice(1), selectedTrackId: null, selectedClipId: null, selectedCaptionId: null, selectedAdjId: null }),
+  select: (id) => set({ extraOverlayIds: [], multiIds: [], selectedTrackId: id ? null : get().selectedTrackId, selectedCaptionId: id, selectedClipId: id ? null : get().selectedClipId, selectedAdjId: id ? null : get().selectedAdjId, selectedOverlayId: id ? null : get().selectedOverlayId }),
+  selectClip: (id) => set({ extraOverlayIds: [], multiIds: [], selectedTrackId: id ? null : get().selectedTrackId, selectedClipId: id, selectedCaptionId: id ? null : get().selectedCaptionId, selectedAdjId: id ? null : get().selectedAdjId, selectedOverlayId: id ? null : get().selectedOverlayId }),
+  selectAdj: (id) => set({ extraOverlayIds: [], multiIds: [], selectedTrackId: id ? null : get().selectedTrackId, selectedAdjId: id, selectedClipId: id ? null : get().selectedClipId, selectedCaptionId: id ? null : get().selectedCaptionId, selectedOverlayId: id ? null : get().selectedOverlayId }),
+  selectOverlay: (id) => set({ extraOverlayIds: [], multiIds: [], selectedTrackId: id ? null : get().selectedTrackId, selectedOverlayId: id, selectedClipId: id ? null : get().selectedClipId, selectedCaptionId: id ? null : get().selectedCaptionId, selectedAdjId: id ? null : get().selectedAdjId }),
+  selectTrack: (id) => set({ extraOverlayIds: [], multiIds: [], selectedTrackId: id, selectedClipId: id ? null : get().selectedClipId, selectedCaptionId: id ? null : get().selectedCaptionId, selectedAdjId: id ? null : get().selectedAdjId, selectedOverlayId: id ? null : get().selectedOverlayId }),
+  setMulti: (ids) => {
+    const p = get().project;
+    if (!p) return;
+    const kindOf = (id: string) => ((p.clips ?? []).some((c) => c.id === id) ? 'clip' : (p.overlays ?? []).some((o) => o.id === id) ? 'overlay' : (p.adj ?? []).some((a) => a.id === id) ? 'adj'
+      : p.captions.some((c) => c.id === id) ? 'caption' : p.audio.tracks.some((t) => t.id === id) ? 'track' : null);
+    const uniq = [...new Set(ids)].filter(kindOf);
+    const first = uniq[0], k = first ? kindOf(first) : null;
+    set({
+      multiIds: uniq.length > 1 ? uniq : [],
+      selectedClipId: k === 'clip' ? first : null, selectedOverlayId: k === 'overlay' ? first : null, selectedAdjId: k === 'adj' ? first : null,
+      extraOverlayIds: uniq.filter((id) => id !== first && kindOf(id) === 'overlay'),
+      selectedTrackId: k === 'track' ? first : null, selectedCaptionId: k === 'caption' ? first : null,
+    });
+  },
+  setOverlaySelection: (ids) => set({ selectedOverlayId: ids[0] ?? null, extraOverlayIds: ids.slice(1), multiIds: [], selectedTrackId: null, selectedClipId: null, selectedCaptionId: null, selectedAdjId: null }),
   setOverlays: (fn, coalesce) => get().update((p) => ({ ...p, overlays: fn(p.overlays ?? []) }), coalesce),
   setAdj: (fn, coalesce) => get().update((p) => ({ ...p, adj: fn(p.adj ?? []) }), coalesce),
   setClips: (fn, coalesce) => get().update((p) => withClips(p, fn(p.clips ?? [])), coalesce),

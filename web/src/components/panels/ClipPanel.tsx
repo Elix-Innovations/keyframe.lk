@@ -12,7 +12,8 @@ import { EASES, newKeyframe, transformAt } from '@/lib/videoFx';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Row, Section, Segmented, Slider } from '../controls';
-import { useState } from 'react';
+import { useState, useSyncExternalStore } from 'react';
+import { copyEdits, hasEdits, onClipboardChange, pasteEdits } from '@/lib/clipboard';
 import { TargetBar, useLayer } from './EffectsPanel';
 import { BackgroundSection, BlurSection } from './MattePanel';
 import { cropForAspect, hasCrop } from '@/lib/videoFx';
@@ -45,6 +46,7 @@ export function KeyframeCard({ k }: { k: VideoKeyframe }) {
 export function ClipActions() {
   const clip = useEditor((s) => s.project!.clips?.find((c) => c.id === s.selectedClipId) ?? null);
   const partner = useEditor((s) => { const c = s.project!.clips?.find((x) => x.id === s.selectedClipId); return c ? partnerOf(s.project!.clips ?? [], c) : null; });
+  const edits = useSyncExternalStore(onClipboardChange, hasEdits, () => false);
   if (!clip) return <Section title="Clip"><Empty icon={<Scissors />} title="No clip selected">Click a clip on the timeline to edit it.</Empty></Section>;
   const audio = clip.kind === 'audio';
   return (
@@ -53,6 +55,12 @@ export function ClipActions() {
         {clip.linkId
           ? <Button size="xs" variant="secondary" onClick={() => clipOps.unlink(clip.id)}>Unlink {partner ? (audio ? 'from video' : 'from audio') : ''}</Button>
           : <Button size="xs" variant="secondary" onClick={() => clipOps.link(clip.id)}>Link with {audio ? 'video' : 'audio'}</Button>}
+      </Row>
+      <Row label="Edits" hint="Copy everything edited on this clip (filters, grade, effects, crop, transform, keyframes, transitions, animation, cut-out, blur, speed, audio and the filter / effect blocks over it), then paste it onto another clip.">
+        <div className="flex gap-1.5">
+          <Button size="xs" variant="secondary" onClick={() => copyEdits()}><Copy />Copy edits</Button>
+          <Button size="xs" variant="secondary" disabled={!edits} onClick={() => pasteEdits()}>Paste edits</Button>
+        </div>
       </Row>
       <div className="flex flex-wrap justify-end gap-1.5 pt-1">
         <Button size="xs" variant="secondary" onClick={() => clipOps.splitAtPlayhead([clip.id])}><Scissors />Split</Button>
