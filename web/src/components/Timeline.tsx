@@ -16,7 +16,7 @@ import { audioRows, clipEnd, copyClipTo, foldedIntoVideo, trackOf, videoClips } 
 import { trackCount } from '@/lib/adj';
 import { groupOrder, moveGroup, moveLane, type LaneKind } from '@/lib/laneOrder';
 import { DRAG_MIME, geo, type DragPayload } from '@/lib/timelineGeo';
-import { importMedia } from '@/lib/importMedia';
+import { addLibraryItem, importMedia } from '@/lib/importMedia';
 import { addTemplateLayer, findTemplate } from '@/lib/templateApply';
 import { addSound, trackOps, waveformForAsset } from '@/lib/sounds';
 import { AdjBlock, adjLane, adjOps } from './AdjLane';
@@ -26,7 +26,8 @@ import { ClipBlock, clipOps, WAVE_K } from './ClipLane';
 import { Button } from '@/components/ui/button';
 import { Slider } from '@/components/ui/slider';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
-import { Ellipsis } from '@/components/icons';
+import { AudioLines, Ellipsis } from '@/components/icons';
+import { generateCaptionsFromAudio } from '@/lib/captionsFromAudio';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import {
   ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuShortcut, ContextMenuTrigger,
@@ -155,6 +156,7 @@ const MusicBlock = memo(function MusicBlock({ t, pps, top, height }: { t: MusicT
   const locked = useEditor((s) => !!laneOf(s.project!, `music:${t.id}`).locked);
   const waveK = useEditor((s) => WAVE_K[laneOf(s.project!, `sound:${t.layer ?? 0}`).wave ?? 'default']);
   const selected = useEditor((s) => s.selectedTrackId === t.id || s.multiIds.includes(t.id));
+  const videoEnd = useEditor((s) => s.project!.duration);
   const patch = (p: Partial<MusicTrack>) => update((pr) => ({ ...pr, audio: { ...pr.audio, tracks: pr.audio.tracks.map((x) => (x.id === t.id ? { ...x, ...p } : x)) } }), `music-${t.id}`);
   const onDown = (e: React.PointerEvent, kind: 'move' | 'l' | 'r') => {
     if (e.button !== 0) return;
@@ -252,6 +254,12 @@ const MusicBlock = memo(function MusicBlock({ t, pps, top, height }: { t: MusicT
         </div>
       )}
       <span className="pointer-events-none absolute left-1.5 top-0.5 max-w-[90%] truncate text-[10px] font-medium text-foreground/90">♪ {t.name}</span>
+      {selected && !locked && Math.abs(t.start + t.duration - videoEnd) > 0.05 && w > 60 && (
+        <button type="button" title="Extend or trim to the end of the video" onPointerDown={(e) => e.stopPropagation()} onClick={() => trackOps.fitToVideo(t.id)}
+          className="absolute right-3 top-0.5 z-20 flex items-center gap-0.5 rounded-full bg-primary px-1.5 py-px text-[10px] font-medium text-primary-foreground shadow hover:brightness-110">
+          Fit to video<ChevronRight className="size-3" />
+        </button>
+      )}
       <span onPointerDown={(e) => onDown(e, 'l')} className="absolute inset-y-0 left-0 w-1.5 cursor-ew-resize group-hover:bg-foreground/30" />
       <span onPointerDown={(e) => onDown(e, 'r')} className="absolute inset-y-0 right-0 w-1.5 cursor-ew-resize group-hover:bg-foreground/30" />
     </div>
@@ -259,9 +267,11 @@ const MusicBlock = memo(function MusicBlock({ t, pps, top, height }: { t: MusicT
     <ContextMenuContent className="w-56">
       <ContextMenuItem disabled={!trackOps.canSplit(t.id)} onClick={() => trackOps.splitAtPlayhead(t.id)}><Scissors />Split at playhead<ContextMenuShortcut>S</ContextMenuShortcut></ContextMenuItem>
       <ContextMenuItem onClick={() => trackOps.duplicate(t.id)}><Copy />Duplicate</ContextMenuItem>
+      <ContextMenuItem onClick={() => void generateCaptionsFromAudio(t.id)}><AudioLines />Generate captions from audio</ContextMenuItem>
       <ContextMenuItem onClick={() => trackOps.toggleMute(t.id)}>{t.muted ? <Volume /> : <VolumeOff />}{t.muted ? 'Unmute' : 'Mute'}</ContextMenuItem>
       <ContextMenuItem onClick={() => { useEditor.getState().setPanel('audio'); }}><Pencil />Edit volume and fades…</ContextMenuItem>
       <ContextMenuItem onClick={() => patch({ start: Math.max(0, currentTime()) })}><Crosshair />Move to playhead</ContextMenuItem>
+      <ContextMenuItem onClick={() => trackOps.fitToVideo(t.id)}><ChevronRight />Fit to video length</ContextMenuItem>
       <ContextMenuSeparator />
       <ContextMenuItem variant="destructive" onClick={() => trackOps.remove(t.id)}><Trash2 />Delete<ContextMenuShortcut>Del</ContextMenuShortcut></ContextMenuItem>
     </ContextMenuContent>
@@ -342,10 +352,12 @@ export function Timeline() {
     return () => ro.disconnect();
   }, []);
 
-  // Keep playhead in view while playing.
+  // Keep playhead in view while playing, unless the viewer scrolled away by hand (until playback restarts).
+  const manualScroll = useRef(false);
+  useEffect(() => { manualScroll.current = false; }, [playing]);
   useEffect(() => {
     const el = scroller.current;
-    if (!el || !playing) return;
+    if (!el || !playing || manualScroll.current) return;
     const x = time * pps + PAD;
     if (x < el.scrollLeft || x > el.scrollLeft + el.clientWidth - 40) el.scrollLeft = x - 60;
   }, [time, playing, pps]);
@@ -491,6 +503,7 @@ export function Timeline() {
       start = Math.max(start, ...clips.filter((c) => c.kind === 'video' && trackOf(c) === plusTarget.current.track).map(clipEnd));
     }
   };
+  const markIn = useEditor((s) => s.markIn), markOut = useEditor((s) => s.markOut);
   const selClip = useEditor((s) => s.selectedClipId);
   const selectedClip = (project.clips ?? []).find((c) => c.id === selClip) ?? null;
   const rippleDelete = useEditor((s) => s.rippleDelete);
@@ -564,6 +577,9 @@ export function Timeline() {
       const which = t < under.start + under.duration / 2 ? 'transitionIn' : 'transitionOut';
       st.setClips((cs) => cs.map((c) => (c.id === under.id ? { ...c, fx: { ...migrateVideo(c.fx), [which]: { id: payload.id, duration: Math.min(0.8, under.duration / 2) } } as never } : c)));
       st.selectClip(under.id);
+    } else if (payload.type === 'library') {
+      const item = st.project?.library?.find((l) => l.id === payload.id);
+      if (item) try { await addLibraryItem(item, { start: t, track: vTrack ?? 0 }); } catch (err) { st.notify((err as Error).message, 'error'); }
     } else if (payload.type === 'media') {
       const r = copyClipTo(clips, payload.clipId, t, vTrack ?? 0, st.project?.overlays);
       if (r.id) { st.setClips(() => r.clips); st.selectClip(r.id); }
@@ -608,13 +624,13 @@ export function Timeline() {
         onDragOver={(e) => { if (!isDrag(e)) return; e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; setDropAt({ x: e.clientX, y: e.clientY }); }}
         onDragLeave={(e) => { if (e.currentTarget === e.target) setDropAt(null); }}
         onDrop={(e) => void onDrop(e)}
-        onWheel={(e) => { if (e.ctrlKey || e.metaKey) { e.preventDefault(); setZoom((z) => Math.min(40, Math.max(1, z * (e.deltaY < 0 ? 1.15 : 1 / 1.15)))); } }}
+        onWheel={(e) => { manualScroll.current = true; if (e.ctrlKey || e.metaKey) { e.preventDefault(); setZoom((z) => Math.min(40, Math.max(1, z * (e.deltaY < 0 ? 1.15 : 1 / 1.15)))); } }}
         onPointerDown={(e) => {
           if (e.button !== 0) return;
           const el = e.currentTarget as HTMLElement, r = el.getBoundingClientRect();
           const x0 = e.clientX - r.left + el.scrollLeft, y0 = e.clientY - r.top + el.scrollTop;
           const additive = e.shiftKey || e.metaKey || e.ctrlKey;
-          if (y0 > 24) mq.current = { x0, y0, base: additive ? selectedIds(useEditor.getState()) : [], active: false, key: '' };
+          if (e.clientY - r.top > 24) mq.current = { x0, y0, base: additive ? selectedIds(useEditor.getState()) : [], active: false, key: '' };
           else { scrub.current = true; seek(tAt(e)); }
           if (!additive) { select(null); useEditor.getState().selectClip(null); useEditor.getState().selectOverlay(null); useEditor.getState().selectAdj(null); useEditor.getState().selectTrack(null); }
           el.setPointerCapture(e.pointerId);
@@ -661,7 +677,6 @@ export function Timeline() {
           {/* Sticky track headers: zero footprint in flow, absolute cells inside. */}
           <div className="sticky left-0 z-30 h-0 w-0" onPointerDown={(e) => e.stopPropagation()}>
             <div className="absolute left-0 top-0 border-r bg-card" style={{ width: HEAD, height: Math.max(bottom, 400) }}>
-              <div className="absolute inset-x-0 top-0 h-6 border-b bg-background/40" />
               <LaneHeader top={rows.caps} height={capsH} resize={{ rowH: capsH }} label="Captions" icon={<Pencil />} laneKey="captions" />
               {Array.from({ length: nAdj }, (_, i) => nAdj - 1 - i).map((tr) => (
                 <LaneHeader key={`adj${tr}`} top={adjTop(tr)} height={aH(tr)} resize={{ rowH: aH(tr) }} label={tr === 0 ? 'Filters & FX' : `FX ${tr + 1}`} icon={<Layers />} laneKey={adjLane(tr)}
@@ -685,12 +700,33 @@ export function Timeline() {
               })}
             </div>
           </div>
-          <div className="absolute inset-x-0 h-6 border-b bg-background/40" style={{ top: rows.ruler }}>
+          <div className="sticky top-0 z-40 h-0">
+          <div className="sticky left-0 h-0 w-0"><div className="absolute left-0 top-0 z-10 border-b border-r bg-card" style={{ width: HEAD, height: 24 }} /></div>
+          <div className="absolute inset-x-0 h-6 border-b bg-sidebar" style={{ top: rows.ruler }}>
+            {(markIn !== null || markOut !== null) && (
+              <div className="pointer-events-none absolute inset-y-0 bg-primary/25"
+                style={{ left: (markIn ?? 0) * pps + PAD, width: Math.max(0, (markOut ?? dur) - (markIn ?? 0)) * pps }} />
+            )}
+            {([['in', markIn], ['out', markOut]] as const).map(([which, v]) => v !== null && (
+              <div key={which} title={`${which === 'in' ? 'In' : 'Out'} point (drag to move, ⌥${which === 'in' ? 'I' : 'O'} to clear)`}
+                className={cn('absolute inset-y-0 z-10 w-2 cursor-ew-resize bg-primary/80 hover:bg-primary', which === 'in' ? 'rounded-l-sm' : '-translate-x-full rounded-r-sm')}
+                style={{ left: v * pps + PAD }}
+                onPointerDown={(e) => { e.stopPropagation(); (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); }}
+                onPointerMove={(e) => {
+                  if (!(e.currentTarget as HTMLElement).hasPointerCapture(e.pointerId)) return;
+                  const t = Math.min(dur, Math.max(0, tAt(e)));
+                  const { markIn: a, markOut: b } = useEditor.getState();
+                  if (which === 'in') useEditor.getState().setMarks(b !== null ? Math.min(t, b - 0.05) : t, b);
+                  else useEditor.getState().setMarks(a, a !== null ? Math.max(t, a + 0.05) : t);
+                }}
+                onPointerUp={(e) => (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId)} />
+            ))}
             {ticks.map((t) => (
               <div key={t} className="absolute top-0 h-full border-l border-border/70 pl-1 pt-1 font-mono text-[10px] text-muted-foreground" style={{ left: t * pps + PAD }}>
                 {Math.floor(t / 60)}:{String(Math.floor(t % 60)).padStart(2, '0')}
               </div>
             ))}
+          </div>
           </div>
           {/* Captions */}
           <div className={cn('absolute inset-x-0', laneOf(project, 'captions').hidden && 'opacity-35')} style={{ top: rows.caps, height: capsH }}>
@@ -709,6 +745,7 @@ export function Timeline() {
                         : active ? 'border-primary/60 bg-primary/30' : 'border-primary/25 bg-primary/15 hover:bg-primary/25')}
                     style={{ left, width: w }}>
                     {emph && <span className="absolute left-0 top-0 h-0.5 w-full bg-warn/80" />}
+                    {c.groupId && <span className="pointer-events-none absolute bottom-0 left-0 h-1 w-full bg-chart-2" title="Grouped" />}
                     <span className="sinhala pointer-events-none truncate">{text}</span>
                     <span onPointerDown={(e) => onBlockDown(e, c, 'l')} className="absolute inset-y-0 left-0 w-1.5 cursor-ew-resize group-hover:bg-foreground/30" />
                     <span onPointerDown={(e) => onBlockDown(e, c, 'r')} className="absolute inset-y-0 right-0 w-1.5 cursor-ew-resize group-hover:bg-foreground/30" />

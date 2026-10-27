@@ -54,6 +54,8 @@ const ivMap = new Map(FM_INDEPENDENT_VOWELS);
 const vsMap = new Map(FM_VOWEL_SIGNS);
 const preMap = new Map(FM_PRE_BASE_SIGNS.map(([u, p, s]) => [u, [p, s] as const]));
 const specialMap = new Map(FM_SPECIAL_SYLLABLES);
+// FM fonts draw many consonant + sign pairs (ම් රි වි ඩ් …) as one glyph; the decoder already knows them, so write them the same way.
+for (const [fm, u] of table.decodeAliases) if (u.length === 2 && consMap.has(u[0]) && vsMap.has(u[1]) && !specialMap.has(u)) specialMap.set(u, fm);
 const conjMap = new Map(FM_CONJUNCTS);
 const punctMap = new Map(FM_PUNCTUATION);
 
@@ -117,7 +119,9 @@ export function unicodeToFM(text: string): string {
       const sign = s[j];
       const pre = sign !== undefined ? preMap.get(sign) : undefined;
       if (pre) {
-        out += pre[0] + cluster + pre[1];
+        // ම් has a single glyph in FM fonts, so ේ on it is the kombuva plus that glyph (fï), not f + ම + a.
+        const special = !mods && !repaya && pre[1] === 'a' ? specialMap.get(base + HAL) : undefined;
+        out += special !== undefined ? pre[0] + special : pre[0] + cluster + pre[1];
         j++;
       } else if (sign !== undefined && vsMap.has(sign)) {
         const special = !mods && !repaya ? specialMap.get(base + sign) : undefined;

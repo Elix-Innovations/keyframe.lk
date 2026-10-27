@@ -1,5 +1,5 @@
 import type { AdjClip, AspectRatio, Clip, FitMode, Project } from '../types';
-import { FILTER_PRESETS, blendFilters, cssFilter, hasCrop, isNeutral, laneOf, migrateVideo, needsGrade, transformAt, transitionAt } from '../lib/videoFx';
+import { FILTER_PRESETS, blendFilters, cssFilter, hasCrop, isNeutral, laneOf, liveFilters, migrateVideo, needsGrade, transformAt, transitionAt } from '../lib/videoFx';
 import { drawLight } from './transitionFx';
 import { drawGraded } from './grade';
 import { sourceTimeAt, videoLayersAt } from '../lib/clips';
@@ -7,6 +7,8 @@ import { overlayPose } from '../lib/overlays';
 import { adjAt } from '../lib/adj';
 import { applyEffectPass, drawEffectOverlays, drawVideoWithEffects, effectTransform } from './effects';
 import { needsMatte, processSource } from './matte';
+import { extracting } from '../lib/extractCutout';
+import { useEditor } from '../store';
 import { drawOverlays, type OverlayHit } from './overlays';
 import { renderCaptionAt, renderHook, type CaptionRenderResult, type Ctx2D, type Rect } from './captions';
 
@@ -79,7 +81,7 @@ const trackLane = (track: number) => (track === 0 ? 'video' : `video:${track}`);
 function drawLayer(
   ctx: Ctx2D, W: number, H: number, project: Project, t: number, clip: Clip | null, src: FrameSource, main: boolean, fxOn: boolean, hits?: OverlayHit[],
 ) {
-  const f = fxOn ? migrateVideo(clip?.fx ?? project.video).filters : null;
+  const f = fxOn ? (() => { const l = migrateVideo(clip?.fx ?? project.video); return liveFilters(l, clip ? t - clip.start : t); })() : null;
   if (f && needsGrade(f)) {
     const b = buffer(3, W, H);
     drawLayerRaw(b.x, W, H, project, t, clip, src, main, fxOn, hits);
@@ -94,11 +96,13 @@ function drawLayer(
 function drawLayerRaw(
   ctx: Ctx2D, W: number, H: number, project: Project, t: number, clip: Clip | null, src: FrameSource, main: boolean, fxOn: boolean, hits?: OverlayHit[],
 ) {
-  const layer = migrateVideo(clip?.fx ?? project.video);
   const lt = clip ? t - clip.start : t; // time inside the clip (effects, transitions and keyframes are clip-relative)
+  const own = migrateVideo(clip?.fx ?? project.video);
+  const layer = own.fkf ? { ...own, filters: liveFilters(own, lt) } : own;
   const clipDur = clip ? clip.duration : project.duration;
   const vw = src.w || project.videoWidth || W, vh = src.h || project.videoHeight || H;
-  const matted = needsMatte(layer) ? processSource(clip?.id ?? 'main', src, layer, lt, clip ? { asset: clip.assetId, srcT: sourceTimeAt(clip, t), cutout: clip.cutout } : undefined) : src;
+  const liveMatte = needsMatte(layer) && !(clip && extracting.has(clip.id) && useEditor.getState().playing);
+  const matted = liveMatte ? processSource(clip?.id ?? 'main', src, layer, lt, clip ? { asset: clip.assetId, srcT: sourceTimeAt(clip, t), cutout: clip.cutout } : undefined) : src;
   const drawVideo = matted.draw;
   const fit: FitMode = main || clip?.cutout ? project.fit : project.fit === 'cover' ? 'cover' : 'contain';
   if (main && project.fit === 'blur') {

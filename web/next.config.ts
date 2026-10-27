@@ -2,6 +2,8 @@ import type { NextConfig } from 'next';
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+  // Uploads through the /api rewrite (ProRes caption frames, soundtracks) are far larger than the 10 MB default, and a render can run for minutes.
+  experimental: { proxyClientMaxBodySize: '1gb', proxyTimeout: 30 * 60_000 },
   async rewrites() {
     return [
       // Python Sinhala/FM service. Must come before the generic /api rule.

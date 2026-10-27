@@ -13,22 +13,19 @@ import { Input } from '@/components/ui/input';
 import { needsMix, sfxEvents } from '@/audio/mix';
 import { Progress, Row, Section, Segmented, Toggle } from '../controls';
 
-type Background = 'video' | ScreenColor;
-
 export function ExportPanel() {
   const project = useEditor((s) => s.project)!;
   const notify = useEditor((s) => s.notify);
   const [longSide, setLongSide] = useState<ExportOptions['longSide']>(1920);
   const [quality, setQuality] = useState<ExportOptions['quality']>('high');
-  const [background, setBackground] = useState<Background>('video');
+  const [background, setBackground] = useState<ScreenColor>('transparent');
   const [screenAudio, setScreenAudio] = useState(true);
   const [alphaFormat, setAlphaFormat] = useState<AlphaFormat>('mov');
-  const screen = background === 'video' ? undefined : background;
-  const transparent = screen === 'transparent';
-  const ext = exportExtension(screen, alphaFormat);
-  const screenLabel = transparent ? 'transparent' : `${screen} screen`;
+  const transparent = background === 'transparent';
   const prores = transparent && alphaFormat === 'mov';
+  const capExt = exportExtension(background, alphaFormat);
   const [progress, setProgress] = useState<number | null>(null);
+  const [mode, setMode] = useState<'video' | 'captions'>('video');
   const [startedAt, setStartedAt] = useState(0);
   const abort = useRef<AbortController | null>(null);
   const [prefs, setPrefs] = useState<SavePrefs>(DEFAULT_SAVE_PREFS);
@@ -45,15 +42,18 @@ export function ExportPanel() {
   const size = outputSize(project, longSide);
   const src = Math.max(project.videoWidth, project.videoHeight);
 
-  const run = async () => {
+  const run = async (captionsOnly: boolean) => {
+    const screen = captionsOnly ? background : undefined;
+    const ext = exportExtension(screen, alphaFormat);
     pause();
     abort.current = new AbortController();
+    setMode(captionsOnly ? 'captions' : 'video');
     setProgress(0);
     setStartedAt(performance.now());
     try {
       const { exportVideo } = await import('../../lib/exporter'); // loads the encoder only when needed
       const blob = await exportVideo(project, { longSide, quality, screen, screenAudio, alphaFormat, onProgress: setProgress, signal: abort.current.signal });
-      const kind = transparent ? 'transparent' : screen ? `${screen}screen` : 'captioned';
+      const kind = !screen ? 'captioned' : transparent ? 'captions-transparent' : `${screen}screen`;
       const where = await save(blob, `${formatName(prefs.videoName, { project: project.name, kind, res: `${size.width}x${size.height}` })}.${ext}`);
       if (where) notify(`Exported ${(blob.size / 1024 / 1024).toFixed(1)} MB → ${where}`, 'success');
     } catch (e) {
@@ -70,6 +70,14 @@ export function ExportPanel() {
       if (where) notify(`Saved ${where}`, 'success');
     } catch (e) { notify((e as Error).message, 'error'); }
   };
+
+  const RenderBar = () => (
+    <div className="flex flex-col gap-2 rounded-xl border bg-muted/40 p-3">
+      <div className="flex justify-between text-xs"><span>Rendering {Math.round((progress ?? 0) * 100)}%</span><span className="text-muted-foreground">{eta !== null ? `~${Math.ceil(eta)}s left` : ''}</span></div>
+      <Progress value={progress ?? 0} />
+      <Button variant="outline" size="sm" className="self-start" onClick={() => abort.current?.abort()}><X />Cancel</Button>
+    </div>
+  );
 
   return (
     <div>
@@ -93,7 +101,7 @@ export function ExportPanel() {
         <Row label="Subtitle name" hint="Same tokens. {kind} is the file type, e.g. srt.">
           <Input className="h-8 text-xs" value={prefs.textName} onChange={(e) => changePrefs({ textName: e.target.value })} />
         </Row>
-        <div className="text-xs text-muted-foreground">Example: {formatName(prefs.videoName, { project: project.name, kind: 'captioned', res: `${size.width}x${size.height}` })}.{ext}</div>
+        <div className="text-xs text-muted-foreground">Example: {formatName(prefs.videoName, { project: project.name, kind: 'captioned', res: `${size.width}x${size.height}` })}.mp4</div>
       </Section>
       <Section title="Video with captions">
         <Row label="Resolution">
@@ -104,55 +112,25 @@ export function ExportPanel() {
             { value: 3840, label: '4K' },
           ]} />
         </Row>
-        {!prores && (
-          <Row label="Quality">
-            <Segmented size="sm" value={quality} onChange={setQuality} options={[{ value: 'high', label: 'High' }, { value: 'very-high', label: 'Very high' }]} />
-          </Row>
-        )}
-        <Row label="Background" hint="Green, blue or transparent exports the captions only. Key out green or blue in any editor. Transparent has a real alpha channel: drop it on a track above your footage, no keying needed.">
-          <Segmented size="sm" value={background} onChange={setBackground} options={[
-            { value: 'video', label: 'Video' },
-            { value: 'green', label: <span className="inline-flex items-center gap-1.5"><span className="size-2.5 rounded-full bg-[#00FF00] ring-1 ring-black/20" />Green</span> },
-            { value: 'blue', label: <span className="inline-flex items-center gap-1.5"><span className="size-2.5 rounded-full bg-[#0000FF] ring-1 ring-black/20" />Blue</span> },
-            { value: 'transparent', label: <span className="inline-flex items-center gap-1.5"><span className="size-2.5 rounded-full bg-[repeating-conic-gradient(#bbb_0_25%,#fff_0_50%)] bg-[length:5px_5px] ring-1 ring-black/20" />Transparent</span> },
-          ]} />
+        <Row label="Quality">
+          <Segmented size="sm" value={quality} onChange={setQuality} options={[{ value: 'high', label: 'High' }, { value: 'very-high', label: 'Very high' }]} />
         </Row>
-        {transparent && (
-          <Row label="Format" hint="MOV is Apple ProRes 4444 with premultiplied alpha, the standard transparent format for After Effects, Premiere, Final Cut and DaVinci Resolve. It's encoded by ffmpeg in your local Keyframe.lk server. WebM (VP9 alpha) is much smaller and renders in the browser, but fewer editors read its transparency.">
-            <Segmented size="sm" value={alphaFormat} onChange={setAlphaFormat} options={[{ value: 'mov', label: 'MOV · ProRes 4444' }, { value: 'webm', label: 'WebM' }]} />
-          </Row>
-        )}
-        {screen && (
-          <Row label="Audio" hint="Keep the sound so the overlay is easy to line up with your footage. Mute that track in your editor.">
-            <Toggle checked={screenAudio} onChange={setScreenAudio} label="Include audio" />
-          </Row>
-        )}
         <div className="text-xs text-muted-foreground">
-          {screen
-            ? <>Output {size.width}×{size.height} {prores ? 'MOV (ProRes 4444 + alpha)' : transparent ? 'WebM (VP9 + alpha)' : 'MP4'}, captions only on {transparent ? 'a transparent background' : screen}{screenAudio ? (prores ? ', with PCM audio' : ', with audio') : ', silent'}. Same length and timing as your video; B-roll is left out.</>
-            : <>Output {size.width}×{size.height} MP4 (H.264, original audio).</>}
-          {!screen && longSide > src && src > 0 && <span className="text-warn"> Larger than the source ({project.videoWidth}×{project.videoHeight}) — text will be sharper but video won't gain detail.</span>}
+          Output {size.width}×{size.height} MP4 (H.264, original audio).
+          {longSide > src && src > 0 && <span className="text-warn"> Larger than the source ({project.videoWidth}×{project.videoHeight}) — text will be sharper but video won't gain detail.</span>}
         </div>
-        {progress === null ? (
-          <Button size="sm" className="h-8" disabled={!project.videoAssetId} onClick={run}><Clapperboard />{screen ? `Export ${screenLabel} ${{ mov: 'MOV', webm: 'WebM', mp4: 'MP4' }[ext]}` : 'Export MP4'}</Button>
-        ) : (
-          <div className="flex flex-col gap-2 rounded-xl border bg-muted/40 p-3">
-            <div className="flex justify-between text-xs"><span>Rendering {Math.round(progress * 100)}%</span><span className="text-muted-foreground">{eta !== null ? `~${Math.ceil(eta)}s left` : ''}</span></div>
-            <Progress value={progress} />
-            <Button variant="outline" size="sm" className="self-start" onClick={() => abort.current?.abort()}><X />Cancel</Button>
-          </div>
-        )}
+        {progress === null || mode !== 'video' ? (
+          <Button size="sm" className="h-8" disabled={!project.videoAssetId || progress !== null} onClick={() => run(false)}><Clapperboard />Export MP4</Button>
+        ) : <RenderBar />}
         <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
           <span>Audio:</span>
-          {screen && !screenAudio ? <Badge variant="secondary">None</Badge> : <>
-            {!needsMix(project) && <Badge variant="secondary">Original (untouched)</Badge>}
-            {project.audio.tracks.length > 0 && <Badge variant="secondary">{project.audio.tracks.length} music track{project.audio.tracks.length > 1 ? 's' : ''}</Badge>}
-            {project.audio.tracks.length > 0 && project.audio.ducking.enabled && <Badge variant="secondary">Auto-ducking</Badge>}
-            {sfxEvents(project).length > 0 && <Badge variant="secondary">{sfxEvents(project).length} sound effects</Badge>}
-            {project.audio.original.enhance && <Badge variant="secondary">Voice enhanced</Badge>}
-            {project.audio.original.muted && <Badge variant="secondary">Original muted</Badge>}
-            {project.audio.normalize.enabled && <Badge variant="secondary">{project.audio.normalize.targetLufs} LUFS master</Badge>}
-          </>}
+          {!needsMix(project) && <Badge variant="secondary">Original (untouched)</Badge>}
+          {project.audio.tracks.length > 0 && <Badge variant="secondary">{project.audio.tracks.length} music track{project.audio.tracks.length > 1 ? 's' : ''}</Badge>}
+          {project.audio.tracks.length > 0 && project.audio.ducking.enabled && <Badge variant="secondary">Auto-ducking</Badge>}
+          {sfxEvents(project).length > 0 && <Badge variant="secondary">{sfxEvents(project).length} sound effects</Badge>}
+          {project.audio.original.enhance && <Badge variant="secondary">Voice enhanced</Badge>}
+          {project.audio.original.muted && <Badge variant="secondary">Original muted</Badge>}
+          {project.audio.normalize.enabled && <Badge variant="secondary">{project.audio.normalize.targetLufs} LUFS master</Badge>}
         </div>
         {project.audio.tracks.some((t) => t.attribution) && (
           <div className="flex flex-col gap-1.5 rounded-xl border bg-muted/30 p-3">
@@ -161,9 +139,35 @@ export function ExportPanel() {
             <Button variant="outline" size="xs" className="self-start" onClick={() => navigator.clipboard.writeText(project.audio.tracks.filter((t) => t.attribution).map((t) => t.attribution).join('\n')).then(() => notify('Credits copied.', 'success'))}>Copy credits</Button>
           </div>
         )}
+        <p className="text-xs text-muted-foreground">Rendered on your device with the same engine as the preview — what you see is exactly what you get. No upload, no credits.</p>
+      </Section>
+      <Section title="Captions only video">
+        <p className="text-xs text-muted-foreground">Exports just the captions as a video with no footage behind them, to lay over your clip in CapCut, Premiere, DaVinci or After Effects. Uses the resolution above.</p>
+        <Row label="Background" hint="Transparent has a real alpha channel: drop it on a track above your footage, no keying needed. Green or blue can be keyed out in any editor.">
+          <Segmented size="sm" value={background} onChange={setBackground} options={[
+            { value: 'transparent', label: <span className="inline-flex items-center gap-1.5"><span className="size-2.5 rounded-full bg-[repeating-conic-gradient(#bbb_0_25%,#fff_0_50%)] bg-[length:5px_5px] ring-1 ring-black/20" />Transparent</span> },
+            { value: 'green', label: <span className="inline-flex items-center gap-1.5"><span className="size-2.5 rounded-full bg-[#00FF00] ring-1 ring-black/20" />Green</span> },
+            { value: 'blue', label: <span className="inline-flex items-center gap-1.5"><span className="size-2.5 rounded-full bg-[#0000FF] ring-1 ring-black/20" />Blue</span> },
+          ]} />
+        </Row>
+        {transparent && (
+          <Row label="Format" hint="MOV is Apple ProRes 4444 with premultiplied alpha, the standard transparent format for After Effects, Premiere, Final Cut and DaVinci Resolve. It's encoded by ffmpeg in your local Keyframe.lk server. WebM (VP9 alpha) is much smaller and renders in the browser, but fewer editors read its transparency.">
+            <Segmented size="sm" value={alphaFormat} onChange={setAlphaFormat} options={[{ value: 'mov', label: 'MOV · ProRes 4444' }, { value: 'webm', label: 'WebM' }]} />
+          </Row>
+        )}
+        <Row label="Audio" hint="Keep the sound so the overlay is easy to line up with your footage. Mute that track in your editor.">
+          <Toggle checked={screenAudio} onChange={setScreenAudio} label="Include audio" />
+        </Row>
+        <div className="text-xs text-muted-foreground">
+          Output {size.width}×{size.height} {prores ? 'MOV (ProRes 4444 + alpha)' : transparent ? 'WebM (VP9 + alpha)' : 'MP4'}, captions only on {transparent ? 'a transparent background' : `${background} screen`}{screenAudio ? (prores ? ', with PCM audio' : ', with audio') : ', silent'}. Same length and timing as your video; B-roll is left out.
+        </div>
+        {progress === null || mode !== 'captions' ? (
+          <Button size="sm" className="h-8" disabled={!project.videoAssetId || progress !== null || !project.captions.length} onClick={() => run(true)}><Clapperboard />Export captions only {{ mov: 'MOV', webm: 'WebM', mp4: 'MP4' }[capExt]}</Button>
+        ) : <RenderBar />}
+        {!project.captions.length && <p className="text-xs text-muted-foreground">Add captions first.</p>}
         <p className="text-xs text-muted-foreground">{prores
           ? 'Frames are rendered here with the same engine as the preview, then encoded to ProRes by ffmpeg in your local Keyframe.lk server. Nothing leaves your computer.'
-          : 'Rendered on your device with the same engine as the preview — what you see is exactly what you get. No upload, no credits.'}</p>
+          : 'Rendered on your device with the same engine as the preview. No upload, no credits.'}</p>
       </Section>
       <Section title="Subtitle files">
         <div className="text-xs font-medium text-muted-foreground">Without style (text and timing only)</div>

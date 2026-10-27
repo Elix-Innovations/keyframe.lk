@@ -6,7 +6,7 @@ import {
 import { useDefaultLayout } from 'react-resizable-panels';
 import { groupSelection, allSelectableIds, deleteSelection, splitSelection } from '@/lib/multiSelect';
 import { useEditor, selectors, saveNow, LEFT_PANELS, PANELS, INSPECTOR_TABS, inspectorContext, type PanelId } from '@/store';
-import { currentTime, seek, togglePlay } from '@/lib/player';
+import { currentTime, playInToOut, seek, togglePlay } from '@/lib/player';
 import { splitCaptionAt, mergeCaptions, shiftCaptions } from '@/lib/segment';
 import { outputSize } from '@/render/compose';
 import { SHORTCUTS, type ShortcutId } from '@/lib/shortcuts';
@@ -239,6 +239,20 @@ export function Editor() {
       if (!p) return;
       const sel = p.captions.find((c) => c.id === st.selectedCaptionId) ?? null;
       if (/^[1-9]$/.test(e.key)) { st.setPanel(PANELS[Number(e.key) - 1]); return; }
+      // In / Out preview range, like Premiere: I and O mark at the playhead, ⌥I / ⌥O / ⌥X clear, ⇧/ plays In to Out.
+      if (e.code === 'KeyI' || e.code === 'KeyO' || (e.altKey && e.code === 'KeyX') || (e.shiftKey && e.code === 'Slash')) {
+        e.preventDefault();
+        const t = currentTime();
+        const { markIn, markOut } = st;
+        if (e.code === 'Slash') playInToOut();
+        else if (e.code === 'KeyX') st.setMarks(null, null);
+        else if (e.code === 'KeyI') {
+          if (e.altKey) st.setMarks(null, markOut);
+          else st.setMarks(t, markOut !== null && markOut <= t ? null : markOut);
+        } else if (e.altKey) st.setMarks(markIn, null);
+        else st.setMarks(markIn !== null && markIn >= t ? null : markIn, t);
+        return;
+      }
       switch (e.key) {
         case '?': st.setShortcutsOpen(true); break;
         case 'b': case 'B': st.setBefore(!st.before); break;
@@ -291,7 +305,7 @@ export function Editor() {
   }, []);
 
   return (
-    <div className="flex h-full flex-col bg-stage">
+    <div className="flex h-full flex-col overflow-clip bg-stage">
       <header className="relative flex h-12 shrink-0 items-center gap-2 px-3">
         <IconButton label="All projects" onClick={() => { location.hash = ''; }}><ArrowLeft /></IconButton>
         <Logo size={24} />

@@ -209,7 +209,7 @@ function drawRun(ctx: Ctx2D, run: Run, x: number, baseline: number, fillOverride
   const pieces = run.pieces;
   const draw = (op: 'fillText' | 'strokeText', px: number, py: number) => {
     if (!pieces) { ctx[op](run.text, px, py); return; }
-    for (const p of pieces) ctx[op](p.text, px + p.dx, py + p.dy * L.size);
+    for (const p of pieces) ctx[op](p.text, px + p.dx + (p.dxEm ?? 0) * L.size, py + p.dy * L.size);
   };
 
   // Shadow: draw the glyphs far off-canvas and cast only their shadow back into place.

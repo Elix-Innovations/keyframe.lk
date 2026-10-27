@@ -56,12 +56,12 @@ export function TargetBar({ pick, label }: { pick: (l: VideoLayer) => Partial<Vi
 }
 
 /** Tile with a live preview; the preview animates while hovered. */
-export function PreviewTile({ spec, label, on, drag, children }: { spec: Parameters<typeof FxPreview>[0]['spec']; label: string; on?: boolean; drag?: DragPayload; children?: ReactNode }) {
+export function PreviewTile({ spec, label, on, drag, onClick, children }: { spec: Parameters<typeof FxPreview>[0]['spec']; label: string; on?: boolean; drag?: DragPayload; onClick?: () => void; children?: ReactNode }) {
   const [hover, setHover] = useState(false);
   return (
-    <div draggable={!!drag}
+    <div draggable={!!drag} onClick={onClick}
       onDragStart={(e) => { if (!drag) return; e.dataTransfer.setData(DRAG_MIME, JSON.stringify(drag)); e.dataTransfer.effectAllowed = 'copy'; }} onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}
-      className={cn('group select-none overflow-hidden rounded-xl border text-left transition-colors', drag && 'cursor-grab active:cursor-grabbing', on ? 'border-primary ring-1 ring-primary' : 'hover:border-primary/50')}>
+      className={cn('group select-none overflow-hidden rounded-xl border text-left transition-colors', onClick ? 'cursor-pointer' : drag && 'cursor-grab active:cursor-grabbing', on ? 'border-primary ring-1 ring-primary' : 'hover:border-primary/50')}>
       <div className="relative">
         <FxPreview spec={spec} hover={hover} />
         {children}
@@ -86,19 +86,19 @@ export function EffectsPanel() {
       <Section title="Results" right={<span className="text-[11px] text-muted-foreground">{hits.length}</span>}>
         {hits.length === 0 && <p className="text-xs text-muted-foreground">No effect matches “{q}”.</p>}
         <div className="grid grid-cols-4 gap-1.5">
-          {hits.map((e) => <PreviewTile key={e.id} spec={{ effects: [{ id: 'p', effectId: e.id, intensity: 0.7 }] }} label={e.label} on={used.has(e.id)} drag={{ type: 'fx', kind: 'effect', refId: e.id }} />)}
+          {hits.map((e) => <PreviewTile key={e.id} spec={{ effects: [{ id: 'p', effectId: e.id, intensity: 0.7 }] }} label={e.label} on={used.has(e.id)} drag={{ type: 'fx', kind: 'effect', refId: e.id }} onClick={() => pickEffect(e.id)} />)}
         </div>
       </Section>
     );
   }
   return (
     <div>
-      <div className="border-b px-3 py-2.5 text-xs text-muted-foreground">Drag an effect onto a track on the timeline (or onto a clip to cover it). Select it there to change strength, move, trim or split.</div>
+      <div className="border-b px-3 py-2.5 text-xs text-muted-foreground">Drag an effect onto a track on the timeline (or onto a clip to cover it). Select an effect layer and click another to replace it.</div>
       <Section title="Trending" right={<span className="text-[11px] text-muted-foreground">{TRENDING_EFFECTS.length}</span>}>
         <div className="grid grid-cols-4 gap-1.5">
           {EFFECTS.filter((e) => TRENDING_EFFECTS.includes(e.id)).map((e) => (
             <PreviewTile key={e.id} spec={{ effects: [{ id: 'p', effectId: e.id, intensity: 0.7 }] }} label={e.label} on={used.has(e.id)}
-              drag={{ type: 'fx', kind: 'effect', refId: e.id }} />
+              drag={{ type: 'fx', kind: 'effect', refId: e.id }} onClick={() => pickEffect(e.id)} />
           ))}
         </div>
       </Section>
@@ -107,11 +107,19 @@ export function EffectsPanel() {
           <div className="grid grid-cols-4 gap-1.5">
             {EFFECTS.filter((e) => e.group === g).map((e) => (
               <PreviewTile key={e.id} spec={{ effects: [{ id: 'p', effectId: e.id, intensity: 0.7 }] }} label={e.label} on={used.has(e.id)}
-                drag={{ type: 'fx', kind: 'effect', refId: e.id }} />
+                drag={{ type: 'fx', kind: 'effect', refId: e.id }} onClick={() => pickEffect(e.id)} />
             ))}
           </div>
         </Section>
       ))}
     </div>
   );
+}
+
+/** Click swaps the effect of the selected effect layer; with none selected it does nothing (drag to add). */
+function pickEffect(refId: string) {
+  const st = useEditor.getState();
+  const sel = (st.project?.adj ?? []).find((a) => a.id === st.selectedAdjId && a.kind === 'effect');
+  if (!sel || sel.refId === refId) return;
+  st.setAdj((l) => l.map((a) => (a.id === sel.id ? { ...a, refId } : a)));
 }

@@ -7,6 +7,7 @@ import { addVideo } from '../lib/importMedia';
 import { beforeProject } from '../lib/before';
 import { composeFrame, outputSize } from '../render/compose';
 import type { OverlayHit } from '../render/overlays';
+import { overlayAssetIds, quadAt, setQuadAt } from '../lib/screen';
 import { clearMeasureCache, type Ctx2D, type Rect } from '../render/captions';
 import { getBlob, grantFileAccess, NeedsPermissionError } from '../lib/db';
 import { ensureFonts, onFontsChanged } from '../lib/fonts';
@@ -30,12 +31,14 @@ import { migrateVideo, newKeyframe, transformAt, type Transform } from '../lib/v
 
 type Drag =
   | { kind: 'move'; x0: number; y0: number; items: { id: string; x: number; y: number }[]; box0: Box; others: Box[] }
-  | { kind: 'caption'; dx: number; dy: number; captionId: string | null; shownId: string | null; w: number; h: number; moved: boolean; others: Box[] }
+  | { kind: 'caption'; dx: number; dy: number; captionId: string | null; shownId: string | null; w: number; h: number; moved: boolean; others: Box[]; mates: { id: string; x: number; y: number }[]; cx0: number; cy0: number }
   | { kind: 'scale'; id: string; cx: number; cy: number; d0: number; s0: number }
   | { kind: 'rotate'; id: string; cx: number; cy: number; r0: number; a0: number }
   | { kind: 'cmove'; id: string; x0: number; y0: number; pose0: Transform; box0: Box; others: Box[] }
   | { kind: 'cscale'; id: string; cx: number; cy: number; d0: number; pose0: Transform }
   | { kind: 'crot'; id: string; cx: number; cy: number; a0: number; pose0: Transform }
+  | { kind: 'qcorner'; id: string; idx: number; lt: number }
+  | { kind: 'qmove'; id: string; lt: number; x0: number; y0: number; pts0: [number, number][] }
   | { kind: 'marquee'; x0: number; y0: number; x1: number; y1: number; moved: boolean; base: string[] };
 
 /** The four corner knobs of a selected overlay, in its own (rotated) coordinates. */
@@ -51,6 +54,16 @@ function knobAt(h: OverlayHit, x: number, y: number, dpr: number): 'rotate' | 's
   const near = (p: { x: number; y: number }) => Math.hypot(p.x - x, p.y - y) <= 11 * dpr;
   if (near(world(0, -h.h / 2 - 24 * dpr))) return 'rotate';
   return handlePoints(h, dpr).some(([lx, ly]) => near(world(lx, ly))) ? 'scale' : null;
+}
+
+/** Is a canvas point inside the quadrilateral? */
+function inQuad(q: [number, number][], x: number, y: number): boolean {
+  let inside = false;
+  for (let i = 0, j = q.length - 1; i < q.length; j = i++) {
+    const [xi, yi] = q[i], [xj, yj] = q[j];
+    if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
 }
 
 export function Preview() {
@@ -127,10 +140,10 @@ export function Preview() {
   useEffect(() => onFontsChanged(() => { clearMeasureCache(); force((n) => n + 1); }), []);
 
   // B-roll bitmaps.
-  const brollKey = [...project.broll.map((b) => b.assetId), ...(project.overlays ?? []).flatMap((o) => (o.assetId ? [o.assetId] : []))].join('|');
+  const brollKey = [...project.broll.map((b) => b.assetId), ...(project.overlays ?? []).flatMap(overlayAssetIds)].join('|');
   useEffect(() => {
     const map = brollRef.current;
-    const wanted = new Set([...project.broll.map((b) => b.assetId), ...(project.overlays ?? []).flatMap((o) => (o.assetId ? [o.assetId] : []))]);
+    const wanted = new Set([...project.broll.map((b) => b.assetId), ...(project.overlays ?? []).flatMap(overlayAssetIds)]);
     for (const [k, v] of map) if (!wanted.has(k)) { v.close(); map.delete(k); }
     Promise.all([...wanted].filter((id) => !map.has(id)).map(async (id) => {
       const blob = await getBlob(id);
@@ -183,6 +196,19 @@ export function Preview() {
       const picked = [stNow.selectedOverlayId, ...stNow.extraOverlayIds, ...(stNow.selectedOverlayId ? [] : [stNow.selectedClipId])];
       for (const h of hits.filter((x) => picked.includes(x.id))) {
         const primary = h.id === (stNow.selectedOverlayId ?? stNow.selectedClipId);
+        if (h.quad) { // a phone-screen layer: outline the pinned corners and show a handle on each
+          ctx.save();
+          ctx.strokeStyle = primary ? 'rgba(99,102,241,0.95)' : 'rgba(99,102,241,0.6)';
+          ctx.lineWidth = 2 * dpr;
+          ctx.beginPath(); h.quad.forEach(([qx, qy], i) => (i ? ctx.lineTo(qx, qy) : ctx.moveTo(qx, qy))); ctx.closePath(); ctx.stroke();
+          if (primary && picked.length === 1 && !playing) {
+            ctx.fillStyle = '#fff';
+            ctx.lineWidth = 1.5 * dpr;
+            for (const [qx, qy] of h.quad) { ctx.beginPath(); ctx.arc(qx, qy, 7 * dpr, 0, Math.PI * 2); ctx.fill(); ctx.stroke(); }
+          }
+          ctx.restore();
+          continue;
+        }
         ctx.save();
         ctx.translate(h.cx, h.cy);
         ctx.rotate((h.rot * Math.PI) / 180);
@@ -250,6 +276,7 @@ export function Preview() {
     return { x: (e.clientX - r.left) * dpr, y: (e.clientY - r.top) * dpr, W: canvasRef.current!.width, H: canvasRef.current!.height, dpr };
   };
   const inside = (h: OverlayHit, x: number, y: number, pad: number) => {
+    if (h.quad) return inQuad(h.quad, x, y);
     const a = (-h.rot * Math.PI) / 180, px = x - h.cx, py = y - h.cy;
     const lx = px * Math.cos(a) - py * Math.sin(a), ly = px * Math.sin(a) + py * Math.cos(a);
     return Math.abs(lx) <= h.w / 2 + pad && Math.abs(ly) <= h.h / 2 + pad;
@@ -297,7 +324,13 @@ export function Preview() {
     }
     const only = picked.length === 1 ? hits.find((h) => h.id === picked[0]) : undefined;
     const o = only && st.project?.overlays?.find((v) => v.id === only.id);
-    if (only && o) {
+    if (only?.quad && o?.screen) { // pinned corners of a phone-screen layer: drag one, or the whole screen
+      const lt = Math.min(o.duration, Math.max(0, currentTime() - o.start));
+      const idx = only.quad.findIndex(([qx, qy]) => Math.hypot(qx - x, qy - y) <= 12 * dpr);
+      if (idx >= 0) { drag.current = { kind: 'qcorner', id: o.id, idx, lt }; capture(); return; }
+      if (inQuad(only.quad, x, y)) { drag.current = { kind: 'qmove', id: o.id, lt, x0: x, y0: y, pts0: quadAt(o.screen.quad, lt) }; capture(); return; }
+    }
+    if (only && o && !only.quad) {
       const knob = knobAt(only, x, y, dpr);
       if (knob === 'rotate') { drag.current = { kind: 'rotate', id: o.id, cx: only.cx, cy: only.cy, r0: o.rotation, a0: Math.atan2(y - only.cy, x - only.cx) }; capture(); return; }
       if (knob === 'scale') { drag.current = { kind: 'scale', id: o.id, cx: only.cx, cy: only.cy, d0: Math.hypot(x - only.cx, y - only.cy) || 1, s0: o.scale }; capture(); return; }
@@ -319,6 +352,13 @@ export function Preview() {
         return;
       }
       if (!picked.includes(oh.id)) { st.selectOverlay(oh.id); st.setPanel('overlay'); }
+      const so = oh.quad ? st.project?.overlays?.find((v) => v.id === oh.id) : undefined;
+      if (so?.screen) {
+        const lt = Math.min(so.duration, Math.max(0, currentTime() - so.start));
+        drag.current = { kind: 'qmove', id: so.id, lt, x0: x, y0: y, pts0: quadAt(so.screen.quad, lt) };
+        capture();
+        return;
+      }
       const ids = picked.includes(oh.id) ? picked : [oh.id];
       const items = (st.project?.overlays ?? []).filter((v) => ids.includes(v.id)).map((v) => ({ id: v.id, x: v.x, y: v.y }));
       const group = hits.filter((h) => ids.includes(h.id)).map(boxOf);
@@ -334,7 +374,11 @@ export function Preview() {
       const b = bboxRef.current!;
       const id = shownRef.current;
       const own = !!id && (id === st.selectedCaptionId || !!st.project?.captions.find((c) => c.id === id)?.styleOverride?.layout);
-      drag.current = { kind: 'caption', dx: x - (b.x + b.w / 2), dy: y - (b.y + b.h / 2), captionId: own ? id : null, shownId: id, w: b.w, h: b.h, moved: false, others: hits.map(boxOf) };
+      // Captions tied together with ⌘G move as one: every member keeps its offset from the one being dragged.
+      const caps = st.project?.captions ?? [], shown = caps.find((c) => c.id === id);
+      const lay = st.project!.style.layout;
+      const mates = shown?.groupId ? caps.filter((c) => c.groupId === shown.groupId).map((c) => ({ id: c.id, x: c.styleOverride?.layout?.x ?? lay.x, y: c.styleOverride?.layout?.y ?? lay.y })) : [];
+      drag.current = { kind: 'caption', dx: x - (b.x + b.w / 2), dy: y - (b.y + b.h / 2), captionId: own || mates.length > 1 ? id : null, shownId: id, w: b.w, h: b.h, moved: false, others: hits.map(boxOf), mates: mates.length > 1 ? mates : [], cx0: b.x + b.w / 2, cy0: b.y + b.h / 2 };
       capture();
       return;
     }
@@ -353,7 +397,20 @@ export function Preview() {
       return;
     }
     const thr = 7 * dpr;
-    if (d.kind === 'move') {
+    if (d.kind === 'qcorner' || d.kind === 'qmove') {
+      const at = (pts: [number, number][]) => st.setOverlays((l) => l.map((v) => (v.id === d.id && v.screen ? { ...v, screen: { ...v.screen, quad: setQuadAt(v.screen.quad, d.lt, pts) } } : v)), `scr-quad-${d.id}`);
+      const cur = st.project?.overlays?.find((v) => v.id === d.id);
+      if (!cur?.screen) return;
+      if (d.kind === 'qcorner') {
+        const pts = quadAt(cur.screen.quad, d.lt).map((p) => [...p] as [number, number]);
+        pts[d.idx] = [Math.round((x / W) * 1000) / 10, Math.round((y / H) * 1000) / 10];
+        at(pts);
+      } else {
+        const mx = ((x - d.x0) / W) * 100, my = ((y - d.y0) / H) * 100;
+        at(d.pts0.map(([px, py]) => [Math.round((px + mx) * 10) / 10, Math.round((py + my) * 10) / 10] as [number, number]));
+      }
+      force((n) => n + 1);
+    } else if (d.kind === 'move') {
       let dx = x - d.x0, dy = y - d.y0;
       guidesRef.current = [];
       if (snapOn(e)) {
@@ -372,7 +429,12 @@ export function Preview() {
         cx += sn.dx; cy += sn.dy; guidesRef.current = sn.guides;
       }
       const pos = { x: Math.round((cx / W) * 1000) / 10, y: Math.round((cy / H) * 1000) / 10 };
-      if (d.captionId) {
+      if (d.mates.length > 1) {
+        const ddx = pos.x - (d.cx0 / W) * 100, ddy = pos.y - (d.cy0 / H) * 100;
+        const at = new Map(d.mates.map((m) => [m.id, m]));
+        const r = (v: number) => Math.round(v * 10) / 10;
+        st.setCaptions(st.project!.captions.map((c) => { const m = at.get(c.id); return m ? { ...c, styleOverride: { ...c.styleOverride, layout: { ...c.styleOverride?.layout, x: r(m.x + ddx), y: r(m.y + ddy) } } } : c; }), `drag-caption-group`);
+      } else if (d.captionId) {
         const id = d.captionId;
         st.setCaptions(st.project!.captions.map((c) => (c.id === id ? { ...c, styleOverride: { ...c.styleOverride, layout: { ...c.styleOverride?.layout, ...pos } } } : c)), `drag-caption-${id}`);
       } else {

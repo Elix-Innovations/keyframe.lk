@@ -399,15 +399,22 @@ async function geminiCutPoints(audioPath: string, duration: number): Promise<num
 }
 
 async function geminiRequest(audio: Buffer, language: Language, attempt = 0): Promise<RawWord[]> {
-  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${geminiModel()}:generateContent`, {
-    method: 'POST',
-    headers: { 'x-goog-api-key': process.env.GEMINI_API_KEY!, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      contents: [{ parts: [{ inlineData: { mimeType: 'audio/mp3', data: audio.toString('base64') } }, { text: GEMINI_PROMPT(language) }] }],
-      generationConfig: { responseMimeType: 'application/json', responseSchema: GEMINI_SCHEMA, temperature: 0 },
-    }),
-    signal: AbortSignal.timeout(120_000),
-  });
+  let res: Response;
+  try {
+    res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${geminiModel()}:generateContent`, {
+      method: 'POST',
+      headers: { 'x-goog-api-key': process.env.GEMINI_API_KEY!, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: [{ inlineData: { mimeType: 'audio/mp3', data: audio.toString('base64') } }, { text: GEMINI_PROMPT(language) }] }],
+        generationConfig: { responseMimeType: 'application/json', responseSchema: GEMINI_SCHEMA, temperature: 0 },
+      }),
+      signal: AbortSignal.timeout(120_000),
+    });
+  } catch (err) {
+    // Network drop or timeout: retry, then report as a provider problem rather than a bare 500.
+    if (attempt < 2) return geminiRequest(audio, language, attempt + 1);
+    throw new HttpError(504, `Gemini did not respond (${(err as Error).message}). Try again, or use a shorter clip.`);
+  }
   if ((res.status === 429 || res.status >= 500) && attempt < 2) {
     recordFailure('gemini', geminiModel());
     await new Promise((r) => setTimeout(r, 1500 * (attempt + 1)));

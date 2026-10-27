@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Row, Section, Slider } from '../controls';
 import { PreviewTile } from './EffectsPanel';
 
+import { useFilterKf } from './filterKf';
 type Patch = (p: Partial<VideoFilters>, key: string) => void;
 type Num = Exclude<keyof VideoFilters, never>;
 
@@ -25,8 +26,9 @@ function PresetTiles({ items, base, onPick }: { items: { label: string; v: Parti
 const signed = (v: number) => (v > 0 ? `+${v}` : String(v));
 
 function Field({ f, k, label, patch, min = -100, max = 100, format = signed }: { f: VideoFilters; k: Num; label: string; patch: Patch; min?: number; max?: number; format?: (v: number) => string }) {
+  const kfOf = useFilterKf();
   return (
-    <Row label={label}>
+    <Row label={label} kf={kfOf(k)}>
       <Slider value={f[k]} min={min} max={max} format={format} onChange={(v) => patch({ [k]: v }, `flt-${k}`)} />
     </Row>
   );
@@ -135,6 +137,7 @@ const BAND_COLOR: Record<string, string> = { Red: '#ef4444', Orange: '#f97316', 
 export type GradePart = 'basic' | 'hsl' | 'curves' | 'wheels';
 export function ColorGrade({ filters: f, patch, part }: { filters: VideoFilters; patch: Patch; part?: GradePart }) {
   const show = (p: GradePart) => !part || part === p;
+  const kfOf = useFilterKf();
   const [band, setBand] = useState<(typeof HSL_BANDS)[number]>('Red');
   const bandKeys = [`hue${band}`, `sat${band}`, `lum${band}`] as Num[];
   const hslKeys = HSL_BANDS.flatMap((b) => [`hue${b}`, `sat${b}`, `lum${b}`]) as Num[];
@@ -149,13 +152,13 @@ export function ColorGrade({ filters: f, patch, part }: { filters: VideoFilters;
       </Section>)}
 
       {show('basic') && (<Section title="Colour" collapsible right={<ResetBtn patch={patch} keys={['temperature', 'tint', 'vibrance']} />}>
-        <Row label="Temperature">
+        <Row label="Temperature" kf={kfOf('temperature')}>
           <div className="flex min-w-0 flex-1 flex-col gap-1">
             <div className="h-1.5 rounded-full" style={{ background: 'linear-gradient(90deg,#3b82f6,#e5e7eb,#f59e0b)' }} />
             <Slider value={f.temperature} min={-100} max={100} format={signed} onChange={(v) => patch({ temperature: v }, 'flt-temperature')} />
           </div>
         </Row>
-        <Row label="Tint">
+        <Row label="Tint" kf={kfOf('tint')}>
           <div className="flex min-w-0 flex-1 flex-col gap-1">
             <div className="h-1.5 rounded-full" style={{ background: 'linear-gradient(90deg,#22c55e,#e5e7eb,#d946ef)' }} />
             <Slider value={f.tint} min={-100} max={100} format={signed} onChange={(v) => patch({ tint: v }, 'flt-tint')} />

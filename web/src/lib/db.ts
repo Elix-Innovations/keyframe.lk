@@ -169,7 +169,7 @@ export async function putProject(project: Project): Promise<void> {
 
 /** Every stored file a project points at (video, B-roll images, music). */
 function assetsOf(p: Project): string[] {
-  return [p.videoAssetId, ...(p.clips ?? []).map((c) => c.assetId), ...(p.audio?.original?.denoise ? [p.audio.original.denoise.assetId] : []), ...(p.broll ?? []).map((b) => b.assetId), ...(p.audio?.tracks ?? []).map((t) => t.assetId)]
+  return [p.videoAssetId, ...(p.clips ?? []).map((c) => c.assetId), ...(p.audio?.original?.denoise ? [p.audio.original.denoise.assetId] : []), ...Object.values(p.audio?.original?.denoiseBy ?? {}).map((d) => d.assetId), ...(p.broll ?? []).map((b) => b.assetId), ...(p.audio?.tracks ?? []).map((t) => t.assetId)]
     .filter((x): x is string => !!x);
 }
 

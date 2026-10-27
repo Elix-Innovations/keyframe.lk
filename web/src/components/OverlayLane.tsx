@@ -37,6 +37,10 @@ export const overlayOps = {
   addSticker(text: string, start = currentTime(), track?: number) {
     return overlayOps.add({ kind: 'sticker', text, start, duration: Math.min(3, Math.max(1, (useEditor.getState().project?.duration ?? 3) - start)), track });
   },
+  /** A generated scrolling feed to pin on a phone screen in the video, at the playhead. */
+  addScreen(start = currentTime(), track?: number) {
+    return overlayOps.add({ kind: 'screen', text: 'Phone screen', start, duration: Math.min(6, Math.max(2, (useEditor.getState().project?.duration ?? 6) - start)), track });
+  },
   splitAtPlayhead(id?: string) {
     const st = useEditor.getState();
     const target = id ?? st.selectedOverlayId;
@@ -56,11 +60,12 @@ export const overlayOps = {
   remove(id: string) { const st = useEditor.getState(); st.setOverlays((l) => deleteAdj(l, id)); st.selectOverlay(null); },
 };
 
-function snap(list: OverlayItem[], a: OverlayItem, dt: number, pps: number): number {
+/** Nudge a drag of `dt` seconds so the moved edge(s) stick to the playhead, other blocks and clip starts and ends. A trim only moves its own edge. */
+function snap(list: OverlayItem[], a: OverlayItem, dt: number, pps: number, edge: 'move' | 'l' | 'r' = 'move'): number {
   const edges = [0, currentTime(), ...list.filter((o) => o.id !== a.id).flatMap((o) => [o.start, adjEnd(o)]),
     ...(useEditor.getState().project?.clips ?? []).flatMap((c) => [c.start, clipEnd(c)])];
   let best = dt, bestD = SNAP_PX / pps;
-  for (const mine of [a.start + dt, adjEnd(a) + dt]) for (const e of edges) {
+  for (const mine of edge === 'l' ? [a.start + dt] : edge === 'r' ? [adjEnd(a) + dt] : [a.start + dt, adjEnd(a) + dt]) for (const e of edges) {
     const d = Math.abs(mine - e);
     if (d < bestD) { bestD = d; best = dt + (e - mine); }
   }
@@ -95,7 +100,7 @@ export const OverlayBlock = memo(function OverlayBlock({ item, pps, pad, top, he
     const proj = d.proj;
     const upd = useEditor.getState().update;
     if (d.kind === 'move') upd(() => moveLayer(proj, item.id, snap(d.orig, a, raw, pps), geo.videoTrackAt(e.clientY)), `overlay-${item.id}`);
-    else upd(() => trimLayer(proj, item.id, d.kind === 'l' ? 'l' : 'r', raw), `overlay-${item.id}`);
+    else upd(() => trimLayer(proj, item.id, d.kind === 'l' ? 'l' : 'r', snap(d.orig, a, raw, pps, d.kind)), `overlay-${item.id}`);
   };
   const canSplit = (() => { const t = currentTime(); return t > item.start && t < adjEnd(item); })();
 
@@ -109,7 +114,7 @@ export const OverlayBlock = memo(function OverlayBlock({ item, pps, pad, top, he
             selected && 'ring-2 ring-primary', hidden && 'opacity-35', locked ? 'cursor-not-allowed' : 'cursor-grab active:cursor-grabbing')}
           style={{ left: item.start * pps + pad, width: Math.max(8, item.duration * pps), top, height }}>
           <span className={cn('pointer-events-none absolute inset-x-0 top-0 z-10 flex h-4 items-center gap-1 truncate px-1.5 text-[10px]', item.kind === 'text' ? 'bg-chart-1' : item.kind === 'sticker' ? 'bg-chart-4' : 'bg-chart-2')}>
-            <span className="shrink-0">{item.kind === 'text' ? 'T' : item.kind === 'sticker' ? '☺' : item.kind === 'motion' ? '✦' : '▣'}</span>
+            <span className="shrink-0">{item.kind === 'text' ? 'T' : item.kind === 'sticker' ? '☺' : item.kind === 'motion' ? '✦' : item.kind === 'screen' ? '▯' : '▣'}</span>
             <span className="sinhala truncate">{overlayLabel(item)}</span>
           </span>
           {thumb

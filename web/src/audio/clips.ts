@@ -1,11 +1,12 @@
 import type { Clip, Project } from '@/types';
 import { getBlob } from '@/lib/db';
 import { audioClips } from '@/lib/clips';
-import { laneOf } from '@/lib/videoFx';
+import { laneOf, propAt } from '@/lib/videoFx';
 import { decodeOriginal } from './decode';
 import { loadAudioAsset, voiceChain, type ScheduledNodes } from './graph';
 import { dbToGain } from './mix';
 import { timeStretch } from './stretch';
+import { curveSpeedAt, curveSrcAt } from '@/lib/speedCurve';
 
 /** Decoded audio of a clip's source file (null when the file has no audio). Cached per asset. */
 const sources = new Map<string, Promise<AudioBuffer | null>>();
@@ -35,11 +36,14 @@ function stretchedFor(buf: AudioBuffer, speed: number): Promise<AudioBuffer> {
 
 /** The buffer a clip plays: noise-removed audio for clips from the denoised video, stretched for speed. */
 async function clipBuffer(project: Project, c: Clip): Promise<AudioBuffer | null> {
-  const dn = project.audio.original.denoise;
-  const from = dn && c.fromVideo && (dn.sourceAssetId ?? project.videoAssetId) === c.assetId;
+  const o = project.audio.original;
+  const legacy = o.denoise && (o.denoise.sourceAssetId ?? project.videoAssetId) === c.assetId ? o.denoise : undefined;
+  const dn = c.fromVideo ? o.denoiseBy?.[c.assetId] ?? legacy : undefined;
+  const from = !!dn;
   const base = from ? await loadAudioAsset(dn!.assetId).catch(() => null) : await loadSourceAudio(c.assetId).catch(() => null);
   if (!base) return null;
-  return c.speed === 1 ? base : stretchedFor(base, c.speed);
+  // A curved clip plays the raw file and varies the playback rate while scheduled.
+  return c.speed === 1 || c.curve ? base : stretchedFor(base, c.speed);
 }
 
 /** Decode and stretch everything the audio clips need, so scheduling afterwards is synchronous. */
@@ -82,9 +86,26 @@ export function scheduleClipAudio(
       chain.output.connect(g);
       nodes.push(chain.output);
     } else src.connect(g);
-    g.connect(dest);
+    if (c.volKf?.length) {
+      // Keyframed volume rides on its own gain stage, relative to the static volume the fades already carry.
+      const k = ctx.createGain();
+      const rel = (db: number) => dbToGain(db - c.volume);
+      const pts = [...c.volKf].sort((a, b) => a.t - b.t);
+      const timeOf = (kt: number) => at + (c.start + kt - from);
+      k.gain.setValueAtTime(rel(propAt(c.volKf, skip, c.volume)), t0);
+      for (const p of pts) if (p.t > skip) k.gain.linearRampToValueAtTime(rel(p.v), timeOf(p.t));
+      g.connect(k); k.connect(dest);
+      nodes.push(k);
+    } else g.connect(dest);
     // The stretched buffer is already at clip speed, so source offset scales by 1/speed.
-    const offset = c.in / c.speed + skip;
+    let offset = c.in / c.speed + skip;
+    if (c.curve) {
+      const cv = { ...c, curve: c.curve };
+      offset = curveSrcAt(cv, skip);
+      // Rate follows the curve in 50 ms steps (pitch moves with it, like a tape).
+      src.playbackRate.setValueAtTime(curveSpeedAt(cv, skip), t0);
+      for (let tl = skip + 0.05; tl < c.duration; tl += 0.05) src.playbackRate.linearRampToValueAtTime(curveSpeedAt(cv, tl), t0 + tl - skip);
+    }
     src.start(t0, Math.min(offset, Math.max(0, buf.duration - 0.001)), c.duration - skip);
     srcs.push(src);
     nodes.push(g);

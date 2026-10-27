@@ -92,6 +92,15 @@ export const trackOps = {
     st.update((p) => ({ ...p, audio: { ...p.audio, tracks: [...p.audio.tracks, copy] } }));
     st.selectTrack(copy.id);
   },
+  /** Stretch or trim a track so it ends exactly where the video ends, looping the file when it is too short to fill the gap. */
+  fitToVideo(id: string) {
+    const st = useEditor.getState();
+    const end = st.project?.duration ?? 0;
+    const t = st.project?.audio.tracks.find((x) => x.id === id);
+    if (!t || end <= t.start + 0.05) return;
+    const duration = end - t.start;
+    st.update((p) => ({ ...p, audio: { ...p.audio, tracks: p.audio.tracks.map((x) => (x.id === id ? { ...x, duration, loop: x.loop || x.fileDuration - x.offset < duration } : x)) } }));
+  },
   toggleMute(id: string) {
     useEditor.getState().update((p) => ({ ...p, audio: { ...p.audio, tracks: p.audio.tracks.map((t) => (t.id === id ? { ...t, muted: !t.muted } : t)) } }));
   },

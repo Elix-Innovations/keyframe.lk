@@ -289,7 +289,7 @@ export interface MusicTrack {
 }
 
 export interface ProjectAudio {
-  original: { volume: number; muted: boolean; enhance: boolean; /** Cleaned copy of the video's audio (WAV asset) that replaces it in preview and export. */ denoise?: { assetId: string; /** The video asset it was made from (default: the primary video). */ sourceAssetId?: string; strength: number; method?: 'rnnoise' | 'spectral' } }; // volume in dB
+  original: { volume: number; muted: boolean; enhance: boolean; /** Cleaned copy of the video's audio (WAV asset) that replaces it in preview and export. */ /** Cleaned audio per video asset, so every clip's file can be cleaned (the single `denoise` above is the older form). */ denoiseBy?: Record<string, { assetId: string; strength: number; method?: 'rnnoise' | 'spectral' }>; denoise?: { assetId: string; /** The video asset it was made from (default: the primary video). */ sourceAssetId?: string; strength: number; method?: 'rnnoise' | 'spectral' } }; // volume in dB
   tracks: MusicTrack[];
   ducking: { enabled: boolean; amountDb: number; attack: number; release: number };
   normalize: { enabled: boolean; targetLufs: number };
@@ -369,6 +369,9 @@ export interface VideoKeyframe {
   ease: Ease;
 }
 
+/** A keyframe on one number (an Adjust slider, a volume, …). Time is seconds from the start of whatever owns it. */
+export interface PropKf { id: string; t: number; v: number; ease: Ease }
+
 /** Crop as % of the source frame removed from each edge. */
 export interface Crop { l: number; t: number; r: number; b: number }
 
@@ -393,6 +396,8 @@ export interface MatteSettings {
   shift: number;
   /** AI cut-out: how sure the model must be before a pixel is kept, 0..100 (higher cuts more). */
   threshold: number;
+  /** AI cut-out: keep only the skin (hands, fingers) of the person, so a phone or sleeve in the hand is left out. */
+  hands?: boolean;
   /** Keep the background and remove the subject instead. */
   invert: boolean;
   /** What shows where the background was: the layers below, a flat colour, or the same shot blurred. */
@@ -432,6 +437,8 @@ export interface VideoLayer {
   transitionIn: { id: TransitionId; duration: number };
   transitionOut: { id: TransitionId; duration: number };
   keyframes: VideoKeyframe[];
+  /** Keyframes per colour slider (a VideoFilters key). Sliders without an entry use the static value in `filters`. */
+  fkf?: Record<string, PropKf[]>;
   effects: EffectInstance[];
   /** Background removal / replacement. */
   matte?: MatteSettings;
@@ -447,8 +454,13 @@ export interface VideoLayer {
 
 // ---- Timeline clips (video and audio on separate, linkable layers) ----
 
+/** One point of a speed curve: at source second `x` the clip plays at `s`× speed. */
+export interface SpeedPt { x: number; s: number }
+
 export interface Clip {
   id: string;
+  /** Volume keyframes (absolute dB, seconds from the clip's start on the timeline). When present they replace `volume`. */
+  volKf?: PropKf[];
   /** Items sharing a group id are selected and moved together. */
   groupId?: string;
   kind: 'video' | 'audio';
@@ -462,7 +474,9 @@ export interface Clip {
   in: number;
   /** Length on the timeline (s). Source seconds played = duration × speed (a freeze holds one frame). */
   duration: number;
-  speed: number; // 0.1..8; keeps pitch for audio
+  speed: number; // 0.1..8; keeps pitch for audio. With a `curve` it is the average (source span / duration).
+  /** Variable speed over the source file (see lib/speedCurve.ts). Pitch follows speed. */
+  curve?: SpeedPt[];
   /** Hold the frame at `in` for the whole duration (video only). */
   freeze?: boolean;
   /** Shared by a video clip and its audio clip while they move, trim, split and change speed together. */
@@ -510,13 +524,41 @@ export type OverlayAnimId =
 export type OverlayLoopId = 'none' | 'pulse' | 'float' | 'wiggle' | 'swing' | 'spin' | 'blink' | 'heartbeat' | 'glitch' | 'tada' | 'jelly' | 'shake' | 'breathe';
 export type OverlayBlend = 'normal' | 'screen' | 'multiply' | 'overlay' | 'lighten' | 'difference';
 
+/** One post card in a generated feed. The last post of a feed is the one the scroll stops on (the ad). */
+export interface FeedPost {
+  id: string;
+  text: string;
+  assetId?: string;
+  imgW?: number;
+  imgH?: number;
+  likes: number;
+  comments: number;
+  time: string;
+  /** Who posted it; a made-up name is used when empty. */
+  author?: string;
+}
+
+/** The four corners of the screen in the frame at one moment (% of the frame; order: top-left, top-right, bottom-right, bottom-left). Times are seconds since the layer starts. */
+export interface ScreenQuadKf { id: string; t: number; pts: [number, number][]; ease: Ease }
+
+export interface ScreenSpec {
+  quad: ScreenQuadKf[];
+  feed: { pageName: string; avatarAssetId?: string; posts: FeedPost[] };
+  /** The feed scrolls from `start` to `stop` (seconds since the layer starts) and stays on the last post. */
+  scroll: { start: number; stop: number; ease: Ease };
+  /** Rounded screen corners, % of the screen width. */
+  corner: number;
+}
+
 export interface OverlayItem {
   id: string;
   /** Items sharing a group id are selected and moved together. */
   groupId?: string;
-  kind: 'text' | 'sticker' | 'image' | 'motion';
+  kind: 'text' | 'sticker' | 'image' | 'motion' | 'screen';
   /** Motion graphic or transition: the scene this layer plays (its time starts when the layer starts). */
   scene?: MotionScene;
+  /** Phone-screen layer: a generated feed that scrolls, pinned to the four corners of a screen in the video. */
+  screen?: ScreenSpec;
   /** Text content, or the emoji / symbol of a sticker. */
   text: string;
   /** Image overlays: key into the blob store. */
@@ -595,6 +637,8 @@ export interface Project {
   fit: FitMode;
   /** Fill behind the video when `fit` is 'color'. */
   fitColor?: string;
+  /** Files imported into the Media panel. They reach the timeline only when added or dragged there. */
+  library?: LibraryItem[];
   hook: TextHook;
   broll: BrollItem[];
   audio: ProjectAudio;
@@ -821,4 +865,15 @@ export interface MotionScene {
   /** Design frame: width 1080, height depends on the project's aspect ratio. */
   frame?: { w: number; h: number };
   layers: SceneNode[];
+}
+
+export interface LibraryItem {
+  id: string;
+  kind: 'video' | 'audio' | 'image';
+  name: string;
+  assetId: string;
+  duration: number;
+  thumb?: string;
+  /** Part of the file to use (seconds), set by marking In and Out in the media viewer. */
+  range?: { in: number; out: number };
 }

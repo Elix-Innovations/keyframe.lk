@@ -1,7 +1,7 @@
 /**
  * FM mark positioning.
  *
- * Legacy FM fonts have no OpenType positioning: the upper vowel signs ි (`s`) and ී (`S`) are zero-width
+ * Legacy FM fonts have no OpenType positioning: the upper vowel signs ි (`s`), ී (`S`) and the al-lakuna ් (`a`, as in ේ) are zero-width
  * glyphs drawn at one fixed height, tuned for a flat-topped consonant like ප. On consonants whose top rises
  * or curls (ඩ ව ට බ …) the loop sinks into the letter and disappears.
  *
@@ -15,12 +15,16 @@ type Ctx2D = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
 
 /** Upper vowel signs in the FM encoding that get repositioned. */
 const UPPER_MARKS = new Set(['s', 'S']);
+/** Glyphs that are never a consonant: an `a` right after one of these is not an al-lakuna sitting on a base (ො ෝ end in `da`). */
+const NOT_A_BASE = new Set(['d', 'e', 'E', 's', 'S', 'q', 'Q', 'D', 'a', 'f']);
 /** ප: flat top, the consonant FM marks are designed around. */
 const REFERENCE_BASE = 'm';
 
 const P = 200; // measuring size, px
 
-export interface Piece { text: string; dx: number; dy: number } // dx: px from run start; dy: em fraction × size
+/** dx: px from run start; dy: em fraction × size; dxEm: extra sideways shift, em fraction × size. */
+export interface Piece { text: string; dx: number; dy: number; dxEm?: number }
+
 
 interface Profile { top: Int16Array; bottom: Int16Array; thick: number }
 
@@ -62,7 +66,7 @@ function profile(family: string, text: string, x0: number): Profile {
 }
 
 /** How far (px at size P) the mark's bottom edge reaches below the base's top edge; 0 if they don't meet. */
-function penetration(family: string, base: string, mark: string): { depth: number; thick: number } | null {
+function penetration(family: string, base: string, mark: string): { depth: number; thick: number; baseMid: number; markMid: number } | null {
   const c = measureCtx();
   c.font = `400 ${P}px ${family}`;
   const x0 = P / 2;
@@ -74,10 +78,11 @@ function penetration(family: string, base: string, mark: string): { depth: numbe
     if (m.bottom[x] < 0 || b.top[x] < 0) continue;
     depth = Math.max(depth, m.bottom[x] - b.top[x]);
   }
-  return depth === -Infinity ? null : { depth, thick: m.thick };
+  const mid = (pr: Profile) => { let a = -1, z = -1; for (let x = 0; x < pr.top.length; x++) if (pr.top[x] >= 0) { if (a < 0) a = x; z = x; } return (a + z) / 2; };
+  return depth === -Infinity ? null : { depth, thick: m.thick, baseMid: mid(b), markMid: mid(m) };
 }
 
-const cache = new Map<string, number>(); // `${family}|${base}${mark}` → dy in em
+const cache = new Map<string, { dy: number; dx: number }>(); // `${family}|${base}${mark}` → shift in em
 
 function fontReady(family: string): boolean {
   if (typeof document === 'undefined' || !document.fonts) return true;
@@ -88,12 +93,12 @@ function fontReady(family: string): boolean {
 }
 
 /** Vertical shift (em fraction) for `mark` after `base` in this FM font. */
-export function markShift(family: string, base: string, mark: string): number {
+export function markShift(family: string, base: string, mark: string): { dy: number; dx: number } {
   const key = `${family}|${base}${mark}`;
   const hit = cache.get(key);
   if (hit !== undefined) return hit;
-  if (!fontReady(family)) return 0;
-  let dy = 0;
+  if (!fontReady(family)) return { dy: 0, dx: 0 };
+  let dy = 0, dx = 0;
   const cur = base === REFERENCE_BASE ? null : penetration(family, base, mark);
   const ref = penetration(family, REFERENCE_BASE, mark);
   if (cur && ref) {
@@ -103,8 +108,9 @@ export function markShift(family: string, base: string, mark: string): number {
     dy = Math.max(-0.35, Math.min(0.08, dy));
     if (Math.abs(dy) < 0.006) dy = 0; // sub-pixel noise at caption sizes
   }
-  cache.set(key, dy);
-  return dy;
+  const out = { dy, dx };
+  cache.set(key, out);
+  return out;
 }
 
 /**
@@ -113,20 +119,20 @@ export function markShift(family: string, base: string, mark: string): number {
  */
 export function fmPieces(ctx: Ctx2D, family: string, text: string): Piece[] | null {
   let moved = false;
-  const marks: { i: number; dy: number }[] = [];
+  const marks: { i: number; dy: number; dx: number }[] = [];
   for (let i = 1; i < text.length; i++) {
-    if (!UPPER_MARKS.has(text[i])) continue;
-    const dy = markShift(family, text[i - 1], text[i]);
-    marks.push({ i, dy });
-    if (dy) moved = true;
+    if (!UPPER_MARKS.has(text[i]) || NOT_A_BASE.has(text[i - 1])) continue;
+    const { dy, dx } = markShift(family, text[i - 1], text[i]);
+    marks.push({ i, dy, dx });
+    if (dy || dx) moved = true;
   }
   if (!moved) return null;
   const pieces: Piece[] = [];
   let start = 0;
   const at = (i: number) => (i === 0 ? 0 : ctx.measureText(text.slice(0, i)).width);
-  for (const { i, dy } of marks) {
+  for (const { i, dy, dx } of marks) {
     if (i > start) pieces.push({ text: text.slice(start, i), dx: at(start), dy: 0 });
-    pieces.push({ text: text[i], dx: at(i), dy });
+    pieces.push({ text: text[i], dx: at(i), dy, dxEm: dx });
     start = i + 1;
   }
   if (start < text.length) pieces.push({ text: text.slice(start), dx: at(start), dy: 0 });

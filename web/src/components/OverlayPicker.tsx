@@ -20,15 +20,16 @@ const thumbOf = (id: string) => {
 };
 
 /** A small canvas that draws a sample overlay with the real renderer; it plays in a loop while hovered. */
-export function OverlaySample({ spec, hover, className }: { spec: Partial<OverlayItem>; hover: boolean; className?: string }) {
+export function OverlaySample({ spec, hover, className, still }: { spec: Partial<OverlayItem>; hover: boolean; className?: string; still?: string | null }) {
   const ref = useRef<HTMLCanvasElement>(null);
   const key = JSON.stringify(spec);
   const [img, setImg] = useState<ImageBitmap | null>(null);
   useEffect(() => {
     let live = true;
-    if (spec.assetId) void thumbOf(spec.assetId).then((b) => { if (live) setImg(b); });
+    if (still) void fetch(still).then((r) => r.blob()).then((b) => createImageBitmap(b)).then((b) => { if (live) setImg(b); }).catch(() => {});
+    else if (spec.assetId) void thumbOf(spec.assetId).then((b) => { if (live) setImg(b); });
     return () => { live = false; };
-  }, [spec.assetId]);
+  }, [spec.assetId, still]);
   useEffect(() => {
     const ctx = ref.current?.getContext('2d');
     const project = useEditor.getState().project;

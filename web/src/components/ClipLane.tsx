@@ -1,16 +1,18 @@
 import { useFilmstrip, type Filmstrip } from '@/lib/filmstrip';
 import { clipboardKind, copyEdits, copySelection, hasClipboard, hasEdits, pasteAtPlayhead, pasteAttributes, pasteEdits } from '@/lib/clipboard';
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
-import type { Clip, Project } from '@/types';
+import type { Clip, Project, SpeedPt } from '@/types';
 import { placeOnRow } from '@/lib/layers';
 import { WAVEFORM_RATE } from '@/types';
 import { useEditor } from '@/store';
 import { deleteSelection, beginGroup, dragGroup, endGroup, pressBlock, type Group } from '@/lib/multiSelect';
 import { currentTime } from '@/lib/player';
 import { toast } from 'sonner';
-import { extractCutout } from '@/lib/extractCutout';
+import { extractCutout, extracting } from '@/lib/extractCutout';
+import { extractFrame } from '@/lib/extractFrame';
+import { generateCaptionsFromAudio } from '@/lib/captionsFromAudio';
 import {
-  changeSpeed, clipEnd, deleteClips, createCutoutLayer, duplicateClip, freezeFrame, link, moveClips, partnerOf, splitClips, trimLeft, trimRight, unlink,
+  changeCurve, changeSpeed, clipEnd, sourceTimeAt, deleteClips, createCutoutLayer, duplicateClip, freezeFrame, link, captionsFollowClips, mainSlotAt, moveClips, partnerOf, reorderMain, shiftAfter, splitClips, trimLeft, trimRight, unlink,
 } from '@/lib/clips';
 import { hasClipFx, laneOf, migrateVideo, TRANSITIONS } from '@/lib/videoFx';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -22,10 +24,10 @@ import { loadSourceAudio } from '@/audio/clips';
 import { waveformOf } from '@/audio/loudness';
 import { formatClock } from '@/lib/srt';
 import { cn } from '@/lib/utils';
-import { Copy, PictureInPicture, Play, Scissors, Trash2 } from '@/components/icons';
+import { AudioLines, Copy, ImagePlus, PictureInPicture, Play, Scissors, Trash2 } from '@/components/icons';
 import { Lock, Volume, VolumeOff } from '@/components/icons-audio';
 import {
-  ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuShortcut, ContextMenuTrigger,
+  ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuShortcut, ContextMenuSub, ContextMenuSubContent, ContextMenuSubTrigger, ContextMenuTrigger,
 } from '@/components/ui/context-menu';
 
 const SNAP_PX = 8;
@@ -58,9 +60,9 @@ export const clipOps = {
   },
   duplicate(id: string) { useEditor.getState().setClips((cs) => duplicateClip(cs, id)); },
   /** Make an overlay layer from the clip's cut-out so overlays can go behind or in front of the subject. */
-  createCutout(id: string) {
+  createCutout(id: string, opts: { hands?: boolean; above?: number; from?: number; to?: number } = {}) {
     const st = useEditor.getState();
-    const r = createCutoutLayer(st.project?.clips ?? [], id, st.project?.overlays);
+    const r = createCutoutLayer(st.project?.clips ?? [], id, st.project?.overlays, opts);
     if (!r.id) return;
     st.setClips(() => r.clips);
     st.selectClip(r.id);
@@ -68,7 +70,9 @@ export const clipOps = {
     // The layer shows a live matte at once; in the background the subject is rendered into its own transparent video, which then replaces it.
     const src = r.clips.find((x) => x.id === r.id)!;
     const tid = toast.loading('Extracting the cut-out into its own video layer… 0%');
+    extracting.add(src.id);
     void extractCutout(src, (p) => toast.loading(`Extracting the cut-out into its own video layer… ${Math.round(p * 100)}%`, { id: tid }))
+      .finally(() => extracting.delete(src.id))
       .then((x) => {
         const cur = useEditor.getState().project?.clips?.find((c) => c.id === src.id);
         if (!cur || cur.assetId !== src.assetId) { toast.dismiss(tid); return; } // deleted or changed meanwhile
@@ -81,6 +85,7 @@ export const clipOps = {
       .catch((e: Error) => toast.error(e.name === 'AbortError' ? 'Extraction cancelled.' : `Could not extract the cut-out: ${e.message}. The layer keeps its live cut-out.`, { id: tid }));
   },
   speed(id: string, s: number) { useEditor.getState().setClips((cs) => changeSpeed(cs, id, s)); },
+  curve(id: string, pts: SpeedPt[] | undefined, key?: string) { useEditor.getState().setClips((cs) => changeCurve(cs, id, pts), key); },
   freeze(id: string) { useEditor.getState().setClips((cs) => freezeFrame(cs, id, currentTime())); },
   unlink(id: string) { useEditor.getState().setClips((cs) => unlink(cs, id)); },
   /** Link the clip with the nearest overlapping clip of the other kind that is not linked. */
@@ -99,11 +104,12 @@ export const clipOps = {
   mute(id: string) { useEditor.getState().setClips((cs) => cs.map((c) => (c.id === id ? { ...c, muted: !c.muted } : c))); },
 };
 
-function snapDt(clips: Clip[], group: Clip[], dt: number, pps: number): number {
+/** Nudge a drag of `dt` seconds so the moved edge(s) stick to the playhead and other clips' starts and ends. A trim only moves its own edge. */
+function snapDt(clips: Clip[], group: Clip[], dt: number, pps: number, edge: 'move' | 'l' | 'r' = 'move'): number {
   const ids = new Set(group.map((g) => g.id));
   const edges = [0, currentTime(), ...clips.filter((c) => !ids.has(c.id)).flatMap((c) => [c.start, clipEnd(c)])];
   let best = dt, bestD = SNAP_PX / pps;
-  for (const g of group) for (const mine of [g.start + dt, clipEnd(g) + dt]) for (const e of edges) {
+  for (const g of group) for (const mine of edge === 'l' ? [g.start + dt] : edge === 'r' ? [clipEnd(g) + dt] : [g.start + dt, clipEnd(g) + dt]) for (const e of edges) {
     const d = Math.abs(mine - e);
     if (d < bestD) { bestD = d; best = dt + (e - mine); }
   }
@@ -120,6 +126,17 @@ function Menu({ clip, children }: { clip: Clip; children: React.ReactNode }) {
       <ContextMenuContent className="w-60">
         <ContextMenuItem disabled={!canSplit} onClick={() => clipOps.splitAtPlayhead([clip.id])}><Scissors />Split at playhead<ContextMenuShortcut>S</ContextMenuShortcut></ContextMenuItem>
         <ContextMenuItem onClick={() => clipOps.duplicate(clip.id)}><Copy />Duplicate</ContextMenuItem>
+        {(clip.kind === 'audio' || clip.linkId) && <ContextMenuItem onClick={() => void generateCaptionsFromAudio(clip.id)}><AudioLines />Generate captions from audio</ContextMenuItem>}
+        {clip.kind === 'video' && (
+          <ContextMenuSub>
+            <ContextMenuSubTrigger><ImagePlus />Extract frame</ContextMenuSubTrigger>
+            <ContextMenuSubContent>
+              <ContextMenuItem onClick={() => void extractFrame(clip.id, 'layer')}>Next to clip, same layer</ContextMenuItem>
+              <ContextMenuItem onClick={() => void extractFrame(clip.id, 'overlay')}>As overlay</ContextMenuItem>
+              <ContextMenuItem onClick={() => void extractFrame(clip.id, 'save')}>Save as PNG</ContextMenuItem>
+            </ContextMenuSubContent>
+          </ContextMenuSub>
+        )}
         {clip.kind === 'video' && <ContextMenuItem onClick={() => clipOps.createCutout(clip.id)}><PictureInPicture />Create cut-out layer</ContextMenuItem>}
         <ContextMenuItem onClick={() => copySelection()}><Copy />Copy<ContextMenuShortcut>⌘C</ContextMenuShortcut></ContextMenuItem>
         <ContextMenuItem disabled={!hasClipboard()} onClick={() => pasteAtPlayhead(false)}>Paste at playhead<ContextMenuShortcut>⌘V</ContextMenuShortcut></ContextMenuItem>
@@ -157,6 +174,9 @@ export const ClipBlock = memo(function ClipBlock({ clip, pps, pad, top, height }
   const waveK = useEditor((s) => WAVE_K[laneOf(s.project!, laneKey).wave ?? 'default']);
   const drag = useRef<{ kind: 'move' | 'l' | 'r'; x0: number; orig: Clip[]; proj: Project; group?: Group } | null>(null);
   const [wf, setWf] = useState<number[] | null>(null);
+  // Set while a main-track clip is being re-ordered: it shrinks to one frame and follows the pointer by `x` px.
+  const [lift, setLift] = useState<{ x: number } | null>(null);
+  const TILE = 64;
   useEffect(() => {
     if (clip.kind !== 'audio' && !clip.linkId) return;
     let live = true;
@@ -182,12 +202,32 @@ export const ClipBlock = memo(function ClipBlock({ clip, pps, pad, top, height }
     const raw = (e.clientX - d.x0) / pps;
     const c = d.orig.find((x) => x.id === clip.id)!;
     const group = [c, partnerOf(d.orig, c)].filter(Boolean) as Clip[];
-    const dt = d.kind === 'move' ? snapDt(d.orig, group, raw, pps) : raw;
+    const dt = snapDt(d.orig, group, raw, pps, d.kind);
     const op = d.kind === 'move' ? moveClips : d.kind === 'l' ? trimLeft : trimRight;
     const toTrack = d.kind === 'move' && clip.kind === 'video' ? geo.videoTrackAt(e.clientY) : undefined;
+    // Dragging a main-track clip past a neighbour re-orders the track, like CapCut: the clip shows as one frame while it travels.
+    if (d.kind === 'move' && clip.kind === 'video' && (clip.track ?? 0) === 0 && (toTrack === undefined || toTrack === 0)) {
+      const at = geo.timeAt(e.clientX);
+      const slot = mainSlotAt(d.orig, clip.id, at);
+      const cur = d.orig.filter((o) => o.kind === 'video' && (o.track ?? 0) === 0).sort((a, b) => a.start - b.start).findIndex((o) => o.id === clip.id);
+      if (slot !== cur) {
+        const next = reorderMain(d.orig, clip.id, slot);
+        const placed = next.find((o) => o.id === clip.id)!;
+        const tile = Math.min(TILE, Math.max(6, clip.duration * pps));
+        setLift({ x: at * pps + pad - tile / 2 - (placed.start * pps + pad) });
+        useEditor.getState().update(() => ({ ...d.proj, clips: next, captions: captionsFollowClips(d.proj.captions, d.orig, next) }), `clip-${clip.id}`);
+        return;
+      }
+      setLift(null);
+    }
     // A taken row opens a new layer there, like dropping an overlay.
     useEditor.getState().update(() => {
-      const next = { ...d.proj, clips: op(d.orig, clip.id, dt) };
+      const clips = op(d.orig, clip.id, dt);
+      let next: Project = { ...d.proj, clips };
+      // Growing or shrinking a main-track clip carries everything after it (captions, overlays, filters) along.
+      if (d.kind === 'r' && clip.kind === 'video' && (clip.track ?? 0) === 0) {
+        next = shiftAfter({ ...next, captions: captionsFollowClips(d.proj.captions, d.orig, clips) }, clipEnd(c), clipEnd(clips.find((x) => x.id === clip.id)!) - clipEnd(c));
+      }
       return toTrack !== undefined ? placeOnRow(next, clip.id, toTrack) : next;
     }, `clip-${clip.id}`);
   };
@@ -204,13 +244,13 @@ export const ClipBlock = memo(function ClipBlock({ clip, pps, pad, top, height }
     const step = Math.max(1 / WAVEFORM_RATE, 1 / Math.max(1, pps));
     const topPts: string[] = [], bot: string[] = [];
     for (let x = 0; x <= clip.duration; x += step) {
-      const v = wf[Math.min(wf.length - 1, Math.max(0, Math.floor((clip.in + x * clip.speed) * WAVEFORM_RATE)))] ?? 0;
+      const v = wf[Math.min(wf.length - 1, Math.max(0, Math.floor(sourceTimeAt(clip, clip.start + x) * WAVEFORM_RATE)))] ?? 0;
       const lx = x.toFixed(3);
       topPts.push(`${lx},${(0.5 - Math.min(0.5, v * 0.6 * waveK * gain)).toFixed(3)}`);
       bot.push(`${lx},${(0.5 + Math.min(0.5, v * 0.6 * waveK * gain)).toFixed(3)}`);
     }
     return `M${topPts.join('L')}L${bot.reverse().join('L')}Z`;
-  }, [wf, clip.in, clip.duration, clip.speed, pps, waveK, gain]);
+  }, [wf, clip.in, clip.duration, clip.speed, clip.curve, pps, waveK, gain]);
 
   const isVideo = clip.kind === 'video';
   const volDrag = (e: React.PointerEvent) => {
@@ -231,13 +271,13 @@ export const ClipBlock = memo(function ClipBlock({ clip, pps, pad, top, height }
     return (
     <Menu clip={clip}>
       <div title={`${clip.name} · ${formatClock(clip.duration, true)}${clip.speed !== 1 ? ` · ${clip.speed}×` : ''}`}
-        onPointerDown={(e) => down(e, 'move')} onPointerMove={move} onPointerUp={() => { endGroup(drag.current?.group); drag.current = null; }}
+        onPointerDown={(e) => down(e, 'move')} onPointerMove={move} onPointerUp={() => { endGroup(drag.current?.group); if (drag.current && isVideo && (clip.track ?? 0) === 0) useEditor.getState().setClips((cs) => cs, `clip-${clip.id}`); drag.current = null; setLift(null); }}
         className={cn('group absolute overflow-hidden rounded-lg border text-[10px] font-medium transition-shadow',
           isVideo ? strip ? 'border-teal-600/70 bg-teal-800' : 'border-foreground/20 bg-secondary' : 'border-chart-3/50 bg-chart-3/20',
           selected ? (isVideo ? 'border-white ring-2 ring-white' : 'border-primary shadow-md shadow-primary/30 ring-1 ring-primary') : partnerSelected ? 'ring-1 ring-primary/50' : '',
-          hidden && 'opacity-35', clip.muted && 'opacity-50', locked ? 'cursor-not-allowed' : 'cursor-grab active:cursor-grabbing')}
-        style={{ left: clip.start * pps + pad, width: w, top, height }}>
-        {strip && <Strip fs={strip} clip={clip} pps={pps} w={w} height={height - HEAD - (path ? waveH : 0)} lift={path ? waveH : 0} />}
+          lift && 'z-30 opacity-90 shadow-xl ring-2 ring-white', hidden && 'opacity-35', clip.muted && 'opacity-50', locked ? 'cursor-not-allowed' : 'cursor-grab active:cursor-grabbing')}
+        style={{ left: clip.start * pps + pad, width: lift ? Math.min(TILE, w) : w, top, height, transform: lift ? `translateX(${lift.x}px)` : undefined }}>
+        {strip && <Strip fs={strip} clip={clip} pps={pps} w={lift ? Math.min(TILE, w) : w} height={height - HEAD - (path ? waveH : 0)} lift={path ? waveH : 0} />}
         {path && (isVideo
           ? <svg className="pointer-events-none absolute inset-x-0 bottom-0 bg-black/25" style={{ height: waveH }} viewBox={`0 0 ${Math.max(0.01, clip.duration)} 1`} preserveAspectRatio="none" width="100%" height={waveH}><path d={path} fill="rgba(110,230,215,0.65)" /></svg>
           : <svg className="pointer-events-none absolute inset-0 h-full w-full" viewBox={`0 0 ${Math.max(0.01, clip.duration)} 1`} preserveAspectRatio="none"><path d={path} fill="rgba(80,200,140,0.55)" /></svg>)}
@@ -353,7 +393,7 @@ function Strip({ fs, clip, pps, w, height, lift = 0 }: { fs: Filmstrip; clip: Cl
   const n = Math.ceil(w / tw);
   const tiles = [];
   for (let i = 0; i < n; i++) {
-    const src = clip.in + ((i * tw + tw / 2) / pps) * clip.speed;
+    const src = sourceTimeAt(clip, clip.start + (i * tw + tw / 2) / pps);
     const f = fs.frames[Math.min(fs.frames.length - 1, Math.max(0, Math.floor(src / fs.step)))];
     tiles.push(<div key={i} className="absolute top-0 h-full bg-cover bg-center" style={{ left: i * tw, width: tw, backgroundImage: `url(${f})` }} />);
   }

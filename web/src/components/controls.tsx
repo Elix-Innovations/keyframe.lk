@@ -38,7 +38,7 @@ export function Section({
 }
 
 /** Label | control row. The fixed label column keeps every control on the same vertical line. */
-export function Row({ label, children, hint }: { label: string; children: ReactNode; hint?: string }) {
+export function Row({ label, children, hint, kf }: { label: string; children: ReactNode; hint?: string; kf?: { on: boolean; toggle: () => void } }) {
   const lbl = (
     <span
       className={cn('w-24 shrink-0 text-xs leading-tight text-muted-foreground', hint && 'cursor-help underline decoration-dotted decoration-muted-foreground/50 underline-offset-4')}>
@@ -54,6 +54,12 @@ export function Row({ label, children, hint }: { label: string; children: ReactN
         </Tooltip>
       ) : lbl}
       <div className="flex min-w-0 flex-1 flex-wrap items-center justify-end gap-1.5">{children}</div>
+      {kf && (
+        <button type="button" onClick={kf.toggle} aria-pressed={kf.on} aria-label={kf.on ? 'Remove keyframe here' : 'Add keyframe here'} title={kf.on ? 'Remove keyframe at playhead' : 'Add keyframe at playhead'}
+          className={cn('grid size-5 shrink-0 place-items-center rounded transition-colors hover:bg-accent', kf.on ? 'text-primary' : 'text-muted-foreground')}>
+          <svg viewBox="0 0 12 12" className="size-3"><path d="M6 1 11 6 6 11 1 6Z" fill={kf.on ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" /></svg>
+        </button>
+      )}
     </div>
   );
 }

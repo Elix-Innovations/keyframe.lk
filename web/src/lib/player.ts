@@ -1,6 +1,7 @@
 import { useEditor } from '../store';
 import { previewAudio } from '../audio/preview';
 import { videoLayersAt, sourceTimeAt, videoClips } from './clips';
+import { curveSpeedAt } from './speedCurve';
 import { allVideos, peekVideo } from './videoPool';
 
 /**
@@ -55,7 +56,7 @@ export function syncVideos(t = currentTime()) {
     used.add(el);
     const want = Math.max(0, Math.min(sourceTimeAt(clip, t), (el.duration || clip.sourceDuration) - 0.001));
     if (playing && !clip.freeze) {
-      const rate = Math.min(16, Math.max(0.0625, clip.speed));
+      const rate = Math.min(16, Math.max(0.0625, clip.curve ? curveSpeedAt({ ...clip, curve: clip.curve }, t - clip.start) : clip.speed));
       if (el.playbackRate !== rate) el.playbackRate = rate;
       if (Math.abs(el.currentTime - want) > 0.25) el.currentTime = want;
       if (el.paused) void el.play().catch(() => {});
@@ -122,6 +123,12 @@ export function playRange(start: number, end: number) {
   seek(start);
   stopAt = end;
   play();
+}
+
+/** Play from the In point to the Out point once; a missing mark falls back to the clip start or end. */
+export function playInToOut() {
+  const { markIn, markOut } = useEditor.getState();
+  playRange(markIn ?? 0, markOut ?? dur());
 }
 
 export { videoClips };

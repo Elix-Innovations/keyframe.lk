@@ -6,6 +6,8 @@ import { overlayClock, overlayPose, overlaysAt } from '../lib/overlays';
 import { IDENTITY, transformAt } from '../lib/videoFx';
 import { renderCaptionAt, type Ctx2D } from './captions';
 import { drawScene } from './scene';
+import { quadAt, scrollProgress } from '../lib/screen';
+import { feedCanvas, FEED_H, FEED_W, paintFeed, warpToQuad } from './screenFeed';
 
 /** Where an overlay was painted, in canvas pixels, so the preview can select and drag it. `w` and `h` are before rotation. */
 export interface OverlayHit {
@@ -14,6 +16,8 @@ export interface OverlayHit {
   clipId?: string;
   /** Video layers with a cut-out: is the subject (not the empty area) under this canvas point? */
   solidAt?: (x: number, y: number) => boolean;
+  /** Phone-screen layer: where its four corners are, in canvas pixels (top-left, top-right, bottom-right, bottom-left). */
+  quad?: [number, number][];
 }
 
 /** Overlays share their row (and its hide / lock state) with video layers. */
@@ -192,6 +196,25 @@ export function drawOverlays(
       ctx.scale(o.scale, o.scale);
       ctx.translate(-W / 2, -H / 2);
       drawScene(ctx, W, H, o.scene, Math.max(0, (t - o.start) * (o.speed ?? 1)), { fonts: { english: project.style.text.englishFont, sinhala: project.style.text.sinhalaFont } });
+      ctx.restore();
+      continue;
+    }
+    if (o.kind === 'screen' && o.screen) {
+      // A generated feed pinned to the corners of a screen in the video: painted flat, then warped with perspective.
+      const lt = t - o.start;
+      const quad = quadAt(o.screen.quad, lt).map(([x, y]) => [(x / 100) * W, (y / 100) * H] as [number, number]);
+      const xs = quad.map((p) => p[0]), ys = quad.map((p) => p[1]);
+      const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
+      hits?.push({ id: o.id, cx: (x0 + x1) / 2, cy: (y0 + y1) / 2, w: x1 - x0, h: y1 - y0, rot: 0, quad });
+      const pose = overlayPose(o, lt);
+      const alpha = Math.max(0, Math.min(1, o.opacity * pose.alpha));
+      const page = alpha > 0 ? feedCanvas() : null;
+      if (!page) continue;
+      paintFeed(page.ctx, o.screen, images, scrollProgress(o.screen.scroll, lt));
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      if (o.blend && o.blend !== 'normal') ctx.globalCompositeOperation = o.blend;
+      warpToQuad(ctx, page.canvas, FEED_W, FEED_H, quad);
       ctx.restore();
       continue;
     }

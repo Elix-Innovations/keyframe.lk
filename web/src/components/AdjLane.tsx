@@ -40,11 +40,12 @@ export const adjOps = {
   remove(id: string) { const st = useEditor.getState(); st.setAdj((l) => deleteAdj(l, id)); st.selectAdj(null); },
 };
 
-function snap(list: AdjClip[], a: AdjClip, dt: number, pps: number): number {
+/** Nudge a drag of `dt` seconds so the moved edge(s) stick to the playhead, other blocks and clip starts and ends. A trim only moves its own edge. */
+function snap(list: AdjClip[], a: AdjClip, dt: number, pps: number, edge: 'move' | 'l' | 'r' = 'move'): number {
   const edges = [0, currentTime(), ...list.filter((o) => o.id !== a.id).flatMap((o) => [o.start, adjEnd(o)]),
     ...(useEditor.getState().project?.clips ?? []).flatMap((c) => [c.start, clipEnd(c)])];
   let best = dt, bestD = SNAP_PX / pps;
-  for (const mine of [a.start + dt, adjEnd(a) + dt]) for (const e of edges) {
+  for (const mine of edge === 'l' ? [a.start + dt] : edge === 'r' ? [adjEnd(a) + dt] : [a.start + dt, adjEnd(a) + dt]) for (const e of edges) {
     const d = Math.abs(mine - e);
     if (d < bestD) { bestD = d; best = dt + (e - mine); }
   }
@@ -76,8 +77,8 @@ export const AdjBlock = memo(function AdjBlock({ adj, pps, pad, top, height }: {
     const a = d.orig.find((x) => x.id === adj.id)!;
     const set = useEditor.getState().setAdj;
     if (d.kind === 'move') set(() => moveAdj(d.orig, adj.id, snap(d.orig, a, raw, pps), geo.adjTrackAt(e.clientY)), `adj-${adj.id}`);
-    else if (d.kind === 'l') set(() => trimAdjLeft(d.orig, adj.id, raw), `adj-${adj.id}`);
-    else set(() => trimAdjRight(d.orig, adj.id, raw), `adj-${adj.id}`);
+    else if (d.kind === 'l') set(() => trimAdjLeft(d.orig, adj.id, snap(d.orig, a, raw, pps, 'l')), `adj-${adj.id}`);
+    else set(() => trimAdjRight(d.orig, adj.id, snap(d.orig, a, raw, pps, 'r')), `adj-${adj.id}`);
   };
   const canSplit = (() => { const t = currentTime(); return t > adj.start && t < adjEnd(adj); })();
 

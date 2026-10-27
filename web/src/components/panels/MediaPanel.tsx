@@ -3,7 +3,7 @@ import { Film, ImagePlus, Plus, Trash2, Upload } from '@/components/icons';
 import { Music } from '@/components/icons-audio';
 import { useEditor } from '@/store';
 import { getBlob } from '@/lib/db';
-import { imageThumb, importMedia, kindOf, type MediaKind } from '@/lib/importMedia';
+import { addLibraryItem, imageThumb, importToLibrary, kindOf, type MediaKind } from '@/lib/importMedia';
 import { probeVideo } from '@/lib/media';
 import { seek } from '@/lib/player';
 import { clipOps } from '../ClipLane';
@@ -13,13 +13,89 @@ import { formatClock } from '@/lib/srt';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Empty, Section } from '../controls';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+
+/** Plays the stored file of a media item. For library items, I / O (or the buttons) mark the part to use, like a source monitor. */
+function MediaViewer({ item, onClose }: { item: Item | null; onClose: () => void }) {
+  const [url, setUrl] = useState<string | null>(null);
+  const media = useRef<HTMLVideoElement & HTMLAudioElement>(null);
+  const update = useEditor((s) => s.update);
+  const lib = useEditor((s) => (item?.source === 'library' ? s.project?.library?.find((l) => l.id === item.id) : undefined));
+  const [now, setNow] = useState(0);
+  useEffect(() => {
+    if (!item) return;
+    let live = true;
+    let made: string | null = null;
+    getBlob(item.assetId).then((b) => { if (live && b) { made = URL.createObjectURL(b); setUrl(made); } }).catch(() => {});
+    return () => { live = false; setUrl(null); if (made) URL.revokeObjectURL(made); };
+  }, [item?.assetId]); // eslint-disable-line react-hooks/exhaustive-deps
+  const timed = !!lib && lib.kind !== 'image';
+  const setRange = (range: { in: number; out: number } | undefined) =>
+    lib && update((p) => ({ ...p, library: (p.library ?? []).map((l) => (l.id === lib.id ? { ...l, range } : l)) }));
+  const markIn = () => {
+    if (!lib || !media.current) return;
+    const t = media.current.currentTime;
+    setRange({ in: t, out: lib.range && lib.range.out > t + 0.05 ? lib.range.out : lib.duration });
+  };
+  const markOut = () => {
+    if (!lib || !media.current) return;
+    const t = media.current.currentTime;
+    setRange({ in: lib.range && lib.range.in < t - 0.05 ? lib.range.in : 0, out: t });
+  };
+  // Premiere-style: playing from In stops at Out.
+  useEffect(() => {
+    const el = media.current;
+    if (!el || !lib?.range) return;
+    const r = lib.range;
+    const tick = () => { setNow(el.currentTime); if (!el.paused && el.currentTime >= r.out) { el.pause(); el.currentTime = r.out; } };
+    el.addEventListener('timeupdate', tick);
+    return () => el.removeEventListener('timeupdate', tick);
+  }, [lib?.range?.in, lib?.range?.out, url]); // eslint-disable-line react-hooks/exhaustive-deps
+  const onKey = (e: React.KeyboardEvent) => {
+    if (e.code === 'KeyI' || e.code === 'KeyO') e.stopPropagation(); // keep the timeline's own I / O out of this dialog
+    if (!timed) return;
+    if (e.code === 'KeyI' && e.altKey) { e.preventDefault(); setRange(undefined); }
+    else if (e.code === 'KeyI') { e.preventDefault(); markIn(); }
+    else if (e.code === 'KeyO') { e.preventDefault(); markOut(); }
+  };
+  const total = lib?.duration || 0;
+  const r = lib?.range;
+  return (
+    <Dialog open={!!item} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="sm:max-w-2xl" onKeyDown={onKey}>
+        <DialogHeader><DialogTitle className="truncate">{item?.name}</DialogTitle></DialogHeader>
+        {item && !url && <div className="grid h-40 place-items-center text-xs text-muted-foreground">Loading…</div>}
+        {item && url && item.kind === 'video' && <video ref={media} src={url} controls autoPlay className="max-h-[60vh] w-full rounded-lg bg-black" />}
+        {item && url && item.kind === 'audio' && <audio ref={media} src={url} controls autoPlay className="w-full" />}
+        {item && url && item.kind === 'image' && <img src={url} alt="" className="max-h-[60vh] w-full rounded-lg bg-black object-contain" />}
+        {timed && total > 0 && (
+          <div className="flex flex-col gap-2">
+            <div className="relative h-2 rounded-full bg-muted">
+              <div className="absolute inset-y-0 rounded-full bg-primary/60" style={{ left: `${((r?.in ?? 0) / total) * 100}%`, width: `${(((r?.out ?? total) - (r?.in ?? 0)) / total) * 100}%` }} />
+              <div className="absolute -top-0.5 h-3 w-0.5 bg-foreground" style={{ left: `${(now / total) * 100}%` }} />
+            </div>
+            <div className="flex flex-wrap items-center gap-1.5 text-xs">
+              <Button variant="outline" size="xs" onClick={markIn}>Mark In <kbd className="font-mono opacity-60">I</kbd></Button>
+              <Button variant="outline" size="xs" onClick={markOut}>Mark Out <kbd className="font-mono opacity-60">O</kbd></Button>
+              <Button variant="ghost" size="xs" disabled={!r} onClick={() => setRange(undefined)}>Clear</Button>
+              <span className="ml-auto font-mono text-muted-foreground">
+                {formatClock(r?.in ?? 0, false)} – {formatClock(r?.out ?? total, false)} · {formatClock((r?.out ?? total) - (r?.in ?? 0), false)}
+              </span>
+              <Button size="xs" onClick={() => { addLibraryItem(lib!).catch((e) => useEditor.getState().notify((e as Error).message, 'error')); onClose(); }}><Plus />Add to timeline</Button>
+            </div>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
 
 type Filter = 'all' | MediaKind;
 const FILTERS: { id: Filter; label: string }[] = [
   { id: 'all', label: 'All' }, { id: 'video', label: 'Video' }, { id: 'audio', label: 'Audio' }, { id: 'image', label: 'Images' },
 ];
 
-interface Item { id: string; kind: MediaKind; name: string; duration: number; thumb?: string; at: number; assetId: string; source: 'clip' | 'track' | 'broll' }
+interface Item { id: string; kind: MediaKind; name: string; duration: number; thumb?: string; at: number; assetId: string; source: 'clip' | 'track' | 'broll' | 'library' }
 
 /** Project media bin: the main video, music tracks and b-roll images, with import and drag-and-drop. */
 export function MediaPanel() {
@@ -31,6 +107,7 @@ export function MediaPanel() {
   const [over, setOver] = useState(false);
   const [thumbs, setThumbs] = useState<Record<string, string>>({});
   const input = useRef<HTMLInputElement>(null);
+  const [viewing, setViewing] = useState<Item | null>(null);
 
   const images = (project.overlays ?? []).filter((o) => o.kind === 'image' && o.assetId);
   const brollIds = images.map((o) => o.assetId).join('|');
@@ -57,13 +134,16 @@ export function MediaPanel() {
 
   const items = useMemo<Item[]>(() => {
     const out: Item[] = [];
+    for (const l of project.library ?? []) out.push({ id: l.id, kind: l.kind, name: l.name, duration: l.range ? l.range.out - l.range.in : l.duration, thumb: l.thumb, at: 0, assetId: l.assetId, source: 'library' });
+    const inLibrary = new Set((project.library ?? []).map((l) => l.assetId));
     for (const c of project.clips ?? []) {
+      if (inLibrary.has(c.assetId)) continue;
       out.push({ id: c.id, kind: c.kind, name: c.name, duration: c.duration, thumb: c.kind === 'video' ? thumbs[c.assetId] ?? project.thumbnail ?? undefined : undefined, at: c.start, assetId: c.assetId, source: 'clip' });
     }
-    for (const t of project.audio.tracks) out.push({ id: t.id, kind: 'audio', name: t.name, duration: t.duration, at: t.start, assetId: t.assetId, source: 'track' });
-    for (const o of images) out.push({ id: o.id, kind: 'image', name: o.text || 'Image', duration: o.duration, thumb: thumbs[o.assetId!], at: o.start, assetId: o.assetId!, source: 'broll' });
+    for (const t of project.audio.tracks) if (!inLibrary.has(t.assetId)) out.push({ id: t.id, kind: 'audio', name: t.name, duration: t.duration, at: t.start, assetId: t.assetId, source: 'track' });
+    for (const o of images) if (!inLibrary.has(o.assetId!)) out.push({ id: o.id, kind: 'image', name: o.text || 'Image', duration: o.duration, thumb: thumbs[o.assetId!], at: o.start, assetId: o.assetId!, source: 'broll' });
     return out;
-  }, [project.clips, project.thumbnail, project.audio.tracks, project.overlays, thumbs]);
+  }, [project.library, project.clips, project.thumbnail, project.audio.tracks, project.overlays, thumbs]);
 
   const counts: Record<Filter, number> = { all: items.length, video: 0, audio: 0, image: 0 };
   for (const i of items) counts[i.kind]++;
@@ -74,8 +154,7 @@ export function MediaPanel() {
     try {
       for (const f of Array.from(files)) {
         if (!kindOf(f)) { notify(`“${f.name}” is not a video, audio or image file.`, 'error'); continue; }
-        const k = await importMedia(f);
-        if (k === 'video') notify('Video added to the timeline with its audio linked. Right-click a clip to unlink.', 'success');
+        await importToLibrary(f);
       }
     } catch (e) {
       notify((e as Error).message || 'Could not import that file.', 'error');
@@ -83,7 +162,8 @@ export function MediaPanel() {
   };
 
   const remove = (i: Item) => {
-    if (i.source === 'clip') clipOps.remove(i.id);
+    if (i.source === 'library') update((p) => ({ ...p, library: (p.library ?? []).filter((l) => l.id !== i.id) }));
+    else if (i.source === 'clip') clipOps.remove(i.id);
     else if (i.kind === 'audio') update((p) => ({ ...p, audio: { ...p.audio, tracks: p.audio.tracks.filter((t) => t.id !== i.id) } }));
     else if (i.kind === 'image') overlayOps.remove(i.id);
   };
@@ -107,13 +187,13 @@ export function MediaPanel() {
         ))}
       </div>
       {shown.length === 0 ? (
-        <Empty icon={<Film className="size-6" />} title="Nothing here yet">Import media above. Images drop onto the timeline at the playhead as b-roll.</Empty>
+        <Empty icon={<Film className="size-6" />} title="Nothing here yet">Import media above. It stays here until you drag it onto the timeline or press +.</Empty>
       ) : (
         <div className="grid grid-cols-4 gap-1.5 p-2">
           {shown.map((i) => (
-            <div key={i.id} className="group relative overflow-hidden rounded-xl border bg-card" draggable={i.source === 'clip'}
-              onDragStart={(e) => { if (i.source !== 'clip') return; e.dataTransfer.setData(DRAG_MIME, JSON.stringify({ type: 'media', clipId: i.id })); e.dataTransfer.effectAllowed = 'copy'; }}>
-              <button onClick={() => seek(i.at)} className="block w-full text-left" title="Jump to this clip">
+            <div key={i.id} className="group relative overflow-hidden rounded-xl border bg-card" draggable={i.source === 'clip' || i.source === 'library'}
+              onDragStart={(e) => { if (i.source !== 'clip' && i.source !== 'library') return; e.dataTransfer.setData(DRAG_MIME, JSON.stringify(i.source === 'library' ? { type: 'library', id: i.id } : { type: 'media', clipId: i.id })); e.dataTransfer.effectAllowed = 'copy'; }}>
+              <button onClick={() => { if (i.source !== 'library') seek(i.at); }} onDoubleClick={() => setViewing(i)} className="block w-full text-left" title={i.source === 'library' ? 'Double-click to preview. Drag onto the timeline, or press + to add' : 'Double-click to preview'}>
                 <div className="relative grid aspect-video place-items-center bg-muted">
                   {i.thumb ? <img src={i.thumb} alt="" className="absolute inset-0 size-full object-cover" /> : i.kind === 'audio' ? <Music className="size-6 text-primary" /> : <ImagePlus className="size-6 text-muted-foreground" />}
                   <span className="absolute bottom-1 right-1 rounded bg-black/65 px-1 font-mono text-[10px] text-white">{formatClock(i.duration, false)}</span>
@@ -123,7 +203,11 @@ export function MediaPanel() {
               {(i.source !== 'clip' || true) && (
                 <Button variant="secondary" size="icon-xs" aria-label="Remove" className="absolute right-1 top-1 opacity-0 group-hover:opacity-100 hover:text-destructive" onClick={() => remove(i)}><Trash2 /></Button>
               )}
-              {i.kind === 'image' && (
+              {i.source === 'library' && (
+                <Button variant="secondary" size="icon-xs" aria-label="Add to timeline" className="absolute left-1 top-1 opacity-0 group-hover:opacity-100"
+                  onClick={() => { const l = project.library?.find((x) => x.id === i.id); if (l) addLibraryItem(l).catch((e) => notify((e as Error).message, 'error')); }}><Plus /></Button>
+              )}
+              {i.kind === 'image' && i.source !== 'library' && (
                 <Button variant="secondary" size="icon-xs" aria-label="Add again at playhead" className="absolute left-1 top-1 opacity-0 group-hover:opacity-100"
                   onClick={() => { overlayOps.duplicate(i.id); }}><Plus /></Button>
               )}
@@ -131,6 +215,7 @@ export function MediaPanel() {
           ))}
         </div>
       )}
+      <MediaViewer item={viewing} onClose={() => setViewing(null)} />
     </div>
   );
 }

@@ -1,12 +1,16 @@
 import { ALL_FORMATS, BlobSource, BufferTarget, CanvasSink, CanvasSource, Input, Output, QUALITY_HIGH, WebMOutputFormat } from 'mediabunny';
 import type { Clip } from '../types';
-import { analysisStatus, loadPrecise, loadSegmenter, matteHints, prepareCutout, processSource } from '../render/matte';
+import { analysisStatus, loadPrecise, loadSegmenter, matteHints, prepareCutout, processSource, yieldToPlayback } from '../render/matte';
 import type { FrameSource } from '../render/compose';
 import { getBlob, putBlob } from './db';
 import { migrateVideo } from './videoFx';
+import { sourceTimeAt } from './clips';
 
 const FPS = 30;
 const MAX_W = 1080;
+
+/** Clips whose cut-out is being extracted right now; preview playback skips their live matte so it stays smooth. */
+export const extracting = new Set<string>();
 
 /**
  * Render a clip's cut-out (its subject on a transparent background, with the clip's matte settings) into a new transparent
@@ -38,7 +42,7 @@ export async function extractCutout(clip: Clip, onProgress: (p: number) => void,
   if (!track || !(await track.canDecode())) throw new Error('This browser cannot decode the video.');
   const sink = new CanvasSink(track, { width: Math.min(MAX_W, track.displayWidth) });
   const n = Math.max(1, Math.round(clip.duration * FPS));
-  const ts = Array.from({ length: n }, (_, k) => Math.max(0, Math.min(from + (k / FPS) * clip.speed, clip.sourceDuration - 0.002)));
+  const ts = Array.from({ length: n }, (_, k) => Math.max(0, Math.min(sourceTimeAt(clip, clip.start + k / FPS), clip.sourceDuration - 0.002)));
 
   let canvas: OffscreenCanvas | null = null, ctx: OffscreenCanvasRenderingContext2D | null = null;
   let output: Output<WebMOutputFormat, BufferTarget> | null = null, vsrc: CanvasSource | null = null;
@@ -48,6 +52,7 @@ export async function extractCutout(clip: Clip, onProgress: (p: number) => void,
   try {
     for await (const wrapped of sink.canvasesAtTimestamps(ts)) {
       signal?.throwIfAborted();
+      await yieldToPlayback();
       const fc = wrapped?.canvas;
       if (fc) {
         if (!canvas) {

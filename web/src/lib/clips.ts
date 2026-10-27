@@ -1,6 +1,8 @@
 import { nanoid } from 'nanoid';
-import type { Clip, Project } from '../types';
+import type { Caption, Clip, Project, SpeedPt } from '../types';
+import { shiftCaptions } from './segment';
 import { DEFAULT_MATTE, migrateVideo } from './videoFx';
+import { curveDuration, curveLead, curveSrcAt, spanDuration } from './speedCurve';
 
 /** Pure clip logic: no React, no storage. Every function returns new arrays and never mutates its input. */
 
@@ -17,7 +19,7 @@ function shiftFx(fx: Clip['fx'], dt: number): Clip['fx'] {
 
 export const clipEnd = (c: Clip) => c.start + c.duration;
 /** Source time shown or heard at timeline time t. */
-export const sourceTimeAt = (c: Clip, t: number) => (c.freeze ? c.in : c.in + (t - c.start) * c.speed);
+export const sourceTimeAt = (c: Clip, t: number) => (c.freeze ? c.in : c.curve ? curveSrcAt({ ...c, curve: c.curve }, t - c.start) : c.in + (t - c.start) * c.speed);
 /** Source seconds the clip consumes. */
 export const sourceSpan = (c: Clip) => (c.freeze ? 0 : c.duration * c.speed);
 
@@ -103,6 +105,68 @@ export function moveClips(clips: Clip[], id: string, dt: number): Clip[] {
   return replace(clips, group.map((g) => ({ ...g, start: g.start + delta })));
 }
 
+/**
+ * Where a main-track clip dragged with the pointer at timeline time `at` lands in the order of the main video clips (0-based).
+ * A neighbour is passed once the pointer is a little way into it (at most 1.5 s, or half of a short clip), so long clips swap without a long drag.
+ */
+export function mainSlotAt(clips: Clip[], id: string, at: number): number {
+  const me = clips.find((o) => o.id === id);
+  if (!me) return 0;
+  return videoClips(clips).filter((o) => {
+    if (trackOf(o) !== 0 || o.id === id) return false;
+    const reach = Math.min(1.5, o.duration / 2);
+    return o.start < me.start ? at >= clipEnd(o) - reach : at > o.start + reach;
+  }).length;
+}
+
+/** Re-order the main video track: clip `id` goes to position `slot`. The main track has no gaps, so the clips close up; linked audio follows its video. */
+export function reorderMain(clips: Clip[], id: string, slot: number): Clip[] {
+  const mains = videoClips(clips).filter((o) => trackOf(o) === 0).sort((a, b) => a.start - b.start);
+  const moved = mains.find((o) => o.id === id);
+  if (!moved) return clips;
+  const order = mains.filter((o) => o.id !== id);
+  order.splice(Math.min(slot, order.length), 0, moved);
+  let pos = 0;
+  const out: Clip[] = [];
+  order.forEach((c) => {
+    const delta = pos - c.start;
+    for (const g of withPartner(clips, c)) out.push({ ...g, start: g.start + delta });
+    pos += c.duration;
+  });
+  return replace(clips, out);
+}
+
+/** The main video track is magnetic, like CapCut's: clips butt up against each other from 0 with no gaps. Linked audio follows its video. */
+export function closeMainGaps(clips: Clip[]): Clip[] {
+  const mains = videoClips(clips).filter((o) => trackOf(o) === 0).sort((a, b) => a.start - b.start);
+  let pos = 0;
+  const out: Clip[] = [];
+  for (const c of mains) {
+    const delta = pos - c.start;
+    const p = partnerOf(clips, c);
+    // A video's own sound always starts with its picture; heal any drift here.
+    const drift = p && p.kind === 'audio' && p.fromVideo ? c.start - p.start : 0;
+    if (Math.abs(delta) > EPS) out.push({ ...c, start: c.start + delta });
+    if (p && (Math.abs(delta) > EPS || Math.abs(drift) > EPS)) out.push({ ...p, start: p.kind === 'audio' && p.fromVideo ? pos : p.start + delta });
+    pos += c.duration;
+  }
+  return out.length ? replace(clips, out) : clips;
+}
+
+/** Captions that sit on a main-track clip travel with it when the clips are re-ordered; others stay put. Time is read from the old layout. */
+export function captionsFollowClips(captions: Caption[], before: Clip[], after: Clip[]): Caption[] {
+  let out = captions;
+  const moves = videoClips(before).filter((o) => trackOf(o) === 0).map((o) => ({ o, d: (after.find((n) => n.id === o.id)?.start ?? o.start) - o.start })).filter((m) => Math.abs(m.d) > 1e-6);
+  const claimed = new Map<string, number>();
+  for (const c of captions) {
+    const mid = (c.start + c.end) / 2;
+    const m = moves.find((x) => mid >= x.o.start && mid < clipEnd(x.o));
+    if (m) claimed.set(c.id, m.d);
+  }
+  for (const d of new Set(claimed.values())) out = shiftCaptions(out, [...claimed].filter(([, v]) => v === d).map(([k]) => k), d);
+  return out;
+}
+
 /** Trim the left edge by dt (positive shortens). Source time and start advance together; linked partner follows. */
 export function trimLeft(clips: Clip[], id: string, dt: number): Clip[] {
   const c = clips.find((x) => x.id === id);
@@ -110,11 +174,17 @@ export function trimLeft(clips: Clip[], id: string, dt: number): Clip[] {
   const group = withPartner(clips, c);
   let d = Math.min(dt, c.duration - MIN_CLIP);
   for (const g of group) {
-    d = Math.max(d, -g.start, g.freeze ? -Infinity : -g.in / g.speed);
+    d = Math.max(d, -g.start, g.freeze ? -Infinity : g.curve ? -curveLead({ ...g, curve: g.curve }) : -g.in / g.speed);
     const prev = g.kind === 'video' ? videoClips(clips).filter((o) => o.id !== g.id && trackOf(o) === trackOf(g) && clipEnd(o) <= g.start + EPS).at(-1) : null;
     if (prev) d = Math.max(d, clipEnd(prev) - g.start);
   }
-  return replace(clips, group.map((g) => ({ ...g, start: g.start + d, in: g.freeze ? g.in : g.in + d * g.speed, duration: g.duration - d, fx: g.fx ? { ...g.fx, keyframes: g.fx.keyframes.map((k) => ({ ...k, t: k.t - d })) } : g.fx })));
+  return replace(clips, group.map((g) => {
+    const dur = g.duration - d;
+    // A curved clip keeps its curve: the new left edge is wherever the curve has reached after d seconds.
+    const nin = g.freeze ? g.in : g.curve ? curveSrcAt({ ...g, curve: g.curve }, d) : g.in + d * g.speed;
+    const speed = g.curve && !g.freeze ? (g.in + g.duration * g.speed - nin) / dur : g.speed;
+    return { ...g, start: g.start + d, in: nin, speed, duration: dur, fx: g.fx ? { ...g.fx, keyframes: g.fx.keyframes.map((k) => ({ ...k, t: k.t - d })) } : g.fx };
+  }));
 }
 
 /** Trim the right edge by dt (positive lengthens), limited by the source file and neighbouring video clips. */
@@ -124,11 +194,19 @@ export function trimRight(clips: Clip[], id: string, dt: number): Clip[] {
   const group = withPartner(clips, c);
   let d = Math.max(dt, MIN_CLIP - c.duration);
   for (const g of group) {
-    if (!g.freeze) d = Math.min(d, (g.sourceDuration - g.in) / g.speed - g.duration);
-    const next = g.kind === 'video' ? videoClips(clips).find((o) => o.id !== g.id && trackOf(o) === trackOf(g) && o.start >= clipEnd(g) - EPS) : null;
+    if (!g.freeze) d = Math.min(d, (g.curve ? curveDuration({ ...g, curve: g.curve }, g.in, g.sourceDuration) : (g.sourceDuration - g.in) / g.speed) - g.duration);
+    // The main track is magnetic: lengthening pushes the clips after it, like CapCut. Overlay tracks stop at their neighbour.
+    const next = g.kind === 'video' && trackOf(g) !== 0 ? videoClips(clips).find((o) => o.id !== g.id && trackOf(o) === trackOf(g) && o.start >= clipEnd(g) - EPS) : null;
     if (next) d = Math.min(d, next.start - clipEnd(g));
   }
-  return replace(clips, group.map((g) => ({ ...g, duration: g.duration + d })));
+  const oldEnd = clipEnd(c);
+  const ids = new Set(group.map((g) => g.id));
+  const trimmed = replace(clips, group.map((g) => {
+    const dur = g.duration + d;
+    return g.curve && !g.freeze ? { ...g, duration: dur, speed: (curveSrcAt({ ...g, curve: g.curve }, dur) - g.in) / dur } : { ...g, duration: dur };
+  }));
+  if (!group.some((g) => g.kind === 'video' && trackOf(g) === 0) || Math.abs(d) < EPS) return trimmed;
+  return trimmed.map((x) => (!ids.has(x.id) && x.start >= oldEnd - EPS && rippled(clips, x, 0) ? { ...x, start: x.start + d } : x));
 }
 
 /** Split at timeline time t. Linked partners split together and stay linked pairwise via fresh link ids. */
@@ -143,11 +221,14 @@ export function splitClips(clips: Clip[], ids: string[], t: number): { clips: Cl
   for (const c of clips) {
     if (!expanded.includes(c)) { out.push(c); continue; }
     const cut = t - c.start;
+    const curved = !!c.curve && !c.freeze;
+    const nin = c.freeze ? c.in : curved ? curveSrcAt({ ...c, curve: c.curve! }, cut) : c.in + cut * c.speed;
     const right: Clip = {
-      ...c, id: nanoid(8), start: t, in: c.freeze ? c.in : c.in + cut * c.speed, duration: c.duration - cut,
+      ...c, id: nanoid(8), start: t, in: nin, duration: c.duration - cut,
       linkId: c.linkId ? relink.get(c.linkId) : undefined, fadeIn: 0, fx: shiftFx(c.fx, -cut),
+      ...(curved ? { speed: (c.in + c.duration * c.speed - nin) / (c.duration - cut) } : {}),
     };
-    out.push({ ...c, duration: cut, fadeOut: 0 }, right);
+    out.push({ ...c, duration: cut, fadeOut: 0, ...(curved ? { speed: (nin - c.in) / cut } : {}) }, right);
     created.push(right.id);
   }
   return { clips: out, ids: created };
@@ -159,7 +240,7 @@ export function setSpeed(clips: Clip[], id: string, speed: number): Clip[] {
   if (!c) return clips;
   const s = Math.min(MAX_SPEED, Math.max(MIN_SPEED, speed));
   const group = withPartner(clips, c);
-  return replace(clips, group.map((g) => (g.freeze ? g : { ...g, speed: s, duration: Math.max(MIN_CLIP, (g.duration * g.speed) / s) })));
+  return replace(clips, group.map((g) => (g.freeze ? g : { ...g, curve: undefined, speed: s, duration: Math.max(MIN_CLIP, (g.duration * g.speed) / s) })));
 }
 
 /** After a speed change later clips on the same lane would overlap or leave gaps; close/open the video lane in order. */
@@ -171,6 +252,13 @@ export function rippleVideo(clips: Clip[], fromId: string, oldEnd: number): Clip
   return clips.map((x) => (x.id !== c.id && x.start >= oldEnd - EPS && sameLane(x, c) ? { ...x, start: x.start + delta } : x));
 }
 
+/** Whether `x` rides along when a still is inserted on `track`: video on that track, audio with its video partner (loose audio always). */
+function rippled(clips: Clip[], x: Clip, track: number): boolean {
+  if (x.kind === 'video') return trackOf(x) === track;
+  const v = partnerOf(clips, x);
+  return v && v.kind === 'video' ? trackOf(v) === track : true;
+}
+
 /** Replace a clip's frame with a held still of `hold` seconds at the playhead, inserted by splitting there. */
 export function freezeFrame(clips: Clip[], id: string, t: number, hold = 2): Clip[] {
   const c = clips.find((x) => x.id === id);
@@ -179,9 +267,19 @@ export function freezeFrame(clips: Clip[], id: string, t: number, hold = 2): Cli
   const right = split.find((x) => x.kind === 'video' && Math.abs(x.start - t) < EPS && x.id !== id);
   if (!right) return clips;
   const still: Clip = { ...right, id: nanoid(8), in: sourceTimeAt(c, t), duration: hold, freeze: true, start: t, linkId: undefined };
-  const shifted = split.map((x) => (x.start >= t - EPS && (x.kind === 'audio' || trackOf(x) === trackOf(c)) ? { ...x, start: x.start + hold } : x));
+  const shifted = split.map((x) => (x.start >= t - EPS && rippled(split, x, trackOf(c)) ? { ...x, start: x.start + hold } : x));
   // The still carries no audio: its linked audio half (if any) is shifted out of the way above, leaving silence under the still.
   return [...shifted, still];
+}
+
+/** A held still of the frame at timeline time `t`, placed right after the clip on its own track with later clips pushed along. */
+export function stillAfter(clips: Clip[], id: string, t: number, hold = 2): { clips: Clip[]; id: string | null } {
+  const c = clips.find((x) => x.id === id);
+  if (!c || c.kind !== 'video') return { clips, id: null };
+  const at = clipEnd(c);
+  const still: Clip = { ...c, id: nanoid(8), in: sourceTimeAt(c, Math.min(Math.max(t, c.start), at)), duration: hold, freeze: true, start: at, linkId: undefined, fromVideo: undefined };
+  const shifted = clips.map((x) => (x.start >= at - EPS && x.id !== id && rippled(clips, x, trackOf(c)) ? { ...x, start: x.start + hold } : x));
+  return { clips: [...shifted, still], id: still.id };
 }
 
 export function unlink(clips: Clip[], id: string): Clip[] {
@@ -239,10 +337,10 @@ export function isSimple(p: Project): boolean {
   const cs = p.clips ?? [];
   const v = cs.filter((c) => c.kind === 'video'), a = cs.filter((c) => c.kind === 'audio');
   if (v.length !== 1 || a.length > 1 || trackOf(v[0]) !== 0 || (p.adj?.length ?? 0) > 0) return false;
-  const whole = (c: Clip) => c.start === 0 && c.in === 0 && c.speed === 1 && !c.freeze && Math.abs(c.duration - c.sourceDuration) < 0.05;
+  const whole = (c: Clip) => c.start === 0 && c.in === 0 && c.speed === 1 && !c.curve && !c.freeze && Math.abs(c.duration - c.sourceDuration) < 0.05;
   if (!whole(v[0])) return false;
   if (a.length === 0) return true;
-  return a[0].assetId === v[0].assetId && whole(a[0]) && !a[0].muted && a[0].volume === 0 && a[0].fadeIn === 0 && a[0].fadeOut === 0 && !p.audio.original.denoise;
+  return a[0].assetId === v[0].assetId && whole(a[0]) && !a[0].muted && a[0].volume === 0 && a[0].fadeIn === 0 && a[0].fadeOut === 0 && !p.audio.original.denoise && !Object.keys(p.audio.original.denoiseBy ?? {}).length;
 }
 
 /** Change speed and keep the lane tight: later clips on the same lane shift by however much the clip grew or shrank. */
@@ -294,15 +392,59 @@ export function copyClipTo(clips: Clip[], id: string, start: number, track = 0, 
  * timing, framing, grade and keyframes and the AI cut-out switched on. The original clip stays underneath as the full-frame
  * background (its own cut-out is switched off), so overlays can be placed between the two or in front of both.
  */
-export function createCutoutLayer(clips: Clip[], id: string, overlays: { start: number; duration: number; track: number }[] = []): { clips: Clip[]; id: string | null } {
+export function createCutoutLayer(
+  clips: Clip[], id: string, overlays: { start: number; duration: number; track: number }[] = [],
+  opts: { hands?: boolean; above?: number; from?: number; to?: number } = {},
+): { clips: Clip[]; id: string | null } {
   const c = clips.find((x) => x.id === id);
   if (!c || c.kind !== 'video') return { clips, id: null };
-  const track = freeVideoTrack(clips, c.start, c.duration, trackOf(c) + 1, undefined, overlays);
+  // Only the asked span (e.g. the time a phone-screen layer is shown) when the clip plays at a plain speed.
+  const a = opts.from !== undefined && !c.curve && !c.freeze ? Math.max(c.start, opts.from) : c.start;
+  const b = opts.to !== undefined && !c.curve && !c.freeze ? Math.min(clipEnd(c), opts.to) : clipEnd(c);
+  const shift = a - c.start, span = Math.max(MIN_CLIP, b - a);
+  const track = freeVideoTrack(clips, a, span, Math.max(trackOf(c) + 1, opts.above ?? 0), undefined, overlays);
   const fx = migrateVideo(c.fx);
-  const matte = { ...DEFAULT_MATTE, ...fx.matte, mode: 'ai' as const, engine: fx.matte?.engine ?? ('precise' as const), background: 'transparent' as const, invert: false };
+  const matte = { ...DEFAULT_MATTE, ...fx.matte, mode: 'ai' as const, engine: fx.matte?.engine ?? ('precise' as const), background: 'transparent' as const, invert: false, ...(opts.hands ? { hands: true, shift: 0 } : {}) };
   const layer: Clip = {
-    ...JSON.parse(JSON.stringify(c)), id: nanoid(8), name: `${c.name} · cut-out`, linkId: undefined, track, cutout: true,
-    fx: { ...JSON.parse(JSON.stringify(fx)), matte, transitionIn: { id: 'none', duration: 0.5 }, transitionOut: { id: 'none', duration: 0.5 }, keyframes: fx.keyframes.map((k) => ({ ...k, id: nanoid(8) })), effects: fx.effects.map((e) => ({ ...e, id: nanoid(8) })) },
+    ...JSON.parse(JSON.stringify(c)), id: nanoid(8), name: `${c.name} · ${opts.hands ? 'hands' : 'cut-out'}`, linkId: undefined, track, cutout: true,
+    start: a, in: c.in + shift * c.speed, duration: span,
+    fx: { ...JSON.parse(JSON.stringify(fx)), matte, transitionIn: { id: 'none', duration: 0.5 }, transitionOut: { id: 'none', duration: 0.5 }, keyframes: fx.keyframes.map((k) => ({ ...k, id: nanoid(8), t: k.t - shift })), effects: fx.effects.map((e) => ({ ...e, id: nanoid(8) })) },
   };
-  return { clips: [...clips.map((x) => (x.id === c.id ? { ...x, fx: { ...fx, matte: undefined } } : x)), layer], id: layer.id };
+  return { clips: [...clips.map((x) => (x.id === c.id ? { ...x, fx: { ...fx, matte: opts.hands ? fx.matte : undefined } } : x)), layer], id: layer.id };
+}
+
+/**
+ * Give a clip (and its linked partner) a speed curve, or clear it with undefined. The same source span is played,
+ * so the duration follows the curve and later clips on the lane shift by the difference.
+ */
+export function changeCurve(clips: Clip[], id: string, curve: SpeedPt[] | undefined): Clip[] {
+  const c = clips.find((x) => x.id === id);
+  if (!c || c.freeze) return clips;
+  const group = withPartner(clips, c);
+  const oldEnds = new Map(group.map((g) => [g.id, clipEnd(g)]));
+  const groupIds = new Set(group.map((g) => g.id));
+  let out = replace(clips, group.map((g) => {
+    const span = g.duration * g.speed;
+    if (!curve) return { ...g, curve: undefined, speed: 1, duration: Math.max(MIN_CLIP, span) };
+    const duration = Math.max(MIN_CLIP, spanDuration(g, curve, span));
+    return { ...g, curve, duration, speed: span / duration };
+  }));
+  for (const g of group) {
+    const now = out.find((x) => x.id === g.id)!;
+    const delta = clipEnd(now) - oldEnds.get(g.id)!;
+    if (Math.abs(delta) < EPS) continue;
+    out = out.map((x) => (!groupIds.has(x.id) && sameLane(x, g) && x.start >= oldEnds.get(g.id)! - EPS ? { ...x, start: x.start + delta } : x));
+  }
+  return out;
+}
+
+/** Slide overlays, filters and effects that start at or after `from` by `delta`, so they stay with the footage they sit over when a main-track clip grows or shrinks. Captions follow their clip instead (captionsFollowClips). */
+export function shiftAfter(p: Project, from: number, delta: number): Project {
+  if (Math.abs(delta) < EPS) return p;
+  const moved = (x: { start: number }) => x.start >= from - EPS;
+  return {
+    ...p,
+    overlays: p.overlays?.map((o) => (moved(o) ? { ...o, start: o.start + delta } : o)),
+    adj: p.adj?.map((a) => (moved(a) ? { ...a, start: a.start + delta } : a)),
+  };
 }

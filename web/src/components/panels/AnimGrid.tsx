@@ -14,8 +14,8 @@ export interface AnimValue {
 }
 
 /** CapCut-style animation picker: In / Out / Combo tabs, a search box and a grid of live sample tiles. */
-export function AnimGrid({ value, onChange, maxLen, sample }: {
-  value: AnimValue; onChange: (p: AnimValue, key?: string) => void; maxLen: number; sample: Record<string, unknown>;
+export function AnimGrid({ value, onChange, maxLen, sample, still }: {
+  value: AnimValue; onChange: (p: AnimValue, key?: string) => void; maxLen: number; sample: Record<string, unknown>; still?: string | null;
 }) {
   const [tab, setTab] = useState<'in' | 'out' | 'loop'>('in');
   const [q, setQ] = useState('');
@@ -55,7 +55,7 @@ export function AnimGrid({ value, onChange, maxLen, sample }: {
             className={cn('overflow-hidden rounded-lg border text-left transition-colors', a.id === cur ? 'border-primary ring-1 ring-primary' : 'hover:border-primary/50')}>
             {a.id === 'none'
               ? <div className="flex aspect-[5/3] items-center justify-center bg-muted text-xs text-muted-foreground">None</div>
-              : <OverlaySample spec={spec(a.id)} hover={hot === a.id} className="rounded-none" />}
+              : <OverlaySample spec={spec(a.id)} still={still} hover={hot === a.id} className="rounded-none" />}
             <div className="truncate px-1.5 py-1 text-[11px]">{a.label}</div>
           </button>
         ))}
