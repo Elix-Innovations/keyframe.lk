@@ -12,8 +12,8 @@ export const defaultQuad = (): Quad => [[30, 22], [70, 22], [70, 78], [30, 78]];
 export const newQuadKf = (t: number, pts: Quad, ease: Ease = 'linear'): ScreenQuadKf => ({ id: nanoid(6), t, pts: pts.map(([x, y]) => [x, y]), ease });
 
 export const defaultPosts = (): FeedPost[] => [
-  { id: nanoid(6), text: 'Sunset over the hills this evening 🌄', likes: 128, comments: 14, time: '3h', author: 'Kasun Perera' },
-  { id: nanoid(6), text: 'Weekend escape to the lake. Totally worth it!', likes: 342, comments: 27, time: '1d', author: 'Nadeesha Fernando' },
+  { id: nanoid(6), text: 'Standing at the edge of the fjord 🏔️', likes: 128, comments: 14, time: '3h', author: 'Kasun Perera' },
+  { id: nanoid(6), text: 'Weekend escape to the hills. Totally worth it!', likes: 342, comments: 27, time: '1d', author: 'Nadeesha Fernando' },
   { id: nanoid(6), text: '', likes: 1204, comments: 96, time: '16m', author: 'Nimali Furniture' },
 ];
 

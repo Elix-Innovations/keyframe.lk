@@ -7,6 +7,7 @@ import { addVideo } from '../lib/importMedia';
 import { beforeProject } from '../lib/before';
 import { composeFrame, outputSize } from '../render/compose';
 import type { OverlayHit } from '../render/overlays';
+import { feedPhotosReady } from '../render/screenFeed';
 import { overlayAssetIds, quadAt, setQuadAt } from '../lib/screen';
 import { clearMeasureCache, type Ctx2D, type Rect } from '../render/captions';
 import { getBlob, grantFileAccess, NeedsPermissionError } from '../lib/db';
@@ -145,10 +146,10 @@ export function Preview() {
     const map = brollRef.current;
     const wanted = new Set([...project.broll.map((b) => b.assetId), ...(project.overlays ?? []).flatMap(overlayAssetIds)]);
     for (const [k, v] of map) if (!wanted.has(k)) { v.close(); map.delete(k); }
-    Promise.all([...wanted].filter((id) => !map.has(id)).map(async (id) => {
+    Promise.all([feedPhotosReady(), ...[...wanted].filter((id) => !map.has(id)).map(async (id) => {
       const blob = await getBlob(id);
       if (blob) map.set(id, await createImageBitmap(blob));
-    })).then(() => force((n) => n + 1));
+    })]).then(() => force((n) => n + 1));
   }, [brollKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Fit the output frame into the available area.

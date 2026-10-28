@@ -206,6 +206,9 @@ export function drawOverlays(
       const xs = quad.map((p) => p[0]), ys = quad.map((p) => p[1]);
       const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
       hits?.push({ id: o.id, cx: (x0 + x1) / 2, cy: (y0 + y1) / 2, w: x1 - x0, h: y1 - y0, rot: 0, quad });
+      // Bleed the drawn corners outward a hair so the screen underneath does not show as a thin line along the edges.
+      const bleed = Math.max(6, W * 0.008), mx = (x0 + x1) / 2, my = (y0 + y1) / 2;
+      const drawQuad = quad.map(([x, y]) => [x + Math.sign(x - mx) * bleed, y + Math.sign(y - my) * bleed] as [number, number]);
       const pose = overlayPose(o, lt);
       const alpha = Math.max(0, Math.min(1, o.opacity * pose.alpha));
       const page = alpha > 0 ? feedCanvas() : null;
@@ -214,7 +217,7 @@ export function drawOverlays(
       ctx.save();
       ctx.globalAlpha = alpha;
       if (o.blend && o.blend !== 'normal') ctx.globalCompositeOperation = o.blend;
-      warpToQuad(ctx, page.canvas, FEED_W, FEED_H, quad);
+      warpToQuad(ctx, page.canvas, FEED_W, FEED_H, drawQuad);
       ctx.restore();
       continue;
     }

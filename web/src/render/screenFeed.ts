@@ -29,8 +29,8 @@ function wrap(ctx: Ctx2D, text: string, maxW: number): string[] {
 const NAMES = ['Kasun Perera', 'Nadeesha Fernando', 'Dilshan Jayasuriya', 'Ishara Wickramasinghe', 'Tharindu Silva', 'Sachini Rajapaksha'];
 const AVATAR = ['#3B82F6', '#EC4899', '#F59E0B', '#10B981', '#8B5CF6', '#EF4444'];
 const TAIL: FeedPost[] = [
-  { id: 'tail1', text: 'Golden hour by the sea 🌅', likes: 412, comments: 38, time: '2h', author: 'Dilshan Jayasuriya' },
-  { id: 'tail2', text: 'City lights never get old ✨', likes: 96, comments: 7, time: '5h', author: 'Sachini Rajapaksha' },
+  { id: 'tail1', text: 'Lost in the green hills 🌿', likes: 412, comments: 38, time: '2h', author: 'Dilshan Jayasuriya' },
+  { id: 'tail2', text: 'Misty morning at the falls 💧', likes: 96, comments: 7, time: '5h', author: 'Sachini Rajapaksha' },
 ];
 const authorOf = (p: FeedPost, i: number) => p.author?.trim() || NAMES[i % NAMES.length];
 
@@ -91,8 +91,31 @@ function iconShare(ctx: Ctx2D, x: number, y: number, s: number) {
 /** Small deterministic random generator so a scene looks the same every frame. */
 const rng = (seed: number) => () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
 
+/** Stock photos (public/feed) used for posts that have none; the painted scenes below are only the fallback while these load. */
+const STOCK_URLS = ['/feed/p1015.jpg', '/feed/p1018.jpg', '/feed/p1043.jpg', '/feed/p1039.jpg'];
+const stock: (HTMLImageElement | null)[] = STOCK_URLS.map(() => null);
+let stockLoad: Promise<void> | null = null;
+/** Resolves once the stock photos are decoded (never rejects: a missing file keeps the painted scene). */
+export function feedPhotosReady(): Promise<void> {
+  if (typeof Image === 'undefined') return Promise.resolve();
+  stockLoad ??= Promise.all(STOCK_URLS.map((url, k) => new Promise<void>((res) => {
+    const im = new Image();
+    im.onload = () => { stock[k] = im; res(); };
+    im.onerror = () => res();
+    im.src = url;
+  }))).then(() => undefined);
+  return stockLoad;
+}
+if (typeof Image !== 'undefined') void feedPhotosReady();
+
 /** A painted photo-like scene for a post without a photo: sunset hills, a mountain lake, a night city or a beach. */
 function drawScene(ctx: Ctx2D, y: number, h: number, i: number) {
+  const photo = stock[i % stock.length];
+  if (photo) {
+    const sc = Math.max(FEED_W / photo.naturalWidth, h / photo.naturalHeight), sw = FEED_W / sc, sh = h / sc;
+    ctx.drawImage(photo, (photo.naturalWidth - sw) / 2, (photo.naturalHeight - sh) / 2, sw, sh, 0, y, FEED_W, h);
+    return;
+  }
   const W = FEED_W, rnd = rng(i * 97 + 13), kind = i % 4;
   const sky = (stops: [number, string][]) => { const g = ctx.createLinearGradient(0, y, 0, y + h); stops.forEach(([o, c]) => g.addColorStop(o, c)); ctx.fillStyle = g; ctx.fillRect(0, y, W, h); };
   const glow = (cx: number, cy: number, r: number, c: string) => { const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, r); g.addColorStop(0, c); g.addColorStop(1, 'rgba(255,255,255,0)'); ctx.fillStyle = g; ctx.fillRect(0, y, W, h); };
