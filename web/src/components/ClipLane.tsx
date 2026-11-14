@@ -86,6 +86,14 @@ export const clipOps = {
   },
   speed(id: string, s: number) { useEditor.getState().setClips((cs) => changeSpeed(cs, id, s)); },
   curve(id: string, pts: SpeedPt[] | undefined, key?: string) { useEditor.getState().setClips((cs) => changeCurve(cs, id, pts), key); },
+  reverse(id: string) {
+    useEditor.getState().setClips((cs) => {
+      const c = cs.find((x) => x.id === id);
+      if (!c) return cs;
+      const on = !c.reverse;
+      return cs.map((x) => (x.id === id || (c.linkId && x.linkId === c.linkId) ? { ...x, reverse: on } : x));
+    });
+  },
   freeze(id: string) { useEditor.getState().setClips((cs) => freezeFrame(cs, id, currentTime())); },
   unlink(id: string) { useEditor.getState().setClips((cs) => unlink(cs, id)); },
   /** Link the clip with the nearest overlapping clip of the other kind that is not linked. */

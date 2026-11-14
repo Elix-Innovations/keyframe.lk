@@ -55,7 +55,7 @@ export function syncVideos(t = currentTime()) {
     if (!el) continue;
     used.add(el);
     const want = Math.max(0, Math.min(sourceTimeAt(clip, t), (el.duration || clip.sourceDuration) - 0.001));
-    if (playing && !clip.freeze) {
+    if (playing && !clip.freeze && !clip.reverse) { // a reversed clip cannot play forward: it seeks frame by frame below
       const rate = Math.min(16, Math.max(0.0625, clip.curve ? curveSpeedAt({ ...clip, curve: clip.curve }, t - clip.start) : clip.speed));
       if (el.playbackRate !== rate) el.playbackRate = rate;
       if (Math.abs(el.currentTime - want) > 0.25) el.currentTime = want;

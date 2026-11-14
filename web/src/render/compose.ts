@@ -81,6 +81,22 @@ const trackLane = (track: number) => (track === 0 ? 'video' : `video:${track}`);
 function drawLayer(
   ctx: Ctx2D, W: number, H: number, project: Project, t: number, clip: Clip | null, src: FrameSource, main: boolean, fxOn: boolean, hits?: OverlayHit[],
 ) {
+  const blend = fxOn && !main ? (clip?.fx ?? project.video)?.blend : undefined;
+  if (blend && blend !== 'normal') {
+    const b = buffer(4, W, H);
+    drawLayerNormal(b.x, W, H, project, t, clip, src, main, fxOn, hits);
+    ctx.save();
+    ctx.globalCompositeOperation = blend;
+    ctx.drawImage(b.c, 0, 0);
+    ctx.restore();
+    return;
+  }
+  drawLayerNormal(ctx, W, H, project, t, clip, src, main, fxOn, hits);
+}
+
+function drawLayerNormal(
+  ctx: Ctx2D, W: number, H: number, project: Project, t: number, clip: Clip | null, src: FrameSource, main: boolean, fxOn: boolean, hits?: OverlayHit[],
+) {
   const f = fxOn ? (() => { const l = migrateVideo(clip?.fx ?? project.video); return liveFilters(l, clip ? t - clip.start : t); })() : null;
   if (f && needsGrade(f)) {
     const b = buffer(3, W, H);

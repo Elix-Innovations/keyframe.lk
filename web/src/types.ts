@@ -446,6 +446,8 @@ export interface VideoLayer {
   regionBlurs?: RegionBlur[];
   speed: number;
   hidden: boolean;
+  /** How this layer mixes with what is below it (default normal). */
+  blend?: OverlayBlend;
   /** Entrance, exit and idle animations (same ids as overlays). */
   animIn?: { id: OverlayAnimId; duration: number; speed?: number };
   animOut?: { id: OverlayAnimId; duration: number; speed?: number };
@@ -477,6 +479,8 @@ export interface Clip {
   speed: number; // 0.1..8; keeps pitch for audio. With a `curve` it is the average (source span / duration).
   /** Variable speed over the source file (see lib/speedCurve.ts). Pitch follows speed. */
   curve?: SpeedPt[];
+  /** Play the clip backwards. */
+  reverse?: boolean;
   /** Hold the frame at `in` for the whole duration (video only). */
   freeze?: boolean;
   /** Shared by a video clip and its audio clip while they move, trim, split and change speed together. */
@@ -522,7 +526,7 @@ export type OverlayAnimId =
   | 'wipe' | 'elastic' | 'drop' | 'swing' | 'rubber' | 'blink' | 'wordPop' | 'rise' | 'spinZoom' | 'jelly';
 /** Motion that repeats for as long as the overlay is on screen. */
 export type OverlayLoopId = 'none' | 'pulse' | 'float' | 'wiggle' | 'swing' | 'spin' | 'blink' | 'heartbeat' | 'glitch' | 'tada' | 'jelly' | 'shake' | 'breathe';
-export type OverlayBlend = 'normal' | 'screen' | 'multiply' | 'overlay' | 'lighten' | 'difference';
+export type OverlayBlend = 'normal' | 'screen' | 'multiply' | 'overlay' | 'lighten' | 'difference' | 'lighter';
 
 /** One post card in a generated feed. The last post of a feed is the one the scroll stops on (the ad). */
 export interface FeedPost {

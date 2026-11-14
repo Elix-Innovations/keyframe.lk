@@ -19,7 +19,11 @@ function shiftFx(fx: Clip['fx'], dt: number): Clip['fx'] {
 
 export const clipEnd = (c: Clip) => c.start + c.duration;
 /** Source time shown or heard at timeline time t. */
-export const sourceTimeAt = (c: Clip, t: number) => (c.freeze ? c.in : c.curve ? curveSrcAt({ ...c, curve: c.curve }, t - c.start) : c.in + (t - c.start) * c.speed);
+export const sourceTimeAt = (c: Clip, t: number) => {
+  if (c.freeze) return c.in;
+  const local = c.reverse ? c.duration - (t - c.start) : t - c.start; // a reversed clip walks its source span backwards
+  return c.curve ? curveSrcAt({ ...c, curve: c.curve }, local) : c.in + local * c.speed;
+};
 /** Source seconds the clip consumes. */
 export const sourceSpan = (c: Clip) => (c.freeze ? 0 : c.duration * c.speed);
 

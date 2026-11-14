@@ -43,7 +43,19 @@ async function clipBuffer(project: Project, c: Clip): Promise<AudioBuffer | null
   const base = from ? await loadAudioAsset(dn!.assetId).catch(() => null) : await loadSourceAudio(c.assetId).catch(() => null);
   if (!base) return null;
   // A curved clip plays the raw file and varies the playback rate while scheduled.
-  return c.speed === 1 || c.curve ? base : stretchedFor(base, c.speed);
+  const fwd = c.speed === 1 || c.curve ? base : await stretchedFor(base, c.speed);
+  return c.reverse && !c.curve ? reversedOf(fwd) : fwd;
+}
+
+const reversedCache = new WeakMap<AudioBuffer, AudioBuffer>();
+/** A copy of the buffer played back to front. */
+function reversedOf(b: AudioBuffer): AudioBuffer {
+  let r = reversedCache.get(b);
+  if (r) return r;
+  r = new AudioBuffer({ length: b.length, numberOfChannels: b.numberOfChannels, sampleRate: b.sampleRate });
+  for (let ch = 0; ch < b.numberOfChannels; ch++) r.copyToChannel(b.getChannelData(ch).slice().reverse(), ch);
+  reversedCache.set(b, r);
+  return r;
 }
 
 /** Decode and stretch everything the audio clips need, so scheduling afterwards is synchronous. */
@@ -99,6 +111,7 @@ export function scheduleClipAudio(
     } else g.connect(dest);
     // The stretched buffer is already at clip speed, so source offset scales by 1/speed.
     let offset = c.in / c.speed + skip;
+    if (c.reverse && !c.curve) offset = buf.duration - (c.in / c.speed + c.duration) + skip; // buffer is reversed
     if (c.curve) {
       const cv = { ...c, curve: c.curve };
       offset = curveSrcAt(cv, skip);

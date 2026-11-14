@@ -3,7 +3,8 @@ import { AudioLines, Copy, ImagePlus, Plus, Scissors, Trash2 } from '@/component
 import { extractFrame } from '@/lib/extractFrame';
 import { generateCaptionsFromAudio } from '@/lib/captionsFromAudio';
 import { Volume, VolumeOff } from '@/components/icons-audio';
-import type { Ease, VideoKeyframe } from '@/types';
+import type { Ease, OverlayBlend, VideoKeyframe } from '@/types';
+import { BLENDS } from '@/lib/overlays';
 import { useEditor } from '@/store';
 import { clipOps, SPEEDS } from '../ClipLane';
 import { partnerOf } from '@/lib/clips';
@@ -79,6 +80,7 @@ export function ClipActions() {
         <Button size="xs" variant="secondary" onClick={() => clipOps.splitAtPlayhead([clip.id])}><Scissors />Split</Button>
         <Button size="xs" variant="secondary" onClick={() => clipOps.duplicate(clip.id)}><Copy />Duplicate</Button>
         {!audio && !clip.freeze && <Button size="xs" variant="secondary" onClick={() => clipOps.freeze(clip.id)}>Freeze frame</Button>}
+        {!clip.freeze && <Button size="xs" variant={clip.reverse ? 'default' : 'secondary'} onClick={() => clipOps.reverse(clip.id)}>Reverse</Button>}
         <Button size="xs" variant="ghost" className="hover:text-destructive" onClick={() => clipOps.remove(clip.id)}><Trash2 />Delete</Button>
       </div>
     </Section>
@@ -210,6 +212,10 @@ export function CropAndTransform({ part }: { part: 'crop' | 'transform' }) {
         <Row label="Position X" kf={kf}><Slider value={shown.x} min={-100} max={100} step={0.5} onChange={(x) => setBase({ x }, 'x')} format={(v) => `${v}%`} /></Row>
         <Row label="Position Y" kf={kf}><Slider value={shown.y} min={-100} max={100} step={0.5} onChange={(y) => setBase({ y }, 'y')} format={(v) => `${v}%`} /></Row>
         <Row label="Rotation" kf={kf}><Slider value={shown.rotation} min={-180} max={180} step={1} onChange={(rotation) => setBase({ rotation }, 'rot')} format={(v) => `${v}°`} /></Row>
+        <Row label="Blend"><Select value={layer.blend ?? 'normal'} onValueChange={(blend) => set((l) => ({ ...l, blend: blend as OverlayBlend }))}>
+          <SelectTrigger size="sm" className="w-32"><SelectValue /></SelectTrigger>
+          <SelectContent>{BLENDS.map((b) => <SelectItem key={b.id} value={b.id}>{b.label}</SelectItem>)}</SelectContent>
+        </Select></Row>
         <Row label="Opacity" kf={kf}><Slider value={shown.opacity} min={0} max={1} step={0.01} onChange={(opacity) => setBase({ opacity }, 'op')} format={(v) => `${Math.round(v * 100)}%`} /></Row>
         {layer.keyframes.length > 0 && <p className="text-xs text-muted-foreground">This clip has keyframes. Change a value at a new playhead position to add one, or click the diamond.</p>}
       </Section>}

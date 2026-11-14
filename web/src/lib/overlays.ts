@@ -27,6 +27,7 @@ export const LOOPS: { id: OverlayLoopId; label: string }[] = [
 export const BLENDS: { id: OverlayBlend; label: string }[] = [
   { id: 'normal', label: 'Normal' }, { id: 'screen', label: 'Screen' }, { id: 'multiply', label: 'Multiply' },
   { id: 'overlay', label: 'Overlay' }, { id: 'lighten', label: 'Lighten' }, { id: 'difference', label: 'Difference' },
+  { id: 'lighter', label: 'Add' },
 ];
 
 const base = (): Omit<OverlayItem, 'id' | 'kind' | 'text' | 'start' | 'duration' | 'track'> => ({
