@@ -6,7 +6,7 @@ import { currentTime } from './player';
 import { freeTrack } from './adj';
 import { freeLayerRow } from './layers';
 import { freeLayer } from './sounds';
-import { freeVideoTrack, videoClips, withPartner } from './clips';
+import { changeSpeed, freeVideoTrack, videoClips, withPartner, clipEnd } from './clips';
 import { migrateVideo } from './videoFx';
 
 /** What Copy took from the timeline: a snapshot, so it can still be pasted after the original is edited or deleted. */
@@ -237,4 +237,79 @@ export function copyCaptionStyle(id: string): boolean {
 export function pasteCaptionStyle(ids: string[]): boolean {
   if (held?.kind !== 'caption') { note('Copy a caption style first: right-click a caption → Copy style.', 'info'); return false; }
   return applyLook(held.look, ids);
+}
+
+// ---- Copy / paste edits ----------------------------------------------------
+
+/** Everything edited on a video clip: filters, grade, effects, crop, transform, keyframes, transitions, animation, cut-out, blur, speed, audio settings and the filter / effect blocks over it. */
+interface Edits {
+  fx?: VideoLayer;
+  speed: number;
+  audio?: Pick<Clip, 'volume' | 'fadeIn' | 'fadeOut' | 'muted'>;
+  /** Filter / effect blocks overlapping the clip, with start relative to the clip. */
+  adj: (AdjClip & { rel: number })[];
+}
+let heldEdits: Edits | null = null;
+export const hasEdits = () => !!heldEdits;
+
+const AUDIO_KEYS = ['volume', 'fadeIn', 'fadeOut', 'muted'] as const;
+const audioOf = (c: Clip): Edits['audio'] => ({ volume: c.volume, fadeIn: c.fadeIn, fadeOut: c.fadeOut, muted: c.muted });
+
+/** Copy all edits of the selected clip (its linked audio counts) so they can be pasted onto other clips. */
+export function copyEdits(): boolean {
+  const st = useEditor.getState(), p = st.project;
+  const sel = (p?.clips ?? []).find((c) => c.id === st.selectedClipId);
+  if (!p || !sel) { note('Select a clip on the timeline to copy its edits.', 'info'); return false; }
+  const clips = p.clips ?? [];
+  const group = withPartner(clips, sel);
+  const video = group.find((c) => c.kind === 'video'), audio = group.find((c) => c.kind === 'audio');
+  const main = video ?? sel;
+  heldEdits = {
+    fx: video ? clone(migrateVideo(video.fx)) : undefined,
+    speed: main.speed,
+    audio: audio ? audioOf(audio) : sel.kind === 'audio' ? audioOf(sel) : undefined,
+    adj: clone((p.adj ?? []).filter((a) => a.start < clipEnd(main) && a.start + a.duration > main.start).map((a) => ({ ...a, rel: a.start - main.start }))),
+  };
+  emit();
+  note('Copied all edits. Select another clip and paste edits (⌥⇧⌘V).');
+  return true;
+}
+
+/** Paste the copied edits onto the selected clip (and its linked audio). Its footage, position and length stay; speed is applied. */
+export function pasteEdits(): boolean {
+  const st = useEditor.getState(), p = st.project;
+  if (!heldEdits) { note('Copy a clip\'s edits first (right-click the clip → Copy edits).', 'info'); return false; }
+  const e = heldEdits;
+  const clips = p?.clips ?? [];
+  const sel = clips.find((c) => c.id === st.selectedClipId);
+  if (!p || !sel) { note('Select the clip to paste the edits onto.', 'info'); return false; }
+  const group = withPartner(clips, sel);
+  const video = group.find((c) => c.kind === 'video'), audio = group.find((c) => c.kind === 'audio');
+  const main = video ?? sel;
+  const ratio = main.freeze ? 1 : main.speed / e.speed;
+  const dur = main.duration * ratio, start = main.start;
+  st.setClips((cs) => {
+    let out = main.freeze ? cs : changeSpeed(cs, main.id, e.speed);
+    if (video && audio && !main.freeze && audio.speed !== e.speed) out = changeSpeed(out, audio.id, e.speed);
+    return out.map((c) => {
+      if (video && c.id === video.id && e.fx) return { ...c, fx: { ...clone(e.fx), speed: migrateVideo(c.fx).speed } };
+      if (e.audio && c.kind === 'audio' && (c.id === audio?.id || c.id === sel.id)) return { ...c, ...Object.fromEntries(AUDIO_KEYS.map((k) => [k, e.audio![k]])) };
+      return c;
+    });
+  });
+  if (e.adj.length) {
+    const added: AdjClip[] = [];
+    let list: AdjClip[] = p.adj ?? [];
+    for (const a of e.adj) {
+      const s = Math.max(0, start + a.rel), d = Math.min(a.duration, start + dur - s);
+      if (d < 0.1) continue;
+      const { rel: _r, ...base } = clone(a);
+      void _r;
+      const copy: AdjClip = { ...base, id: nanoid(8), start: s, duration: d, track: freeTrack(list, s, d, a.track) };
+      list = [...list, copy]; added.push(copy);
+    }
+    if (added.length) st.setAdj((l) => [...l, ...added]);
+  }
+  note('Pasted all edits onto the clip.');
+  return true;
 }

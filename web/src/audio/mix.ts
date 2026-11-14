@@ -135,7 +135,7 @@ export function buildMixPlan(project: Project): MixPlan {
 export function needsMix(project: Project): boolean {
   const a = project.audio;
   return a.tracks.length > 0 || sfxEvents(project).length > 0 || a.original.muted || a.original.volume !== 0 ||
-    a.original.enhance || !!a.original.denoise || a.normalize.enabled;
+    a.original.enhance || !!a.original.denoise || Object.keys(a.original.denoiseBy ?? {}).length > 0 || a.normalize.enabled;
 }
 
 /** Nearest beat on the timeline across all tracks (for snapping), or null. */

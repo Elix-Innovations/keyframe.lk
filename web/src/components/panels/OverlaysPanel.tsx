@@ -115,6 +115,12 @@ export function OverlaysPanel() {
           <Empty icon={<ImagePlus />} title="Logos, watermarks, cut-outs">Images sit above the video: move, resize, rotate, fade and animate them like text.</Empty>
         </Section>
       )}
+      {tab === 'image' && (
+        <Section title="Phone screen">
+          <p className="text-[11px] text-muted-foreground">Fill a phone screen in your clip with a scrolling social feed that stops on your ad. Pin its four corners to the screen, then add posts and photos.</p>
+          <Button size="sm" className="h-8" onClick={() => overlayOps.addScreen()}>Add phone screen</Button>
+        </Section>
+      )}
     </div>
   );
 }

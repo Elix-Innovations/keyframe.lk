@@ -182,6 +182,30 @@ function drawNode(ctx: Ctx2D, n: SceneNode, t: number, duration: number, L: Loca
     ctx.lineWidth = sampleNum(n.strokeWidth, t, 6);
     ctx.lineCap = n.cap ?? 'round';
     ctx.stroke();
+  } else if (n.type === 'path' && n.points && n.points.length >= 6) {
+    const pts = n.points, m = pts.length / 2, closed = !!n.closed, trim = Math.max(0, Math.min(1, sampleNum(n.trim, t, 1)));
+    const P = (i: number) => { const j = closed ? ((i % m) + m) % m : Math.max(0, Math.min(m - 1, i)); return [pts[j * 2], pts[j * 2 + 1]]; };
+    ctx.beginPath();
+    ctx.moveTo(pts[0], pts[1]);
+    // Catmull-Rom through the points, as cubic beziers.
+    const segs = closed ? m : m - 1;
+    for (let i = 0; i < segs; i++) {
+      const p0 = P(i - 1), p1 = P(i), p2 = P(i + 1), p3 = P(i + 2);
+      ctx.bezierCurveTo(p1[0] + (p2[0] - p0[0]) / 6, p1[1] + (p2[1] - p0[1]) / 6, p2[0] - (p3[0] - p1[0]) / 6, p2[1] - (p3[1] - p1[1]) / 6, p2[0], p2[1]);
+    }
+    if (closed) ctx.closePath();
+    const p = paint();
+    if (p && n.fill) { ctx.fillStyle = p; ctx.fill(); }
+    if (n.stroke) {
+      ctx.strokeStyle = n.stroke; ctx.lineWidth = sampleNum(n.strokeWidth, t, 2); ctx.lineJoin = 'round'; ctx.lineCap = n.cap ?? 'round';
+      if (trim < 1) {
+        let len = 0;
+        for (let i = 1; i < m; i++) len += Math.hypot(pts[i * 2] - pts[i * 2 - 2], pts[i * 2 + 1] - pts[i * 2 - 1]);
+        len *= 1.15;
+        ctx.setLineDash([len * trim, len * 2]);
+      }
+      ctx.stroke();
+    }
   } else if (n.type === 'text' && n.text) {
     const size = sampleNum(n.size, t, 64);
     const eng = getFont(n.font ?? opts.fonts?.english), sin = getFont(opts.fonts?.sinhala);

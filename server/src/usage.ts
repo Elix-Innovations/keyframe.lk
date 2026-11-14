@@ -56,7 +56,9 @@ const currentFeature = () => context.getStore()?.feature ?? 'other';
 // Storage
 // ---------------------------------------------------------------------------
 
-const FILE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../data/usage.json');
+const FILE = process.env.KEYFRAME_DATA_DIR
+  ? path.join(process.env.KEYFRAME_DATA_DIR, 'usage.json')
+  : path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../data/usage.json');
 const MAX_RECORDS = 5000;
 let records: UsageRecord[] = [];
 try {

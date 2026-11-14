@@ -197,5 +197,5 @@
 .landing details[open] .faq-plus { transform: rotate(45deg); }
 
 /* Editor shell: floating rounded panes on a darker backdrop, like Concat. */
-.pane { @apply overflow-hidden rounded-xl border bg-sidebar; }
+.pane { @apply overflow-clip rounded-xl border bg-sidebar; }
 .keyframe-diamond { clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%); }

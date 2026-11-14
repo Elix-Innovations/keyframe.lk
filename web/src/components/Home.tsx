@@ -249,6 +249,7 @@ export function Home() {
       if (o.videoAssetId) inUse.add(o.videoAssetId);
       for (const c of o.clips ?? []) inUse.add(c.assetId);
       if (o.audio?.original?.denoise) inUse.add(o.audio.original.denoise.assetId);
+      for (const d of Object.values(o.audio?.original?.denoiseBy ?? {})) inUse.add(d.assetId);
       for (const b of o.broll ?? []) inUse.add(b.assetId);
     }
     const full = await db.getProject(p.id);

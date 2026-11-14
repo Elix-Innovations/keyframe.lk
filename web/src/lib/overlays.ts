@@ -3,6 +3,7 @@ import type { OverlayAnimId, OverlayBlend, OverlayItem, OverlayLoopId } from '..
 import type { Project } from '../types';
 import { freeTrack } from './adj';
 import { freeLayerRow, newLayerRow } from './layers';
+import { makeScreenSpec } from './screen';
 
 /** Pure logic and presets for text, sticker and image overlays. Timeline editing reuses the track helpers in adj.ts. */
 
@@ -26,6 +27,7 @@ export const LOOPS: { id: OverlayLoopId; label: string }[] = [
 export const BLENDS: { id: OverlayBlend; label: string }[] = [
   { id: 'normal', label: 'Normal' }, { id: 'screen', label: 'Screen' }, { id: 'multiply', label: 'Multiply' },
   { id: 'overlay', label: 'Overlay' }, { id: 'lighten', label: 'Lighten' }, { id: 'difference', label: 'Difference' },
+  { id: 'lighter', label: 'Add' },
 ];
 
 const base = (): Omit<OverlayItem, 'id' | 'kind' | 'text' | 'start' | 'duration' | 'track'> => ({
@@ -104,6 +106,7 @@ export function makeOverlay(o: OverlayInit, list: OverlayItem[], project?: Proje
     ...(o.kind === 'text' ? { y: 62 } : {}),
     ...(o.kind === 'sticker' ? { bold: false, animIn: { id: 'pop' as const, duration: 0.35 }, color: '#FFFFFF' } : {}),
     ...(o.kind === 'image' ? { animIn: { id: 'fade' as const, duration: 0.3 }, scale: 0.6 } : {}),
+    ...(o.kind === 'screen' ? { screen: makeScreenSpec(duration), animIn: { id: 'none' as const, duration: 0.01 }, animOut: { id: 'none' as const, duration: 0.01 } } : {}),
     ...o.apply,
   };
   return item;
@@ -129,7 +132,7 @@ export const overlayEnd = (o: OverlayItem) => o.start + o.duration;
 export const overlaysAt = (list: OverlayItem[], t: number) =>
   list.filter((o) => t >= o.start - 1e-6 && t < overlayEnd(o) - 1e-6).sort((a, b) => a.track - b.track);
 
-export const overlayLabel = (o: OverlayItem) => (o.kind === 'motion' ? o.scene?.name ?? 'Motion' : o.kind === 'image' ? 'Image' : o.text.replace(/\s+/g, ' ').trim().slice(0, 24) || 'Text');
+export const overlayLabel = (o: OverlayItem) => (o.kind === 'screen' ? 'Phone screen' : o.kind === 'motion' ? o.scene?.name ?? 'Motion' : o.kind === 'image' ? 'Image' : o.text.replace(/\s+/g, ' ').trim().slice(0, 24) || 'Text');
 
 /** Fill in fields that older saved overlays may lack. */
 export const withOverlayDefaults = (o: OverlayItem): OverlayItem => ({ ...base(), ...o });

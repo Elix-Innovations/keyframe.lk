@@ -2,14 +2,15 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { MotionScene } from '@/types';
 import { useEditor } from '@/store';
 import { ai, ApiError, claudeStatus, type ClaudeStatus } from '@/lib/api';
-import { MOTION_LIBRARY } from '@/lib/motionLibrary';
+import { BG_GROUPS, bgGroup, MOTION_LIBRARY } from '@/lib/motionLibrary';
 import { makeOverlay } from '@/lib/overlays';
 import { currentTime } from '@/lib/player';
 import { clipEnd, videoClips } from '@/lib/clips';
 import { kvGet, kvSet } from '@/lib/db';
 import { drawScene } from '@/render/scene';
 import { outputSize } from '@/render/compose';
-import { Plus, Trash2 } from '@/components/icons';
+import { Download, Plus, Trash2 } from '@/components/icons';
+import { downloadScene } from '@/lib/exportScene';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
@@ -43,6 +44,30 @@ export function addMotionLayer(scene: MotionScene, where: 'playhead' | 'cut' = '
   st.selectOverlay(o.id);
   st.notify(`Added “${scene.name}” at ${start.toFixed(1)}s.`, 'success');
   return o.id;
+}
+
+/** Render a scene to a transparent WebM and save it; `pct` is the progress while it renders (null when idle). */
+function useSceneDownload(scene: MotionScene) {
+  const project = useEditor((s) => s.project)!;
+  const notify = useEditor((s) => s.notify);
+  const [pct, setPct] = useState<number | null>(null);
+  const run = async () => {
+    if (pct !== null) return;
+    setPct(0);
+    try { await downloadScene(scene, project, (p) => setPct(Math.round(p * 100))); notify(`Saved “${scene.name}” as WebM with transparency.`, 'success'); }
+    catch (e) { notify((e as Error).message || 'Could not export that scene.', 'error'); }
+    finally { setPct(null); }
+  };
+  return { pct, run };
+}
+
+function DownloadButton({ scene, className }: { scene: MotionScene; className?: string }) {
+  const { pct, run } = useSceneDownload(scene);
+  return (
+    <Button size="xs" variant="secondary" className={className} disabled={pct !== null} onClick={() => void run()} title="Download as transparent WebM">
+      {pct === null ? <><Download />Download</> : <><Spinner className="size-3" />{pct}%</>}
+    </Button>
+  );
 }
 
 /** A small live canvas of a scene; it plays while hovered. */
@@ -89,6 +114,7 @@ function SceneCard({ scene, onAdd, onAddCut, onDelete, sub }: { scene: MotionSce
         <Button size="xs" variant="secondary" className="flex-1" onClick={onAdd}><Plus />Add</Button>
         {onAddCut && <Button size="xs" variant="secondary" className="flex-1" onClick={onAddCut}>At cut</Button>}
       </div>
+      <DownloadButton scene={scene} className="mt-1 w-full" />
       {onDelete && <Button variant="secondary" size="icon-xs" onClick={onDelete} className="absolute top-2 right-2 opacity-0 transition-opacity hover:text-destructive group-hover:opacity-100" aria-label="Delete scene"><Trash2 /></Button>}
     </div>
   );
@@ -153,12 +179,24 @@ export function MotionPanel() {
               {role === 'transition' ? 'Plays over a cut between two clips. “At cut” centres it on the nearest cut.' : role === 'background' ? 'Animated backgrounds. Add one, then drag it below a cut-out layer on the timeline.' : 'Animated graphics that play over your video. Hover to preview; they are layers you can move, resize and trim.'}
             </p>
             {role === 'background' && <Row label="Hue"><Slider value={hue} min={-180} max={180} format={(v) => `${v}°`} onChange={setHue} /></Row>}
-            <div className="grid grid-cols-4 gap-1.5">
-              {library.map(({ e, scene }) => (
-                <SceneCard key={e.id} scene={scene} sub={e.note.length > 22 ? `${scene.duration.toFixed(1)}s` : e.note}
-                  onAdd={() => addMotionLayer(scene)} onAddCut={role === 'transition' ? () => addMotionLayer(scene, 'cut') : undefined} />
-              ))}
-            </div>
+            {role === 'background' ? BG_GROUPS.map((g) => {
+              const items = library.filter(({ e }) => bgGroup(e) === g);
+              return items.length > 0 && (
+                <div key={g} className="flex flex-col gap-1">
+                  <div className="text-[11px] font-medium text-muted-foreground">{g}</div>
+                  <div className="grid grid-cols-4 gap-1.5">
+                    {items.map(({ e, scene }) => <SceneCard key={e.id} scene={scene} sub={e.note.length > 22 ? `${scene.duration.toFixed(1)}s` : e.note} onAdd={() => addMotionLayer(scene)} />)}
+                  </div>
+                </div>
+              );
+            }) : (
+              <div className="grid grid-cols-4 gap-1.5">
+                {library.map(({ e, scene }) => (
+                  <SceneCard key={e.id} scene={scene} sub={e.note.length > 22 ? `${scene.duration.toFixed(1)}s` : e.note}
+                    onAdd={() => addMotionLayer(scene)} onAddCut={role === 'transition' ? () => addMotionLayer(scene, 'cut') : undefined} />
+                ))}
+              </div>
+            )}
           </Section>
           {saved.filter((s) => s.role === role).length > 0 && (
             <Section title="My scenes">
@@ -204,6 +242,7 @@ export function MotionPanel() {
               <div className="flex flex-wrap gap-1.5">
                 <Button size="xs" onClick={() => addMotionLayer(result.scene)}><Plus />Add at playhead</Button>
                 {result.scene.role === 'transition' && <Button size="xs" variant="secondary" onClick={() => addMotionLayer(result.scene, 'cut')}>Add at cut</Button>}
+                <DownloadButton scene={result.scene} />
                 <Button size="xs" variant="secondary" onClick={() => { persist([{ ...result.scene, name: result.scene.name }, ...saved]); notify('Saved to My scenes.', 'success'); }}>Save</Button>
               </div>
               <p className="text-[11px] text-muted-foreground">To change it, describe the change above and press “Edit this result”.</p>

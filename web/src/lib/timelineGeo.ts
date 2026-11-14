@@ -16,6 +16,7 @@ export type DragPayload =
   | { type: 'fx'; kind: 'filter' | 'effect'; refId: string }
   | { type: 'transition'; id: string }
   | { type: 'media'; clipId: string }
+  | { type: 'library'; id: string }
   | { type: 'template'; id: string }
   | { type: 'sound'; sound: import('./sounds').SoundSource }
   | { type: 'overlay'; kind: 'text' | 'sticker'; text: string; presetId?: string };

@@ -39,6 +39,14 @@ export function StylePanel() {
             <UiToggle size="sm" variant="outline" pressed={t.bold} onPressedChange={(bold) => setText({ bold })} aria-label="Bold"><Bold /></UiToggle>
             <UiToggle size="sm" variant="outline" pressed={t.italic} onPressedChange={(italic) => setText({ italic })} aria-label="Italic"><Italic /></UiToggle>
           </div>
+          {(['sinhala', 'english'] as const).map((sc) => (
+            <Row key={sc} label={sc === 'sinhala' ? 'Sinhala style' : 'English style'} hint="Bold and italic for this script only">
+              <div className="flex items-center gap-1">
+                <UiToggle size="sm" variant="outline" pressed={t[sc].bold ?? t.bold} onPressedChange={(bold) => setText({ [sc]: { ...t[sc], bold } })} aria-label={`${sc} bold`}><Bold /></UiToggle>
+                <UiToggle size="sm" variant="outline" pressed={t[sc].italic ?? t.italic} onPressedChange={(italic) => setText({ [sc]: { ...t[sc], italic } })} aria-label={`${sc} italic`}><Italic /></UiToggle>
+              </div>
+            </Row>
+          ))}
           <Row label="English case">
             <Segmented size="sm" value={t.textCase ?? (t.uppercaseEnglish ? 'upper' : 'none')}
               onChange={(textCase) => setText({ textCase, uppercaseEnglish: textCase === 'upper' })}

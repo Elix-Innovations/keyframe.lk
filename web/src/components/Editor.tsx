@@ -4,8 +4,9 @@ import {
   Coins, LayoutTemplate, Loader2, Redo2, Save, Sparkles, Type, Undo2, WandSparkles,
 } from '@/components/icons';
 import { useDefaultLayout } from 'react-resizable-panels';
+import { groupSelection, allSelectableIds, deleteSelection, splitSelection } from '@/lib/multiSelect';
 import { useEditor, selectors, saveNow, LEFT_PANELS, PANELS, INSPECTOR_TABS, inspectorContext, type PanelId } from '@/store';
-import { currentTime, seek, togglePlay } from '@/lib/player';
+import { currentTime, playInToOut, seek, togglePlay } from '@/lib/player';
 import { splitCaptionAt, mergeCaptions, shiftCaptions } from '@/lib/segment';
 import { outputSize } from '@/render/compose';
 import { SHORTCUTS, type ShortcutId } from '@/lib/shortcuts';
@@ -48,7 +49,7 @@ import { SoundsPanel } from './panels/SoundsPanel';
 import { OverlayItemPanel } from './panels/OverlayItemPanel';
 import { overlayOps } from './OverlayLane';
 import { trackOps } from '@/lib/sounds';
-import { canCopy, copySelection, cutSelection, hasClipboard, pasteAtPlayhead, pasteAttributes } from '@/lib/clipboard';
+import { canCopy, copyEdits, copySelection, cutSelection, hasClipboard, pasteAtPlayhead, pasteAttributes, pasteEdits } from '@/lib/clipboard';
 import { adjOps } from './AdjLane';
 import { useLibQuery } from '@/lib/libQuery';
 import { Search } from '@/components/icons';
@@ -225,6 +226,10 @@ export function Editor() {
       if (mod && e.key.toLowerCase() === 'k') { e.preventDefault(); st.setConverterOpen(!st.converterOpen); return; }
       // Copy / cut / paste on the timeline (⌘C, ⌘X, ⌘V; ⌥⌘V pastes a video clip as an overlay; ⇧⌘V pastes only the look).
       if (mod && !isTyping(e) && !window.getSelection()?.toString()) {
+        if (e.altKey && e.code === 'KeyC') { e.preventDefault(); copyEdits(); return; }
+        if (e.altKey && e.shiftKey && e.code === 'KeyV') { e.preventDefault(); pasteEdits(); return; }
+        if (e.code === 'KeyG') { e.preventDefault(); groupSelection(e.shiftKey ? true : undefined); return; }
+        if (e.code === 'KeyA' && st.project) { e.preventDefault(); st.setMulti(allSelectableIds(st.project)); return; }
         if (e.code === 'KeyC' && canCopy()) { e.preventDefault(); copySelection(); return; }
         if (e.code === 'KeyX' && canCopy()) { e.preventDefault(); cutSelection(); return; }
         if (e.code === 'KeyV' && hasClipboard()) { e.preventDefault(); if (e.shiftKey) pasteAttributes(); else pasteAtPlayhead(e.altKey); return; }
@@ -234,6 +239,20 @@ export function Editor() {
       if (!p) return;
       const sel = p.captions.find((c) => c.id === st.selectedCaptionId) ?? null;
       if (/^[1-9]$/.test(e.key)) { st.setPanel(PANELS[Number(e.key) - 1]); return; }
+      // In / Out preview range, like Premiere: I and O mark at the playhead, ⌥I / ⌥O / ⌥X clear, ⇧/ plays In to Out.
+      if (e.code === 'KeyI' || e.code === 'KeyO' || (e.altKey && e.code === 'KeyX') || (e.shiftKey && e.code === 'Slash')) {
+        e.preventDefault();
+        const t = currentTime();
+        const { markIn, markOut } = st;
+        if (e.code === 'Slash') playInToOut();
+        else if (e.code === 'KeyX') st.setMarks(null, null);
+        else if (e.code === 'KeyI') {
+          if (e.altKey) st.setMarks(null, markOut);
+          else st.setMarks(t, markOut !== null && markOut <= t ? null : markOut);
+        } else if (e.altKey) st.setMarks(markIn, null);
+        else st.setMarks(markIn !== null && markIn >= t ? null : markIn, t);
+        return;
+      }
       switch (e.key) {
         case '?': st.setShortcutsOpen(true); break;
         case 'b': case 'B': st.setBefore(!st.before); break;
@@ -247,6 +266,7 @@ export function Editor() {
           break;
         }
         case 's': case 'S': {
+          if (splitSelection()) break;
           if (st.selectedTrackId) { trackOps.splitAtPlayhead(); break; }
           if (st.selectedOverlayId) { overlayOps.splitAtPlayhead(); break; }
           if (st.selectedAdjId) { adjOps.splitAtPlayhead(); break; }
@@ -265,6 +285,7 @@ export function Editor() {
           break;
         }
         case 'Delete': case 'Backspace':
+          if (deleteSelection()) break;
           if (st.selectedTrackId) { trackOps.remove(st.selectedTrackId); break; }
           if (st.selectedOverlayId) {
             const gone = new Set([st.selectedOverlayId, ...st.extraOverlayIds]); // everything picked in the preview goes together
@@ -276,7 +297,7 @@ export function Editor() {
           if (st.selectedClipId) { clipOps.remove(st.selectedClipId); break; }
           if (sel) { st.setCaptions(p.captions.filter((c) => c.id !== sel.id)); st.select(null); }
           break;
-        case 'Escape': st.select(null); st.selectClip(null); st.selectAdj(null); st.selectOverlay(null); st.selectTrack(null); break;
+        case 'Escape': st.select(null); st.selectClip(null); st.selectAdj(null); st.selectOverlay(null); st.selectTrack(null); st.setMulti([]); break;
       }
     };
     window.addEventListener('keydown', onKey);
@@ -284,7 +305,7 @@ export function Editor() {
   }, []);
 
   return (
-    <div className="flex h-full flex-col bg-stage">
+    <div className="flex h-full flex-col overflow-clip bg-stage">
       <header className="relative flex h-12 shrink-0 items-center gap-2 px-3">
         <IconButton label="All projects" onClick={() => { location.hash = ''; }}><ArrowLeft /></IconButton>
         <Logo size={24} />

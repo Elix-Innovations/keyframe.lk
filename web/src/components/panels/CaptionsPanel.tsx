@@ -1,6 +1,6 @@
 import { memo, useEffect, useRef, useState } from 'react';
 import { nanoid } from 'nanoid';
-import { AudioLines, Bold, ChevronDown, FileUp, Languages, Play, Plus, Replace, RotateCcw, Sparkles, Trash2, WandSparkles, X } from '@/components/icons';
+import { AudioLines, Bold, ChevronDown, Italic, FileUp, Languages, Play, Plus, Replace, RotateCcw, Sparkles, Trash2, WandSparkles, X } from '@/components/icons';
 import { Minus } from '@/components/icons-audio';
 import { Toggle as UiToggle } from '@/components/ui/toggle';
 import type { Caption, CaptionStyle, DeepPartial, HealthResponse, TextCase, Word } from '@/types';
@@ -50,8 +50,8 @@ function Generate() {
 
   async function run() {
     if (!project.videoAssetId) return;
-    // An edited timeline is transcribed from its own audio so caption times match the cuts.
-    const blob = isSimple(project) ? await getBlob(project.videoAssetId) : await renderVoiceWav(project).catch(() => undefined);
+    // An edited timeline, or one with sound tracks, is transcribed from its own audio so captions match what is heard and the cuts.
+    const blob = isSimple(project) && !project.audio.tracks.length ? await getBlob(project.videoAssetId) : await renderVoiceWav(project).catch(() => undefined);
     if (!blob) { notify('Could not read the timeline audio.', 'error'); return; }
     abort.current = new AbortController();
     setStage({ label: 'Uploading', progress: 0 });
@@ -369,7 +369,18 @@ function CaptionStyleBox({ c, onChange }: { c: Caption; onChange: (c: Caption) =
   const base = useEditor((s) => s.project!.style);
   const o = c.styleOverride ?? {};
   const eff: CaptionStyle = merge(base, o);
-  const set = (patch: DeepPartial<CaptionStyle>) => onChange({ ...c, styleOverride: merge(o, patch) });
+  const set = (patch: DeepPartial<CaptionStyle>) => {
+    onChange({ ...c, styleOverride: merge(o, patch) });
+    // Captions grouped with ⌘G move together: shift the rest of the group by the same amount.
+    const nx = patch.layout?.x, ny = patch.layout?.y;
+    if (c.groupId && (nx !== undefined || ny !== undefined)) {
+      const st = useEditor.getState(), lay = st.project!.style.layout;
+      const dx = nx !== undefined ? nx - eff.layout.x : 0, dy = ny !== undefined ? ny - eff.layout.y : 0;
+      const r = (v: number) => Math.round(v * 10) / 10;
+      st.setCaptions(st.project!.captions.map((m) => m.groupId !== c.groupId || m.id === c.id ? m
+        : { ...m, styleOverride: { ...m.styleOverride, layout: { ...m.styleOverride?.layout, x: r((m.styleOverride?.layout?.x ?? lay.x) + dx), y: r((m.styleOverride?.layout?.y ?? lay.y) + dy) } } }), 'group-layout');
+    }
+  };
   const drop = (section: 'layout' | 'text', key: string) => {
     const sec = { ...(o[section] as Record<string, unknown> | undefined) };
     delete sec[key];
@@ -383,9 +394,9 @@ function CaptionStyleBox({ c, onChange }: { c: Caption; onChange: (c: Caption) =
   const custom = !!(o.layout || o.text);
   return (
     <div onClick={(e) => e.stopPropagation()} className="mt-2 flex flex-col gap-1 rounded-lg border bg-muted/30 p-2.5 text-xs">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-1">
         <span className="font-medium">This caption</span>
-        <div className="flex gap-1">
+        <div className="flex flex-wrap gap-1">
           {c.words.some((w) => IS_SI.test(w.text)) && <EnglishButton captionIds={[c.id]} />}
           <Button variant="ghost" size="xs" onClick={() => copyCaptionStyle(c.id)}>Copy style</Button>
           <Button variant="ghost" size="xs" onClick={() => pasteCaptionStyle([c.id])}>Paste style</Button>
@@ -416,6 +427,14 @@ function CaptionStyleBox({ c, onChange }: { c: Caption; onChange: (c: Caption) =
         <Slider value={Math.round((eff.text.english.fontSize ?? eff.text.fontSize) * (eff.text.english.sizeScale ?? 1))} min={20} max={200}
           onChange={(fontSize) => set({ text: { english: { fontSize, sizeScale: 1 } } })} />
       </Row>
+      {(['sinhala', 'english'] as const).map((sc) => (
+        <Row key={sc} label={sc === 'sinhala' ? 'Sinhala style' : 'English style'} hint="Bold and italic for this script only">
+          <div className="flex items-center gap-1">
+            <UiToggle size="sm" variant="outline" pressed={eff.text[sc].bold ?? eff.text.bold} onPressedChange={(bold) => set({ text: { [sc]: { bold } } })} aria-label={`${sc} bold`}><Bold /></UiToggle>
+            <UiToggle size="sm" variant="outline" pressed={eff.text[sc].italic ?? eff.text.italic} onPressedChange={(italic) => set({ text: { [sc]: { italic } } })} aria-label={`${sc} italic`}><Italic /></UiToggle>
+          </div>
+        </Row>
+      ))}
       <Row label="Sinhala font">
         <FontPicker className="h-8 w-40 text-xs" value={o.text?.sinhalaFont ?? null} script="sinhala" allowInherit="Project font"
           onChange={(id) => (id ? set({ text: { sinhalaFont: id } }) : drop('text', 'sinhalaFont'))} />

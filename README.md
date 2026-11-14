@@ -1,12 +1,131 @@
+<div align="center">
+
+<img src="web/public/logo.png" alt="Keyframe.lk logo" width="96" height="96" />
+
 # Keyframe.lk
 
-A Sinhala auto-caption editor for short-form video (Reels, TikTok, Shorts). It transcribes your video, lets you style and animate the captions, and burns them into an MP4. Rendering and export run in your browser, so your videos stay on your computer.
+**Sinhala auto-captions for short-form video. Style, animate and export in your browser.**
 
-Works with Sinhala, English and code-mixed speech ("මම software engineering කරනවා"), Unicode and legacy FM fonts.
+Reels · TikTok · Shorts &nbsp;|&nbsp; සිංහල · English · code-mixed &nbsp;|&nbsp; Unicode + legacy FM fonts
+
+[![CI](https://github.com/nisalnimsara100/keyframe-web/actions/workflows/ci.yml/badge.svg)](https://github.com/nisalnimsara100/keyframe-web/actions/workflows/ci.yml)
+![Next.js](https://img.shields.io/badge/Next.js-16-000000?logo=nextdotjs&logoColor=white)
+![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)
+![TypeScript](https://img.shields.io/badge/TypeScript-7-3178C6?logo=typescript&logoColor=white)
+![Tailwind CSS](https://img.shields.io/badge/Tailwind-4-06B6D4?logo=tailwindcss&logoColor=white)
+![Hono](https://img.shields.io/badge/Hono-API-E36002?logo=hono&logoColor=white)
+![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-service-009688?logo=fastapi&logoColor=white)
+![Electron](https://img.shields.io/badge/Electron-desktop-47848F?logo=electron&logoColor=white)
+
+[Quick start](#-quick-start) · [Features](#-features) · [Guide](#5-your-first-video-step-by-step) · [Shortcuts](#13-keyboard-shortcuts) · [Troubleshooting](#17-troubleshooting) · [Roadmap](docs/ROADMAP.md)
+
+<br />
+
+<img src="docs/images/home.png" alt="Keyframe.lk landing page" width="100%" />
+
+</div>
 
 ---
 
-## Contents
+## ✨ Features
+
+<table>
+<tr>
+<td width="50%" valign="top">
+
+### 🎙️ Auto-captions
+Word-by-word transcription of Sinhala, English and code-mixed speech ("මම software engineering කරනවා") with Gemini, ElevenLabs Scribe or Whisper. Import SRT / VTT / ASS too.
+
+</td>
+<td width="50%" valign="top">
+
+### 🔤 Sinhala-first typography
+25 built-in fonts, your own `.ttf/.otf/.woff2`, and legacy **FM fonts**. Text stays Unicode while you edit and is converted to FM only when drawn.
+
+</td>
+</tr>
+<tr>
+<td valign="top">
+
+### 🎨 Templates, styles and motion
+Animated caption templates, per-word and per-caption styling, highlight modes, 14 entrance animations, overlays, filters, effects and transitions.
+
+</td>
+<td valign="top">
+
+### 🎬 Multi-track timeline
+Video, audio, caption, overlay, filter and effect tracks. Split, trim, snap, ripple delete, speed curves, keyframes, multi-select and groups.
+
+</td>
+</tr>
+<tr>
+<td valign="top">
+
+### 🤖 AI tools
+Emphasis picking, hook lines, B-roll placement, post descriptions, proofreading and Sinhala-script → English word fixing (Gemini or Claude).
+
+</td>
+<td valign="top">
+
+### 🎵 Music and audio
+Jamendo library, beat and BPM detection, auto-ducking under speech, voice enhance, RNNoise noise removal, sound effects, LUFS mastering.
+
+</td>
+</tr>
+<tr>
+<td valign="top">
+
+### 🔒 Local-first export
+MP4 up to 4K rendered on your device with WebCodecs. Preview and export share one renderer, so what you see is what you get.
+
+</td>
+<td valign="top">
+
+### 💸 Cost tracking
+A Usage tab logs every paid API request with tokens and estimated cost in USD and LKR.
+
+</td>
+</tr>
+</table>
+
+## 🖼️ Screenshots
+
+<table>
+<tr>
+<td width="50%"><img src="docs/images/dashboard.png" alt="Projects dashboard" /><p align="center"><b>Projects dashboard</b></p></td>
+<td width="50%"><img src="docs/images/workspace.png" alt="Editor workspace" /><p align="center"><b>Editor: media, preview, inspector and timeline</b></p></td>
+</tr>
+</table>
+
+## 🧰 Tech stack
+
+<p align="center">
+  <img src="https://skillicons.dev/icons?i=nextjs,react,ts,tailwind,nodejs,python,fastapi,electron&theme=dark" alt="Next.js, React, TypeScript, Tailwind, Node.js, Python, FastAPI, Electron" />
+</p>
+
+| Layer | Built with |
+|---|---|
+| Editor (`web/`) | Next.js, React, Zustand, shadcn/ui + Radix, Tailwind CSS, Hugeicons, Mediabunny (WebCodecs) |
+| API (`server/`) | Hono on Node, Anthropic SDK, Gemini / ElevenLabs / OpenAI, ffmpeg |
+| Sinhala service (`python/`) | FastAPI, uv, fontTools, Pillow |
+| Desktop (`desktop/`) | Electron + electron-builder (macOS dmg) |
+
+## 🚀 Quick start
+
+```bash
+git clone https://github.com/nisalnimsara100/keyframe-web.git keyframe
+cd keyframe
+npm run setup      # web + server packages, Python deps, server/.env
+# add GEMINI_API_KEY to server/.env
+npm run dev        # open http://localhost:5180
+```
+
+The full guide follows.
+
+---
+
+## 📚 Contents
 
 1. [What you need](#1-what-you-need)
 2. [Install](#2-install)
@@ -26,6 +145,8 @@ Works with Sinhala, English and code-mixed speech ("මම software engineering 
 16. [Scripts reference](#16-scripts-reference)
 17. [Troubleshooting](#17-troubleshooting)
 18. [Known limits](#18-known-limits)
+19. [Desktop app](#19-desktop-app)
+20. [Contributing](#20-contributing)
 
 ---
 
@@ -44,7 +165,7 @@ Windows / Linux: install the same tools from their websites or your package mana
 ## 2. Install
 
 ```bash
-git clone <your-repo-url> keyframe
+git clone https://github.com/nisalnimsara100/keyframe-web.git keyframe
 cd keyframe
 
 npm run setup          # installs web + server packages, Python deps, and creates server/.env
@@ -270,6 +391,7 @@ keyframe/
 │   │                         english-words.ts (free Sinhala-script → English list)
 │   ├── src/audio/            mix graph, loudness, sound effects, audio render
 │   └── src/components/       UI on shadcn/ui + Hugeicons (panels, preview, timeline, converter)
+├── desktop/                  Electron wrapper (macOS app)
 ├── server/                   Hono API on Node
 │   ├── src/transcribe.ts     ffmpeg → Gemini / ElevenLabs / Whisper
 │   ├── src/ai.ts             AI features (Claude or Gemini)
@@ -318,3 +440,28 @@ Run from the repo root:
 - Word-appear sound effects are not implemented.
 - Cost figures are estimates from list prices, not your actual bill.
 - Re-segmenting (changing Caption length) resets per-caption position/font overrides.
+
+## 19. Desktop app
+
+`desktop/` wraps the built editor and API in an Electron app for macOS (Apple silicon).
+
+```bash
+cd desktop
+npm install
+npm start          # run in Electron
+npm run dist       # build the app and a .dmg into desktop/dist
+```
+
+## 20. Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md). Run `npm run typecheck` and `npm run test:py` before opening a PR; CI runs the same. Please also read the [Code of Conduct](CODE_OF_CONDUCT.md) and report vulnerabilities as described in [SECURITY.md](SECURITY.md).
+
+<div align="center">
+
+<br />
+
+Made in Sri Lanka 🇱🇰 for Sinhala creators.
+
+<a href="#keyframelk">↑ Back to top</a>
+
+</div>

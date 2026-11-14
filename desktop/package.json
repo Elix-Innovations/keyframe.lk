@@ -1,0 +1,30 @@
+{
+  "name": "keyframe-desktop",
+  "productName": "Keyframe",
+  "version": "1.0.0",
+  "description": "Keyframe.lk video editor",
+  "main": "main.js",
+  "author": "Keyframe",
+  "scripts": {
+    "prepare:app": "node scripts/prepare.mjs",
+    "start": "electron .",
+    "dist": "npm run prepare:app && electron-builder --mac dmg"
+  },
+  "build": {
+    "appId": "lk.keyframe.desktop",
+    "productName": "Keyframe",
+    "directories": { "output": "dist" },
+    "files": ["main.js", "package.json"],
+    "extraResources": [
+      { "from": "build/web", "to": "web" },
+      { "from": "build/server", "to": "server" }
+    ],
+    "mac": { "icon": "icon.png", "category": "public.app-category.video", "target": [{ "target": "dmg", "arch": ["arm64"] }], "identity": null },
+    "dmg": { "title": "Install Keyframe" }
+  },
+  "devDependencies": {
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8",
+    "esbuild": "^0.24.0"
+  }
+}

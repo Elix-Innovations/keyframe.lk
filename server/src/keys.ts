@@ -10,7 +10,10 @@ import { HttpError } from './errors.js';
 export const KEY_NAMES = ['GEMINI_API_KEY', 'ELEVENLABS_API_KEY', 'OPENAI_API_KEY', 'ANTHROPIC_API_KEY'] as const;
 type KeyName = (typeof KEY_NAMES)[number];
 
-const ENV_FILE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '.env');
+// KEYFRAME_DATA_DIR is set by the desktop app so keys live in a writable per-user folder.
+const ENV_FILE = process.env.KEYFRAME_DATA_DIR
+  ? path.join(process.env.KEYFRAME_DATA_DIR, '.env')
+  : path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '.env');
 
 export interface KeyInfo { set: boolean; hint: string }
 

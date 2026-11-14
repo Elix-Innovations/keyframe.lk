@@ -20,6 +20,7 @@ import { FontImport } from '../FontImport';
 import { findTemplate } from '@/lib/templateApply';
 import { overlayOps } from '../OverlayLane';
 import { TemplateEditor } from './TemplateEditor';
+import { ScreenEdit } from './ScreenPanel';
 import { DisplayControls } from './DisplayPanel';
 import { nanoid } from 'nanoid';
 import * as db from '@/lib/db';
@@ -95,7 +96,8 @@ export function OverlayItemPanel() {
           options={[{ value: 'edit', label: text ? 'Text' : 'Edit' }, ...(o.tpl ? [{ value: 'style' as const, label: 'Style' }, ...(o.tpl.style.creative ? [] : [{ value: 'display' as const, label: 'Display' }])] : []), { value: 'layout', label: 'Layout' }, { value: 'motion', label: 'Motion' }, { value: 'timing', label: 'Timing' }]} />
       </div>
       {tab === 'edit' && o.kind === 'motion' && <MotionEdit o={o} patch={patch} />}
-      {tab === 'edit' && o.kind !== 'motion' && <>
+      {tab === 'edit' && o.kind === 'screen' && <ScreenEdit o={o} patch={patch} />}
+      {tab === 'edit' && o.kind !== 'motion' && o.kind !== 'screen' && <>
       <Section title={text ? 'Text' : o.tpl ? 'Template text' : o.kind === 'sticker' ? 'Sticker' : 'Image'}>
         {o.tpl && <p className="text-[11px] text-muted-foreground">Text template layer. Edit the words below (put *stars* around a word to emphasise it); size, position, rotation and timing work like any text. Use Timing → “Whole video” to cover the entire video.</p>}
         {o.kind !== 'image' && (
@@ -160,7 +162,19 @@ export function OverlayItemPanel() {
       <DisplayControls style={o.tpl.style} preview
         setStyle={(fn, key) => patch({ tpl: { ...o.tpl!, style: fn(o.tpl!.style) } }, key && `tpl-${key}`)} />
       </>}
-      {tab === 'layout' && <>
+      {tab === 'layout' && o.kind === 'screen' && <>
+      <Section title="Look">
+        <Row label="Opacity"><Slider value={Math.round(o.opacity * 100)} min={0} max={100} format={(v) => `${v}%`} onChange={(v) => patch({ opacity: v / 100 }, 'op')} /></Row>
+        <Row label="Blend">
+          <Select value={o.blend ?? 'normal'} onValueChange={(blend) => patch({ blend: blend as OverlayItem['blend'] })}>
+            <SelectTrigger size="sm" className="w-32"><SelectValue /></SelectTrigger>
+            <SelectContent>{BLENDS.map((b) => <SelectItem key={b.id} value={b.id}>{b.label}</SelectItem>)}</SelectContent>
+          </Select>
+        </Row>
+        <p className="text-[11px] text-muted-foreground">Position and size come from the four corners: drag them in the preview.</p>
+      </Section>
+      </>}
+      {tab === 'layout' && o.kind !== 'screen' && <>
       <Section title="Position">
         <Row label="Align to frame" hint="Centres this item, and every other item picked in the preview, on the frame.">
           <Button size="xs" variant="secondary" onClick={() => alignPicked({ x: 50 })}>Centre ↔</Button>
@@ -182,7 +196,8 @@ export function OverlayItemPanel() {
         </Row>
       </Section>
       </>}
-      {tab === 'motion' && <>
+      {tab === 'motion' && o.kind === 'screen' && <Section title="Motion"><p className="text-[11px] text-muted-foreground">The feed moves with the screen corners and the Scroll settings in the Edit tab.</p></Section>}
+      {tab === 'motion' && o.kind !== 'screen' && <>
       <AnimGrid value={o} maxLen={o.duration} sample={sampleBase(o)} onChange={(p, key) => patch(p, key)} />
       <Section title="Playback speed">
         <Row label="Speed" hint="How fast the loop animation and keyframes play."><Slider value={o.speed ?? 1} min={0.25} max={4} step={0.05} format={(v) => `${v.toFixed(2)}×`} onChange={(speed) => patch({ speed }, 'spd')} /></Row>

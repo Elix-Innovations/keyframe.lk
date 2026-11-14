@@ -6,7 +6,7 @@ import { DEFAULT_STYLE } from './lib/style';
 import { segmentWords, normalizeCaptions } from './lib/segment';
 import { migrateVideo } from './lib/videoFx';
 import { brollOverlay } from './lib/overlays';
-import { clipsFromLegacy, withClips } from './lib/clips';
+import { captionsFollowClips, clipsFromLegacy, closeMainGaps, withClips } from './lib/clips';
 import { migrateLayers } from './lib/layers';
 import * as db from './lib/db';
 
@@ -45,7 +45,10 @@ export function migrateProject(p: Project): Project {
     migrated.overlays = list;
     migrated.broll = [];
   }
-  const withC = migrateLayers(migrated.clips ? migrated : withClips(migrated, clipsFromLegacy(migrated)));
+  const base = migrateLayers(migrated.clips ? migrated : withClips(migrated, clipsFromLegacy(migrated)));
+  // The main video track has no gaps: close any a saved project still has, taking its captions along.
+  const packed = closeMainGaps(base.clips ?? []);
+  const withC = packed === (base.clips ?? []) ? base : { ...withClips(base, packed), captions: captionsFollowClips(base.captions, base.clips ?? [], packed) };
   // Filters, effects, transitions and keyframes used to be project-wide; they now live on each video clip.
   const legacy = p.video;
   const give = !!legacy && (legacy.effects?.length || legacy.keyframes?.length || legacy.presetId || legacy.transitionIn?.id !== 'none' || legacy.transitionOut?.id !== 'none');
@@ -104,6 +107,13 @@ interface EditorState {
   selectedOverlayId: string | null;
   /** Overlays selected along with `selectedOverlayId` (shift-click, drag-select in the preview). */
   extraOverlayIds: string[];
+  /** Timeline multi-selection (clips, overlays, filter / effect blocks), primary included. Empty when at most one item is selected. */
+  multiIds: string[];
+  setMulti: (ids: string[]) => void;
+  /** Preview range like Premiere's In / Out points (seconds); null when unset. */
+  markIn: number | null;
+  markOut: number | null;
+  setMarks: (markIn: number | null, markOut: number | null) => void;
   /** Selected audio track (music or sound effect). */
   selectedTrackId: string | null;
   /** Deleting a clip closes the gap it leaves. */
@@ -192,6 +202,9 @@ export const useEditor = create<EditorState>((set, get) => ({
   selectedAdjId: null,
   selectedOverlayId: null,
   extraOverlayIds: [],
+  multiIds: [],
+  markIn: null,
+  markOut: null,
   selectedTrackId: null,
   rippleDelete: false,
   setRippleDelete: (rippleDelete) => set({ rippleDelete }),
@@ -205,7 +218,7 @@ export const useEditor = create<EditorState>((set, get) => ({
   load: (p) => {
     void saveNow(); // switching projects: keep the previous one's pending edits
     rememberLastProject(p.id);
-    set({ project: migrateProject(p), past: [], future: [], time: 0, playing: false, before: false, selectedCaptionId: null, selectedClipId: null, selectedAdjId: null, selectedOverlayId: null, extraOverlayIds: [], selectedTrackId: null, dirty: false, savedAt: p.updatedAt });
+    set({ project: migrateProject(p), past: [], future: [], time: 0, playing: false, before: false, selectedCaptionId: null, selectedClipId: null, selectedAdjId: null, selectedOverlayId: null, extraOverlayIds: [], multiIds: [], markIn: null, markOut: null, selectedTrackId: null, dirty: false, savedAt: p.updatedAt });
   },
   close: () => {
     void saveNow();
@@ -259,15 +272,34 @@ export const useEditor = create<EditorState>((set, get) => ({
   setTime: (t) => set({ time: t }),
   setPlaying: (playing) => set({ playing }),
   setBefore: (before) => set({ before }),
-  select: (id) => set({ extraOverlayIds: [], selectedTrackId: id ? null : get().selectedTrackId, selectedCaptionId: id, selectedClipId: id ? null : get().selectedClipId, selectedAdjId: id ? null : get().selectedAdjId, selectedOverlayId: id ? null : get().selectedOverlayId }),
-  selectClip: (id) => set({ extraOverlayIds: [], selectedTrackId: id ? null : get().selectedTrackId, selectedClipId: id, selectedCaptionId: id ? null : get().selectedCaptionId, selectedAdjId: id ? null : get().selectedAdjId, selectedOverlayId: id ? null : get().selectedOverlayId }),
-  selectAdj: (id) => set({ extraOverlayIds: [], selectedTrackId: id ? null : get().selectedTrackId, selectedAdjId: id, selectedClipId: id ? null : get().selectedClipId, selectedCaptionId: id ? null : get().selectedCaptionId, selectedOverlayId: id ? null : get().selectedOverlayId }),
-  selectOverlay: (id) => set({ extraOverlayIds: [], selectedTrackId: id ? null : get().selectedTrackId, selectedOverlayId: id, selectedClipId: id ? null : get().selectedClipId, selectedCaptionId: id ? null : get().selectedCaptionId, selectedAdjId: id ? null : get().selectedAdjId }),
-  selectTrack: (id) => set({ extraOverlayIds: [], selectedTrackId: id, selectedClipId: id ? null : get().selectedClipId, selectedCaptionId: id ? null : get().selectedCaptionId, selectedAdjId: id ? null : get().selectedAdjId, selectedOverlayId: id ? null : get().selectedOverlayId }),
-  setOverlaySelection: (ids) => set({ selectedOverlayId: ids[0] ?? null, extraOverlayIds: ids.slice(1), selectedTrackId: null, selectedClipId: null, selectedCaptionId: null, selectedAdjId: null }),
+  select: (id) => set({ extraOverlayIds: [], multiIds: [], selectedTrackId: id ? null : get().selectedTrackId, selectedCaptionId: id, selectedClipId: id ? null : get().selectedClipId, selectedAdjId: id ? null : get().selectedAdjId, selectedOverlayId: id ? null : get().selectedOverlayId }),
+  selectClip: (id) => set({ extraOverlayIds: [], multiIds: [], selectedTrackId: id ? null : get().selectedTrackId, selectedClipId: id, selectedCaptionId: id ? null : get().selectedCaptionId, selectedAdjId: id ? null : get().selectedAdjId, selectedOverlayId: id ? null : get().selectedOverlayId }),
+  selectAdj: (id) => set({ extraOverlayIds: [], multiIds: [], selectedTrackId: id ? null : get().selectedTrackId, selectedAdjId: id, selectedClipId: id ? null : get().selectedClipId, selectedCaptionId: id ? null : get().selectedCaptionId, selectedOverlayId: id ? null : get().selectedOverlayId }),
+  selectOverlay: (id) => set({ extraOverlayIds: [], multiIds: [], selectedTrackId: id ? null : get().selectedTrackId, selectedOverlayId: id, selectedClipId: id ? null : get().selectedClipId, selectedCaptionId: id ? null : get().selectedCaptionId, selectedAdjId: id ? null : get().selectedAdjId }),
+  selectTrack: (id) => set({ extraOverlayIds: [], multiIds: [], selectedTrackId: id, selectedClipId: id ? null : get().selectedClipId, selectedCaptionId: id ? null : get().selectedCaptionId, selectedAdjId: id ? null : get().selectedAdjId, selectedOverlayId: id ? null : get().selectedOverlayId }),
+  setMarks: (markIn, markOut) => set({ markIn, markOut }),
+  setMulti: (ids) => {
+    const p = get().project;
+    if (!p) return;
+    const kindOf = (id: string) => ((p.clips ?? []).some((c) => c.id === id) ? 'clip' : (p.overlays ?? []).some((o) => o.id === id) ? 'overlay' : (p.adj ?? []).some((a) => a.id === id) ? 'adj'
+      : p.captions.some((c) => c.id === id) ? 'caption' : p.audio.tracks.some((t) => t.id === id) ? 'track' : null);
+    const uniq = [...new Set(ids)].filter(kindOf);
+    const first = uniq[0], k = first ? kindOf(first) : null;
+    set({
+      multiIds: uniq.length > 1 ? uniq : [],
+      selectedClipId: k === 'clip' ? first : null, selectedOverlayId: k === 'overlay' ? first : null, selectedAdjId: k === 'adj' ? first : null,
+      extraOverlayIds: uniq.filter((id) => id !== first && kindOf(id) === 'overlay'),
+      selectedTrackId: k === 'track' ? first : null, selectedCaptionId: k === 'caption' ? first : null,
+    });
+  },
+  setOverlaySelection: (ids) => set({ selectedOverlayId: ids[0] ?? null, extraOverlayIds: ids.slice(1), multiIds: [], selectedTrackId: null, selectedClipId: null, selectedCaptionId: null, selectedAdjId: null }),
   setOverlays: (fn, coalesce) => get().update((p) => ({ ...p, overlays: fn(p.overlays ?? []) }), coalesce),
   setAdj: (fn, coalesce) => get().update((p) => ({ ...p, adj: fn(p.adj ?? []) }), coalesce),
-  setClips: (fn, coalesce) => get().update((p) => withClips(p, fn(p.clips ?? [])), coalesce),
+  setClips: (fn, coalesce) => get().update((p) => {
+    const before = p.clips ?? [];
+    const after = closeMainGaps(fn(before));
+    return { ...withClips(p, after), captions: captionsFollowClips(p.captions, before, after) };
+  }, coalesce),
   setPanel: (panel) => set((s) => ({
     panel,
     lastLeft: LEFT_PANELS.includes(panel) ? panel : s.lastLeft,

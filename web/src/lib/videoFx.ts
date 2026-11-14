@@ -1,5 +1,5 @@
 import { nanoid } from 'nanoid';
-import type { Ease, EffectInstance, LaneState, MatteSettings, Project, RegionBlur, TransitionId, VideoFilters, VideoKeyframe, VideoLayer } from '../types';
+import type { Ease, EffectInstance, LaneState, MatteSettings, Project, PropKf, RegionBlur, TransitionId, VideoFilters, VideoKeyframe, VideoLayer } from '../types';
 
 export const HSL_BANDS = ['Red', 'Orange', 'Yellow', 'Green', 'Aqua', 'Blue', 'Purple', 'Magenta'] as const;
 const HSL_NEUTRAL = Object.fromEntries(HSL_BANDS.flatMap((b) => [`hue${b}`, `sat${b}`, `lum${b}`].map((k) => [k, 0])));
@@ -248,6 +248,27 @@ export function transformAt(kfs: VideoKeyframe[], t: number, base: Transform = I
   const u = applyEase(a.ease, (t - a.t) / Math.max(1e-6, b.t - a.t));
   const mix = (p: number, q: number) => p + (q - p) * u;
   return { scale: mix(a.scale, b.scale), x: mix(a.x, b.x), y: mix(a.y, b.y), rotation: mix(a.rotation, b.rotation), opacity: mix(a.opacity, b.opacity) };
+}
+
+/** Value of a keyframed number at time t: held before the first and after the last, eased between. */
+export function propAt(kfs: PropKf[] | undefined, t: number, fallback: number): number {
+  if (!kfs?.length) return fallback;
+  const ks = [...kfs].sort((a, b) => a.t - b.t);
+  if (t <= ks[0].t) return ks[0].v;
+  const last = ks[ks.length - 1];
+  if (t >= last.t) return last.v;
+  let i = 0;
+  while (ks[i + 1].t < t) i++;
+  const a = ks[i], b = ks[i + 1];
+  return a.v + (b.v - a.v) * applyEase(a.ease, (t - a.t) / Math.max(1e-6, b.t - a.t));
+}
+
+/** The layer's colour sliders at clip time t, with keyframed ones evaluated. */
+export function liveFilters(layer: Pick<VideoLayer, 'filters' | 'fkf'>, t: number): VideoFilters {
+  if (!layer.fkf) return layer.filters;
+  const out = { ...layer.filters } as Record<string, unknown>;
+  for (const [k, kfs] of Object.entries(layer.fkf)) if (kfs.length && typeof out[k] === 'number') out[k] = propAt(kfs, t, out[k] as number);
+  return out as unknown as VideoFilters;
 }
 
 export const newKeyframe = (t: number, from: Transform): VideoKeyframe => ({ id: nanoid(8), t, ...from, ease: 'easeInOut' });

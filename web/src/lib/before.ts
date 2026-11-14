@@ -8,7 +8,7 @@ let last: { from: Project; to: Project } | null = null;
 /** The project without its enhancements (noise removal, voice enhance, grade, filters, effects, matte, blurs), for the preview's Before toggle. Never exported. */
 export function beforeProject(p: Project): Project {
   if (last?.from === p) return last.to;
-  const { denoise: _d, ...original } = p.audio.original;
+  const { denoise: _d, denoiseBy: _db, ...original } = p.audio.original;
   const to: Project = {
     ...p,
     audio: { ...p.audio, original: { ...original, enhance: false } },

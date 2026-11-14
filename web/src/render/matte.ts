@@ -1,6 +1,8 @@
-import type { MatteSettings, RegionBlur, VideoLayer } from '../types';
+import type { Clip, MatteSettings, RegionBlur, VideoLayer } from '../types';
+import { sourceTimeAt } from '../lib/clips';
 import type { Ctx2D } from './captions';
 import type { FrameSource } from './compose';
+import { useEditor } from '../store';
 
 /**
  * Per-clip background removal and blur, applied to the source frame before the clip is cropped, transformed and filtered.
@@ -70,16 +72,14 @@ export function loadSegmenter(): Promise<void> {
 const ORT = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.20.1/dist';
 const MODNET = 'https://huggingface.co/Xenova/modnet/resolve/main/onnx/model.onnx';
 
-interface OrtSession { inputNames: string[]; outputNames: string[]; run(feeds: Record<string, unknown>): Promise<Record<string, { data: Float32Array; dims: number[] }>> }
-interface OrtLib { Tensor: new (type: string, data: Float32Array, dims: number[]) => unknown; env: { logLevel: string; wasm: { wasmPaths: string; numThreads: number } }; InferenceSession: { create(model: ArrayBuffer | string, opts: unknown): Promise<OrtSession> } }
-
-let ortLib: OrtLib | null = null;
-let modnet: OrtSession | null = null;
+let worker: Worker | null = null;
 let preciseState: SegmenterState = 'idle';
 let preciseLoading: Promise<void> | null = null;
 let preciseError = '';
 let preciseProgress = 0;
 let preciseBackend = '';
+let jobId = 0;
+const jobs = new Map<number, { ok: (m: PreciseMask) => void; no: (e: Error) => void }>();
 
 export const preciseStatus = () => ({ state: preciseState, error: preciseError, progress: preciseProgress, backend: preciseBackend });
 
@@ -88,45 +88,26 @@ export function loadPrecise(): Promise<void> {
   if (preciseLoading) return preciseLoading;
   preciseState = 'loading'; preciseProgress = 0;
   listeners.forEach((l) => l());
-  preciseLoading = (async () => {
-    try {
-      ortLib = (await import(/* webpackIgnore: true */ /* turbopackIgnore: true */ `${ORT}/ort.all.min.mjs`)) as unknown as OrtLib;
-      ortLib.env.wasm.wasmPaths = `${ORT}/`;
-      ortLib.env.wasm.numThreads = typeof crossOriginIsolated !== 'undefined' && crossOriginIsolated ? Math.min(4, navigator.hardwareConcurrency || 2) : 1;
-      // Download the model with progress, and keep it in the browser's cache so later sessions start at once.
-      let cache: Cache | null = null;
-      try { cache = await caches.open('keyframe-models'); } catch { /* private window: no cache */ }
-      let res = (await cache?.match(MODNET)) ?? null;
-      if (!res) {
-        res = await fetch(MODNET);
-        if (!res.ok) throw new Error(`The matting model could not be downloaded (${res.status}).`);
-        void cache?.put(MODNET, res.clone()).catch(() => undefined);
-      }
-      const total = Number(res.headers.get('content-length')) || 25_888_640;
-      const reader = res.body!.getReader();
-      const parts: Uint8Array[] = [];
-      let got = 0;
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        parts.push(value); got += value.length;
-        preciseProgress = Math.min(1, got / total);
-        listeners.forEach((l) => l());
-      }
-      const buf = new Uint8Array(got);
-      let o = 0;
-      for (const c of parts) { buf.set(c, o); o += c.length; }
-      ortLib.env.logLevel = 'error'; // the "nodes assigned to CPU" notices are harmless but land in the console as errors
-      try { modnet = await ortLib.InferenceSession.create(buf.buffer, { executionProviders: ['webgpu', 'wasm'], logSeverityLevel: 3 }); preciseBackend = 'GPU'; }
-      catch { modnet = await ortLib.InferenceSession.create(buf.buffer, { executionProviders: ['wasm'], logSeverityLevel: 3 }); preciseBackend = 'CPU'; }
-      preciseState = 'ready';
-    } catch (e) {
-      preciseState = 'error';
-      preciseError = (e as Error).message || 'The matting model could not be loaded. Check your internet connection.';
-      preciseLoading = null;
-    }
-    listeners.forEach((l) => l());
-  })();
+  preciseLoading = new Promise<void>((resolve) => {
+    const w = new Worker(new URL('./modnet.worker.ts', import.meta.url), { type: 'module' });
+    const fail = (message: string) => {
+      preciseState = 'error'; preciseError = message; preciseLoading = null;
+      w.terminate(); worker = null;
+      jobs.forEach((j) => j.no(new Error(message))); jobs.clear();
+      listeners.forEach((l) => l()); resolve();
+    };
+    w.onmessage = (e: MessageEvent) => {
+      const m = e.data;
+      if (m.type === 'progress') { preciseProgress = m.p; listeners.forEach((l) => l()); }
+      else if (m.type === 'ready') { preciseBackend = m.backend; preciseState = 'ready'; listeners.forEach((l) => l()); resolve(); }
+      else if (m.type === 'error') fail(m.message);
+      else if (m.type === 'result') { jobs.get(m.id)?.ok({ alpha: m.alpha, w: m.w, h: m.h }); jobs.delete(m.id); }
+      else if (m.type === 'fail') { jobs.get(m.id)?.no(new Error(m.message)); jobs.delete(m.id); }
+    };
+    w.onerror = () => fail('The matting worker could not start.');
+    worker = w;
+    w.postMessage({ type: 'load', ort: ORT, model: MODNET, threads: typeof crossOriginIsolated !== 'undefined' && crossOriginIsolated ? Math.min(4, navigator.hardwareConcurrency || 2) : 1 });
+  });
   return preciseLoading;
 }
 
@@ -180,35 +161,25 @@ function assistWithFast(m: { alpha: Uint8Array; w: number; h: number }, frame: C
   } catch { /* fast engine unavailable: keep the matting result as is */ }
 }
 
-/** MODNet alpha for a frame, 0..255 per pixel, at about 512 px on the short side. */
+/** MODNet alpha for a frame, 0..255 per pixel, at about 512 px on the short side. The model runs in a worker. */
 async function runModnet(frame: Cvs): Promise<PreciseMask> {
-  const ort = ortLib!, sess = modnet!;
-  const fw = frame.width, fh = frame.height;
-  const k = 512 / Math.min(fw, fh);
-  const iw = Math.max(32, Math.round((fw * k) / 32) * 32), ih = Math.max(32, Math.round((fh * k) / 32) * 32);
-  const t = make(iw, ih), tx = ctxOf(t);
-  tx.imageSmoothingQuality = 'high';
-  tx.drawImage(frame as CanvasImageSource, 0, 0, iw, ih);
-  const px = tx.getImageData(0, 0, iw, ih).data;
-  const n = iw * ih, input = new Float32Array(3 * n);
-  for (let i = 0; i < n; i++) {
-    input[i] = px[i * 4] / 127.5 - 1;
-    input[n + i] = px[i * 4 + 1] / 127.5 - 1;
-    input[2 * n + i] = px[i * 4 + 2] / 127.5 - 1;
-  }
-  const out = await sess.run({ [sess.inputNames[0]]: new ort.Tensor('float32', input, [1, 3, ih, iw]) });
-  const a = out[sess.outputNames[0]].data;
-  const alpha = new Uint8Array(n);
-  for (let i = 0; i < n; i++) alpha[i] = a[i] <= 0 ? 0 : a[i] >= 1 ? 255 : Math.round(a[i] * 255);
-  const out2 = { alpha, w: iw, h: ih };
-  assistWithFast(out2, frame);
-  return out2;
+  const bitmap = await createImageBitmap(frame as ImageBitmap | OffscreenCanvas | HTMLCanvasElement);
+  const id = ++jobId;
+  const out = await new Promise<PreciseMask>((ok, no) => { jobs.set(id, { ok, no }); worker!.postMessage({ type: 'run', id, bitmap }, [bitmap]); });
+  assistWithFast(out, frame);
+  return out;
 }
 
 interface PreciseMask { alpha: Uint8Array; w: number; h: number }
 
 /** Set by the preview each frame: while playing, an unprepared clip uses the fast engine so the mask never lags the picture. */
 export const matteHints = { playing: false };
+
+/** Background cut-out work calls this between frames: it hands the main thread back, and holds still while the preview plays. */
+export async function yieldToPlayback() {
+  while (useEditor.getState().playing) await new Promise((r) => setTimeout(r, 250));
+  await new Promise((r) => setTimeout(r, 0));
+}
 
 const GRID = 30; // matte frames per second of source video
 const gridKey = (t: number) => Math.round(t * GRID);
@@ -323,6 +294,7 @@ export async function prepareCutout(asset: string, blob: Blob, from: number, to:
     let prev: Uint8Array | null = null, i = 0;
     for await (const wrapped of sink.canvasesAtTimestamps(ts)) {
       ctl.signal.throwIfAborted();
+      await yieldToPlayback();
       const k = first + i++;
       if (wrapped) {
         const m = await runModnet(wrapped.canvas);
@@ -349,12 +321,12 @@ export const forgetCutout = (asset: string) => { stores.get(asset)?.abort?.abort
  * Export: make sure the matte of every clip with the precise cut-out that shows at `t` is ready, so the synchronous
  * frame composer finds it. Prepared clips are just unpacked; others are computed here, frame by frame.
  */
-export async function warmMattes(clips: { id: string; assetId: string; fx?: VideoLayer; start: number; duration: number; kind: string; in: number; speed: number; freeze?: boolean }[], t: number, frameFor: (id: string) => FrameSource | null) {
+export async function warmMattes(clips: { id: string; assetId: string; fx?: VideoLayer; start: number; duration: number; kind: string; in: number; speed: number; freeze?: boolean; curve?: unknown; sourceDuration?: number }[], t: number, frameFor: (id: string) => FrameSource | null) {
   for (const c of clips) {
     const m = c.fx?.matte;
     if (c.kind !== 'video' || !m || m.mode !== 'ai' || (m.engine ?? 'precise') !== 'precise') continue;
     if (t < c.start - 1e-6 || t >= c.start + c.duration - 1e-6) continue;
-    const st = storeOf(c.assetId), srcT = c.freeze ? c.in : c.in + (t - c.start) * c.speed, k = gridKey(srcT);
+    const st = storeOf(c.assetId), srcT = sourceTimeAt(c as unknown as Clip, t), k = gridKey(srcT);
     if (st.live.has(k)) continue;
     if (st.packed.has(k)) { await unpack(st, k); continue; }
     const src = frameFor(c.id);
@@ -500,6 +472,76 @@ function applyRegion(w: Work, r: RegionBlur) {
   out.drawImage(w.blur as CanvasImageSource, 0, 0);
 }
 
+
+/** Sum of a (2r+1) square window around every pixel (windows are clipped at the borders); returns the sums and the window sizes via `full`. */
+function windowSum(a: Uint8Array, w: number, h: number, r: number): Int32Array {
+  const tmp = new Int32Array(w * h), out = new Int32Array(w * h);
+  for (let y = 0; y < h; y++) {
+    const row = y * w;
+    let acc = 0;
+    for (let x = 0; x < Math.min(w, r); x++) acc += a[row + x];
+    for (let x = 0; x < w; x++) {
+      if (x + r < w) acc += a[row + x + r];
+      if (x - r - 1 >= 0) acc -= a[row + x - r - 1];
+      tmp[row + x] = acc;
+    }
+  }
+  for (let x = 0; x < w; x++) {
+    let acc = 0;
+    for (let y = 0; y < Math.min(h, r); y++) acc += tmp[y * w + x];
+    for (let y = 0; y < h; y++) {
+      if (y + r < h) acc += tmp[(y + r) * w + x];
+      if (y - r - 1 >= 0) acc -= tmp[(y - r - 1) * w + x];
+      out[y * w + x] = acc;
+    }
+  }
+  return out;
+}
+
+/** Grow (dilate) or shrink (erode) a 0/1 mask by r px. Erosion treats the area outside the frame as set. */
+function morphBin(a: Uint8Array, w: number, h: number, r: number, erode: boolean): Uint8Array {
+  const s = windowSum(a, w, h, r), out = new Uint8Array(w * h);
+  for (let y = 0; y < h; y++) {
+    const wy = Math.min(h - 1, y + r) - Math.max(0, y - r) + 1;
+    for (let x = 0; x < w; x++) {
+      const i = y * w + x;
+      out[i] = erode ? (s[i] === (Math.min(w - 1, x + r) - Math.max(0, x - r) + 1) * wy ? 1 : 0) : (s[i] > 0 ? 1 : 0);
+    }
+  }
+  return out;
+}
+
+/** Is this colour skin? YCbCr box (works across skin tones, rejects dark phones, grey walls, blue sleeves) plus red dominance. */
+const isSkin = (r: number, g: number, b: number) => {
+  if (r < 35 || r < g * 0.92 || r < b) return false;
+  const y = 0.299 * r + 0.587 * g + 0.114 * b;
+  const cb = 128 - 0.168736 * r - 0.331264 * g + 0.5 * b, cr = 128 + 0.5 * r - 0.418688 * g - 0.081312 * b;
+  return y > 25 && cb >= 68 && cb <= 135 && cr >= 128 && cr <= 182;
+};
+
+/**
+ * Narrow an existing person cut-out down to the hands: keep only the pixels that are skin-coloured in the frame (grown a
+ * little, and with holes such as nails and shadows between fingers closed), so a phone, sleeve or table the person touches
+ * is dropped while the hand keeps the matting model's fine edge.
+ */
+function keepHands(w: Work, pw: number, ph: number, px: number) {
+  const src = ctxOf(w.base).getImageData(0, 0, pw, ph).data;
+  const pc = ctxOf(w.person), img = pc.getImageData(0, 0, pw, ph), d = img.data;
+  const n = pw * ph;
+  let skin: Uint8Array = new Uint8Array(n);
+  for (let i = 0; i < n; i++) skin[i] = d[i * 4 + 3] > 20 && isSkin(src[i * 4], src[i * 4 + 1], src[i * 4 + 2]) ? 1 : 0;
+  const close = Math.max(3, Math.round(7 * px)), grow = Math.max(2, Math.round(3 * px)), open = Math.max(2, Math.round(4 * px));
+  skin = morphBin(skin, pw, ph, open, true); // opening drops thin slivers such as the phone's edge
+  skin = morphBin(skin, pw, ph, open, false);
+  skin = morphBin(skin, pw, ph, close, false);
+  skin = morphBin(skin, pw, ph, close, true);
+  skin = morphBin(skin, pw, ph, grow, false);
+  dropIslands(skin, pw, ph, 0.12, 0.5); // skin-coloured bits of the phone's own screen are small islands apart from the hand
+  const soft = windowSum(skin, pw, ph, 1); // 3x3 average for a soft inner edge
+  for (let i = 0; i < n; i++) d[i * 4 + 3] = Math.round((d[i * 4 + 3] * soft[i]) / 9);
+  pc.putImageData(img, 0, 0);
+}
+
 /** Matte with stray blobs removed, computed once per matte (playback shows the same one for several rendered frames). */
 const cleanedOf = new WeakMap<PreciseMask, Uint8Array>();
 function cleaned(m: PreciseMask): Uint8Array {
@@ -587,6 +629,7 @@ export function processSource(id: string, src: FrameSource, layer: Pick<VideoLay
         person.drawImage(w.mask as CanvasImageSource, 0, 0);
         (person as { filter: string }).filter = 'none';
         person.globalCompositeOperation = 'source-over';
+        if (m.hands && !m.invert) keepHands(w, pw, ph, px);
       }
     }
     if (!ok) {

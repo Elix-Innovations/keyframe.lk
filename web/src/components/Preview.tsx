@@ -7,12 +7,15 @@ import { addVideo } from '../lib/importMedia';
 import { beforeProject } from '../lib/before';
 import { composeFrame, outputSize } from '../render/compose';
 import type { OverlayHit } from '../render/overlays';
+import { feedPhotosReady } from '../render/screenFeed';
+import { overlayAssetIds, quadAt, setQuadAt } from '../lib/screen';
 import { clearMeasureCache, type Ctx2D, type Rect } from '../render/captions';
 import { getBlob, grantFileAccess, NeedsPermissionError } from '../lib/db';
 import { ensureFonts, onFontsChanged } from '../lib/fonts';
 import { projectFontIds } from '../lib/util';
 import { formatClock } from '../lib/srt';
-import { Maximize, Minimize, Pause, Play, SkipBack, Smartphone } from '@/components/icons';
+import { Ellipsis, Maximize, Minimize, Pause, Play, SkipBack, Smartphone } from '@/components/icons';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import type { AspectRatio, Clip } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
@@ -29,12 +32,14 @@ import { migrateVideo, newKeyframe, transformAt, type Transform } from '../lib/v
 
 type Drag =
   | { kind: 'move'; x0: number; y0: number; items: { id: string; x: number; y: number }[]; box0: Box; others: Box[] }
-  | { kind: 'caption'; dx: number; dy: number; captionId: string | null; shownId: string | null; w: number; h: number; moved: boolean; others: Box[] }
+  | { kind: 'caption'; dx: number; dy: number; captionId: string | null; shownId: string | null; w: number; h: number; moved: boolean; others: Box[]; mates: { id: string; x: number; y: number }[]; cx0: number; cy0: number }
   | { kind: 'scale'; id: string; cx: number; cy: number; d0: number; s0: number }
   | { kind: 'rotate'; id: string; cx: number; cy: number; r0: number; a0: number }
   | { kind: 'cmove'; id: string; x0: number; y0: number; pose0: Transform; box0: Box; others: Box[] }
   | { kind: 'cscale'; id: string; cx: number; cy: number; d0: number; pose0: Transform }
   | { kind: 'crot'; id: string; cx: number; cy: number; a0: number; pose0: Transform }
+  | { kind: 'qcorner'; id: string; idx: number; lt: number }
+  | { kind: 'qmove'; id: string; lt: number; x0: number; y0: number; pts0: [number, number][] }
   | { kind: 'marquee'; x0: number; y0: number; x1: number; y1: number; moved: boolean; base: string[] };
 
 /** The four corner knobs of a selected overlay, in its own (rotated) coordinates. */
@@ -50,6 +55,16 @@ function knobAt(h: OverlayHit, x: number, y: number, dpr: number): 'rotate' | 's
   const near = (p: { x: number; y: number }) => Math.hypot(p.x - x, p.y - y) <= 11 * dpr;
   if (near(world(0, -h.h / 2 - 24 * dpr))) return 'rotate';
   return handlePoints(h, dpr).some(([lx, ly]) => near(world(lx, ly))) ? 'scale' : null;
+}
+
+/** Is a canvas point inside the quadrilateral? */
+function inQuad(q: [number, number][], x: number, y: number): boolean {
+  let inside = false;
+  for (let i = 0, j = q.length - 1; i < q.length; j = i++) {
+    const [xi, yi] = q[i], [xj, yj] = q[j];
+    if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
 }
 
 export function Preview() {
@@ -126,15 +141,15 @@ export function Preview() {
   useEffect(() => onFontsChanged(() => { clearMeasureCache(); force((n) => n + 1); }), []);
 
   // B-roll bitmaps.
-  const brollKey = [...project.broll.map((b) => b.assetId), ...(project.overlays ?? []).flatMap((o) => (o.assetId ? [o.assetId] : []))].join('|');
+  const brollKey = [...project.broll.map((b) => b.assetId), ...(project.overlays ?? []).flatMap(overlayAssetIds)].join('|');
   useEffect(() => {
     const map = brollRef.current;
-    const wanted = new Set([...project.broll.map((b) => b.assetId), ...(project.overlays ?? []).flatMap((o) => (o.assetId ? [o.assetId] : []))]);
+    const wanted = new Set([...project.broll.map((b) => b.assetId), ...(project.overlays ?? []).flatMap(overlayAssetIds)]);
     for (const [k, v] of map) if (!wanted.has(k)) { v.close(); map.delete(k); }
-    Promise.all([...wanted].filter((id) => !map.has(id)).map(async (id) => {
+    Promise.all([feedPhotosReady(), ...[...wanted].filter((id) => !map.has(id)).map(async (id) => {
       const blob = await getBlob(id);
       if (blob) map.set(id, await createImageBitmap(blob));
-    })).then(() => force((n) => n + 1));
+    })]).then(() => force((n) => n + 1));
   }, [brollKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Fit the output frame into the available area.
@@ -182,6 +197,19 @@ export function Preview() {
       const picked = [stNow.selectedOverlayId, ...stNow.extraOverlayIds, ...(stNow.selectedOverlayId ? [] : [stNow.selectedClipId])];
       for (const h of hits.filter((x) => picked.includes(x.id))) {
         const primary = h.id === (stNow.selectedOverlayId ?? stNow.selectedClipId);
+        if (h.quad) { // a phone-screen layer: outline the pinned corners and show a handle on each
+          ctx.save();
+          ctx.strokeStyle = primary ? 'rgba(99,102,241,0.95)' : 'rgba(99,102,241,0.6)';
+          ctx.lineWidth = 2 * dpr;
+          ctx.beginPath(); h.quad.forEach(([qx, qy], i) => (i ? ctx.lineTo(qx, qy) : ctx.moveTo(qx, qy))); ctx.closePath(); ctx.stroke();
+          if (primary && picked.length === 1 && !playing) {
+            ctx.fillStyle = '#fff';
+            ctx.lineWidth = 1.5 * dpr;
+            for (const [qx, qy] of h.quad) { ctx.beginPath(); ctx.arc(qx, qy, 7 * dpr, 0, Math.PI * 2); ctx.fill(); ctx.stroke(); }
+          }
+          ctx.restore();
+          continue;
+        }
         ctx.save();
         ctx.translate(h.cx, h.cy);
         ctx.rotate((h.rot * Math.PI) / 180);
@@ -249,6 +277,7 @@ export function Preview() {
     return { x: (e.clientX - r.left) * dpr, y: (e.clientY - r.top) * dpr, W: canvasRef.current!.width, H: canvasRef.current!.height, dpr };
   };
   const inside = (h: OverlayHit, x: number, y: number, pad: number) => {
+    if (h.quad) return inQuad(h.quad, x, y);
     const a = (-h.rot * Math.PI) / 180, px = x - h.cx, py = y - h.cy;
     const lx = px * Math.cos(a) - py * Math.sin(a), ly = px * Math.sin(a) + py * Math.cos(a);
     return Math.abs(lx) <= h.w / 2 + pad && Math.abs(ly) <= h.h / 2 + pad;
@@ -296,7 +325,13 @@ export function Preview() {
     }
     const only = picked.length === 1 ? hits.find((h) => h.id === picked[0]) : undefined;
     const o = only && st.project?.overlays?.find((v) => v.id === only.id);
-    if (only && o) {
+    if (only?.quad && o?.screen) { // pinned corners of a phone-screen layer: drag one, or the whole screen
+      const lt = Math.min(o.duration, Math.max(0, currentTime() - o.start));
+      const idx = only.quad.findIndex(([qx, qy]) => Math.hypot(qx - x, qy - y) <= 12 * dpr);
+      if (idx >= 0) { drag.current = { kind: 'qcorner', id: o.id, idx, lt }; capture(); return; }
+      if (inQuad(only.quad, x, y)) { drag.current = { kind: 'qmove', id: o.id, lt, x0: x, y0: y, pts0: quadAt(o.screen.quad, lt) }; capture(); return; }
+    }
+    if (only && o && !only.quad) {
       const knob = knobAt(only, x, y, dpr);
       if (knob === 'rotate') { drag.current = { kind: 'rotate', id: o.id, cx: only.cx, cy: only.cy, r0: o.rotation, a0: Math.atan2(y - only.cy, x - only.cx) }; capture(); return; }
       if (knob === 'scale') { drag.current = { kind: 'scale', id: o.id, cx: only.cx, cy: only.cy, d0: Math.hypot(x - only.cx, y - only.cy) || 1, s0: o.scale }; capture(); return; }
@@ -318,6 +353,13 @@ export function Preview() {
         return;
       }
       if (!picked.includes(oh.id)) { st.selectOverlay(oh.id); st.setPanel('overlay'); }
+      const so = oh.quad ? st.project?.overlays?.find((v) => v.id === oh.id) : undefined;
+      if (so?.screen) {
+        const lt = Math.min(so.duration, Math.max(0, currentTime() - so.start));
+        drag.current = { kind: 'qmove', id: so.id, lt, x0: x, y0: y, pts0: quadAt(so.screen.quad, lt) };
+        capture();
+        return;
+      }
       const ids = picked.includes(oh.id) ? picked : [oh.id];
       const items = (st.project?.overlays ?? []).filter((v) => ids.includes(v.id)).map((v) => ({ id: v.id, x: v.x, y: v.y }));
       const group = hits.filter((h) => ids.includes(h.id)).map(boxOf);
@@ -333,7 +375,11 @@ export function Preview() {
       const b = bboxRef.current!;
       const id = shownRef.current;
       const own = !!id && (id === st.selectedCaptionId || !!st.project?.captions.find((c) => c.id === id)?.styleOverride?.layout);
-      drag.current = { kind: 'caption', dx: x - (b.x + b.w / 2), dy: y - (b.y + b.h / 2), captionId: own ? id : null, shownId: id, w: b.w, h: b.h, moved: false, others: hits.map(boxOf) };
+      // Captions tied together with ⌘G move as one: every member keeps its offset from the one being dragged.
+      const caps = st.project?.captions ?? [], shown = caps.find((c) => c.id === id);
+      const lay = st.project!.style.layout;
+      const mates = shown?.groupId ? caps.filter((c) => c.groupId === shown.groupId).map((c) => ({ id: c.id, x: c.styleOverride?.layout?.x ?? lay.x, y: c.styleOverride?.layout?.y ?? lay.y })) : [];
+      drag.current = { kind: 'caption', dx: x - (b.x + b.w / 2), dy: y - (b.y + b.h / 2), captionId: own || mates.length > 1 ? id : null, shownId: id, w: b.w, h: b.h, moved: false, others: hits.map(boxOf), mates: mates.length > 1 ? mates : [], cx0: b.x + b.w / 2, cy0: b.y + b.h / 2 };
       capture();
       return;
     }
@@ -352,7 +398,20 @@ export function Preview() {
       return;
     }
     const thr = 7 * dpr;
-    if (d.kind === 'move') {
+    if (d.kind === 'qcorner' || d.kind === 'qmove') {
+      const at = (pts: [number, number][]) => st.setOverlays((l) => l.map((v) => (v.id === d.id && v.screen ? { ...v, screen: { ...v.screen, quad: setQuadAt(v.screen.quad, d.lt, pts) } } : v)), `scr-quad-${d.id}`);
+      const cur = st.project?.overlays?.find((v) => v.id === d.id);
+      if (!cur?.screen) return;
+      if (d.kind === 'qcorner') {
+        const pts = quadAt(cur.screen.quad, d.lt).map((p) => [...p] as [number, number]);
+        pts[d.idx] = [Math.round((x / W) * 1000) / 10, Math.round((y / H) * 1000) / 10];
+        at(pts);
+      } else {
+        const mx = ((x - d.x0) / W) * 100, my = ((y - d.y0) / H) * 100;
+        at(d.pts0.map(([px, py]) => [Math.round((px + mx) * 10) / 10, Math.round((py + my) * 10) / 10] as [number, number]));
+      }
+      force((n) => n + 1);
+    } else if (d.kind === 'move') {
       let dx = x - d.x0, dy = y - d.y0;
       guidesRef.current = [];
       if (snapOn(e)) {
@@ -371,7 +430,12 @@ export function Preview() {
         cx += sn.dx; cy += sn.dy; guidesRef.current = sn.guides;
       }
       const pos = { x: Math.round((cx / W) * 1000) / 10, y: Math.round((cy / H) * 1000) / 10 };
-      if (d.captionId) {
+      if (d.mates.length > 1) {
+        const ddx = pos.x - (d.cx0 / W) * 100, ddy = pos.y - (d.cy0 / H) * 100;
+        const at = new Map(d.mates.map((m) => [m.id, m]));
+        const r = (v: number) => Math.round(v * 10) / 10;
+        st.setCaptions(st.project!.captions.map((c) => { const m = at.get(c.id); return m ? { ...c, styleOverride: { ...c.styleOverride, layout: { ...c.styleOverride?.layout, x: r(m.x + ddx), y: r(m.y + ddy) } } } : c; }), `drag-caption-group`);
+      } else if (d.captionId) {
         const id = d.captionId;
         st.setCaptions(st.project!.captions.map((c) => (c.id === id ? { ...c, styleOverride: { ...c.styleOverride, layout: { ...c.styleOverride?.layout, ...pos } } } : c)), `drag-caption-${id}`);
       } else {
@@ -521,7 +585,7 @@ export function Preview() {
           </div>
         )}
       </div>
-      <div className="flex min-h-12 shrink-0 flex-wrap items-center gap-x-2 gap-y-1.5 border-t bg-card px-3 py-1.5 [&_*]:whitespace-nowrap">
+      <div className="flex h-12 shrink-0 items-center gap-2 overflow-hidden border-t bg-card px-3 [&_*]:whitespace-nowrap">
         <Button variant="ghost" size="icon-sm" onClick={() => seek(0)} aria-label="Go to start"><SkipBack /></Button>
         <Tooltip>
           <TooltipTrigger asChild>
@@ -530,7 +594,7 @@ export function Preview() {
           <TooltipContent className="flex items-center gap-2">Play / pause <Keys keys={['Space']} /></TooltipContent>
         </Tooltip>
         <span className="ml-1 font-mono text-xs tabular-nums"><span>{formatClock(time, true)}</span><span className="text-muted-foreground"> / {formatClock(dur, true)}</span></span>
-        <div className="ml-auto flex flex-wrap items-center justify-end gap-x-3 gap-y-1.5">
+        <div className="ml-auto flex min-w-0 items-center justify-end gap-2">
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
@@ -540,26 +604,39 @@ export function Preview() {
             </TooltipTrigger>
             <TooltipContent className="flex items-center gap-2">Hear and see the original, without noise removal, grade or effects <Keys keys={['B']} /></TooltipContent>
           </Tooltip>
-          <div className="flex items-center gap-2">
-            <Switch id="magnet" checked={magnet} onCheckedChange={setMagnet} />
-            <Label htmlFor="magnet" className="text-xs font-normal text-muted-foreground" title="Snap to the frame centre, edges and other items while dragging. Hold Alt to move freely.">Magnet</Label>
-          </div>
-          <div className="flex items-center gap-2">
-            <Label className="text-xs font-normal text-muted-foreground"><Smartphone className="size-3.5" />Safe zones</Label>
-            <Select value={safeZone} onValueChange={(v) => setSafeZone(v as SafeZoneId | 'off')}>
-              <SelectTrigger size="sm" className="w-36"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="off">Off</SelectItem>
-                {(Object.keys(SAFE_ZONES) as SafeZoneId[]).map((k) => <SelectItem key={k} value={k}>{SAFE_ZONES[k].label}</SelectItem>)}
-              </SelectContent>
-            </Select>
-          </div>
-          <Select value={project.aspectRatio} onValueChange={(v) => useEditor.getState().update((p) => ({ ...p, aspectRatio: v as AspectRatio }))}>
-            <SelectTrigger size="sm" className="w-28"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              {(['original', '9:16', '4:5', '1:1', '16:9'] as AspectRatio[]).map((r) => <SelectItem key={r} value={r}>{r === 'original' ? 'Original' : r}</SelectItem>)}
-            </SelectContent>
-          </Select>
+          <Popover>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <PopoverTrigger asChild><Button variant="ghost" size="icon-sm" aria-label="View options"><Ellipsis /></Button></PopoverTrigger>
+              </TooltipTrigger>
+              <TooltipContent>Magnet, safe zones, aspect ratio</TooltipContent>
+            </Tooltip>
+            <PopoverContent align="end" side="top" className="w-64 space-y-3 p-3">
+              <div className="flex items-center justify-between gap-2">
+                <Label htmlFor="magnet" className="text-xs font-normal" title="Snap to the frame centre, edges and other items while dragging. Hold Alt to move freely.">Magnet</Label>
+                <Switch id="magnet" checked={magnet} onCheckedChange={setMagnet} />
+              </div>
+              <div className="flex items-center justify-between gap-2">
+                <Label className="text-xs font-normal"><Smartphone className="size-3.5" />Safe zones</Label>
+                <Select value={safeZone} onValueChange={(v) => setSafeZone(v as SafeZoneId | 'off')}>
+                  <SelectTrigger size="sm" className="w-32"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="off">Off</SelectItem>
+                    {(Object.keys(SAFE_ZONES) as SafeZoneId[]).map((k) => <SelectItem key={k} value={k}>{SAFE_ZONES[k].label}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex items-center justify-between gap-2">
+                <Label className="text-xs font-normal">Aspect ratio</Label>
+                <Select value={project.aspectRatio} onValueChange={(v) => useEditor.getState().update((p) => ({ ...p, aspectRatio: v as AspectRatio }))}>
+                  <SelectTrigger size="sm" className="w-32"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {(['original', '9:16', '4:5', '1:1', '16:9'] as AspectRatio[]).map((r) => <SelectItem key={r} value={r}>{r === 'original' ? 'Original' : r}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+            </PopoverContent>
+          </Popover>
           <span className="rounded-md bg-muted px-2 py-1 font-mono text-[11px] text-muted-foreground">{out.width}×{out.height}</span>
           <Tooltip>
             <TooltipTrigger asChild>

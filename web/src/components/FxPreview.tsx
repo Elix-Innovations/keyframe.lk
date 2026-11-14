@@ -28,6 +28,7 @@ export function FxPreview({ spec, hover, className }: { spec: FxSpec; hover: boo
   const ref = useRef<HTMLCanvasElement>(null);
   const [visible, setVisible] = useState(false);
   const specKey = JSON.stringify(spec);
+  const backdrop = useEditor((st) => `${st.project?.fit}${st.project?.fitColor}`);
 
   useEffect(() => {
     const el = ref.current;
@@ -52,7 +53,9 @@ export function FxPreview({ spec, hover, className }: { spec: FxSpec; hover: boo
       }),
     };
     const fake: Project = {
-      ...project, clips: [clip], lanes: {}, captions: [], broll: [], overlays: [], hook: { ...project.hook, enabled: false }, fit: 'cover',
+      ...project, clips: [clip], lanes: {}, captions: [], broll: [], overlays: [], hook: { ...project.hook, enabled: false },
+      // Transition tiles show the project's own backdrop (blur, colour or black) where the shot moves off the frame.
+      fit: spec.transition ? project.fit : 'cover',
       duration: dur, video: undefined, videoWidth: bmp.width, videoHeight: bmp.height,
     };
     const draw = (t: number) => {
@@ -66,7 +69,7 @@ export function FxPreview({ spec, hover, className }: { spec: FxSpec; hover: boo
     const loop = () => { draw(((performance.now() - t0) / 1000) % dur); raf = requestAnimationFrame(loop); };
     loop();
     return () => cancelAnimationFrame(raf);
-  }, [bmp, version, visible, hover, specKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [bmp, version, visible, hover, specKey, backdrop]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return <canvas ref={ref} width={W * SCALE} height={H * SCALE} className={cn('block aspect-[4/3] w-full bg-muted', className)} />;
 }

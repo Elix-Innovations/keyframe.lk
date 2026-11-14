@@ -9,6 +9,8 @@ import type { Project } from '../types';
 import { composeFrame, outputSize } from '../render/compose';
 import { requireSegmenter, warmMattes } from '../render/matte';
 import { getBlob } from './db';
+import { overlayAssetIds } from './screen';
+import { feedPhotosReady } from '../render/screenFeed';
 import { ensureFonts } from './fonts';
 import { projectFontIds } from './util';
 
@@ -38,7 +40,8 @@ export interface ExportOptions {
 
 export async function loadBrollImages(p: Project) {
   const map = new Map<string, ImageBitmap>();
-  for (const b of [...p.broll, ...(p.overlays ?? []).filter((o) => o.assetId).map((o) => ({ assetId: o.assetId! }))]) {
+  await feedPhotosReady();
+  for (const b of [...p.broll, ...(p.overlays ?? []).flatMap(overlayAssetIds).map((assetId) => ({ assetId }))]) {
     if (map.has(b.assetId)) continue;
     const blob = await getBlob(b.assetId);
     if (blob) map.set(b.assetId, await createImageBitmap(blob));

@@ -8,31 +8,38 @@ import { Button } from '@/components/ui/button';
 import { Progress, Row, Section, Segmented, Slider } from '../controls';
 
 /** One-click background-noise removal for the video's own audio (steady noise: fans, hiss, hum, room tone). */
-export function NoiseRemoval() {
+export function NoiseRemoval({ assetId: target }: { assetId?: string } = {}) {
   const project = useEditor((s) => s.project)!;
   const update = useEditor((s) => s.update);
   const notify = useEditor((s) => s.notify);
-  const applied = project.audio.original.denoise;
+  const asset = target ?? project.videoAssetId;
+  const o = project.audio.original;
+  const applied = asset ? o.denoiseBy?.[asset] ?? (o.denoise && (o.denoise.sourceAssetId ?? project.videoAssetId) === asset ? o.denoise : undefined) : undefined;
   const [strength, setStrength] = useState(applied?.strength ?? 0.8);
   const [method, setMethod] = useState<'rnnoise' | 'spectral'>(applied?.method ?? 'rnnoise');
   const [progress, setProgress] = useState<number | null>(null);
   const abort = useRef<AbortController | null>(null);
 
   const run = async () => {
-    if (!project.videoAssetId) { notify('Add a video first.', 'error'); return; }
+    if (!asset) { notify('Add a video first.', 'error'); return; }
     const ac = new AbortController();
     abort.current = ac;
     setProgress(0);
     try {
-      const file = await db.getBlob(project.videoAssetId);
+      const file = await db.getBlob(asset);
       if (!file) throw new Error('The video file is missing from local storage.');
       const original = await decodeOriginal(file);
       if (!original) throw new Error('This video has no audio track to clean.');
       let buffer: AudioBuffer, noiseFloorDb: number | null = null;
       if (method === 'rnnoise') buffer = await rnnoiseBuffer(original, strength, setProgress, ac.signal);
       else ({ buffer, noiseFloorDb } = await denoiseBuffer(original, strength, setProgress, ac.signal));
-      const assetId = await db.putBlob(encodeWav(buffer));
-      update((p) => ({ ...p, audio: { ...p.audio, original: { ...p.audio.original, denoise: { assetId, strength, method } } } }));
+      const cleaned = await db.putBlob(encodeWav(buffer));
+      update((p) => {
+        const { denoise, ...rest } = p.audio.original;
+        // The older single entry moves into the per-asset table so other clips keep their cleaned audio.
+        const by = { ...(denoise ? { [denoise.sourceAssetId ?? p.videoAssetId ?? '']: { assetId: denoise.assetId, strength: denoise.strength, method: denoise.method } } : {}), ...rest.denoiseBy, [asset]: { assetId: cleaned, strength, method } };
+        return { ...p, audio: { ...p.audio, original: { ...rest, denoiseBy: by } } };
+      });
       notify(noiseFloorDb !== null ? `Noise removed. Estimated noise floor was ${noiseFloorDb.toFixed(0)} dB.` : 'Noise removed.', 'success');
     } catch (e) {
       if ((e as Error).name !== 'AbortError') notify((e as Error).message || 'Noise removal failed.', 'error');
@@ -54,7 +61,12 @@ export function NoiseRemoval() {
       {progress !== null && <Progress value={progress} />}
       <div className="flex justify-end gap-2">
         {applied && progress === null && (
-          <Button variant="ghost" size="sm" onClick={() => update((p) => { const { denoise: _d, ...rest } = p.audio.original; return { ...p, audio: { ...p.audio, original: rest } }; })}>Revert</Button>
+          <Button variant="ghost" size="sm" onClick={() => update((p) => {
+            const { denoise, denoiseBy, ...rest } = p.audio.original;
+            const by = { ...(denoise ? { [denoise.sourceAssetId ?? p.videoAssetId ?? '']: { assetId: denoise.assetId, strength: denoise.strength, method: denoise.method } } : {}), ...denoiseBy };
+            delete by[asset!];
+            return { ...p, audio: { ...p.audio, original: { ...rest, denoiseBy: by } } };
+          })}>Revert</Button>
         )}
         {progress !== null
           ? <Button variant="secondary" size="sm" onClick={() => abort.current?.abort()}>Cancel</Button>
