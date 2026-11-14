@@ -8,7 +8,7 @@
 
 Reels · TikTok · Shorts &nbsp;|&nbsp; සිංහල · English · code-mixed &nbsp;|&nbsp; Unicode + legacy FM fonts
 
-[![CI](https://github.com/nisalnimsara100/keyframe-web/actions/workflows/ci.yml/badge.svg)](https://github.com/nisalnimsara100/keyframe-web/actions/workflows/ci.yml)
+[![CI](https://github.com/elixinnovations/keyframe-web/actions/workflows/ci.yml/badge.svg)](https://github.com/elixinnovations/keyframe-web/actions/workflows/ci.yml)
 ![Next.js](https://img.shields.io/badge/Next.js-16-000000?logo=nextdotjs&logoColor=white)
 ![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)
 ![TypeScript](https://img.shields.io/badge/TypeScript-7-3178C6?logo=typescript&logoColor=white)
@@ -17,6 +17,9 @@ Reels · TikTok · Shorts &nbsp;|&nbsp; සිංහල · English · code-mixed
 ![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)
 ![FastAPI](https://img.shields.io/badge/FastAPI-service-009688?logo=fastapi&logoColor=white)
 ![Electron](https://img.shields.io/badge/Electron-desktop-47848F?logo=electron&logoColor=white)
+[![License: PolyForm Noncommercial](https://img.shields.io/badge/License-PolyForm%20Noncommercial-blue)](LICENSE)
+
+[![Download for macOS](https://img.shields.io/badge/Download-macOS%20dmg-000000?logo=apple&logoColor=white)](https://github.com/elixinnovations/keyframe-web/releases/latest)
 
 [Quick start](#-quick-start) · [Features](#-features) · [Guide](#5-your-first-video-step-by-step) · [Shortcuts](#13-keyboard-shortcuts) · [Troubleshooting](#17-troubleshooting) · [Roadmap](docs/ROADMAP.md)
 
@@ -114,7 +117,7 @@ A Usage tab logs every paid API request with tokens and estimated cost in USD an
 ## 🚀 Quick start
 
 ```bash
-git clone https://github.com/nisalnimsara100/keyframe-web.git keyframe
+git clone https://github.com/elixinnovations/keyframe-web.git keyframe
 cd keyframe
 npm run setup      # web + server packages, Python deps, server/.env
 # add GEMINI_API_KEY to server/.env
@@ -165,7 +168,7 @@ Windows / Linux: install the same tools from their websites or your package mana
 ## 2. Install
 
 ```bash
-git clone https://github.com/nisalnimsara100/keyframe-web.git keyframe
+git clone https://github.com/elixinnovations/keyframe-web.git keyframe
 cd keyframe
 
 npm run setup          # installs web + server packages, Python deps, and creates server/.env
@@ -445,6 +448,18 @@ Run from the repo root:
 
 `desktop/` wraps the built editor and API in an Electron app for macOS (Apple silicon).
 
+### Download
+
+Get **`Keyframe-<version>-arm64.dmg`** from the [latest release](https://github.com/elixinnovations/keyframe-web/releases/latest), open it and drag **Keyframe** into Applications.
+
+The app is not signed yet, so macOS blocks the first launch. Right-click **Keyframe** in Applications → **Open** → **Open**, or run:
+
+```bash
+xattr -dr com.apple.quarantine /Applications/Keyframe.app
+```
+
+### Build it yourself
+
 ```bash
 cd desktop
 npm install
@@ -452,15 +467,25 @@ npm start          # run in Electron
 npm run dist       # build the app and a .dmg into desktop/dist
 ```
 
+## License
+
+Copyright © 2026 Elix Innovations (Pvt) Ltd ([elix.lk](https://elix.lk)). All rights not granted by the license are reserved.
+
+Keyframe.lk is released under the [PolyForm Noncommercial License 1.0.0](LICENSE). You may use, change and share it for personal and other non-commercial purposes. **Commercial use requires a separate license** from Elix Innovations (Pvt) Ltd; contact us through [elix.lk](https://elix.lk).
+
+Contributions are welcome and are covered by the Contributor License Agreement in [CONTRIBUTING.md](CONTRIBUTING.md#contributor-license-agreement).
+
 ## 20. Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). Run `npm run typecheck` and `npm run test:py` before opening a PR; CI runs the same. Please also read the [Code of Conduct](CODE_OF_CONDUCT.md) and report vulnerabilities as described in [SECURITY.md](SECURITY.md).
+See [CONTRIBUTING.md](CONTRIBUTING.md). By opening a pull request you agree to its [Contributor License Agreement](CONTRIBUTING.md#contributor-license-agreement). Run `npm run typecheck` and `npm run test:py` before opening a PR; CI runs the same. Please also read the [Code of Conduct](CODE_OF_CONDUCT.md) and report vulnerabilities as described in [SECURITY.md](SECURITY.md).
 
 <div align="center">
 
 <br />
 
 Made in Sri Lanka 🇱🇰 for Sinhala creators.
+
+© 2026 Elix Innovations (Pvt) Ltd · [elix.lk](https://elix.lk)
 
 <a href="#keyframelk">↑ Back to top</a>
 
