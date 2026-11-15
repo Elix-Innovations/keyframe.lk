@@ -79,3 +79,6 @@ next-env.d.ts
 # Next.js
 .next/
 next-env.d.ts
+
+# Local planning notes
+PHASES.md
