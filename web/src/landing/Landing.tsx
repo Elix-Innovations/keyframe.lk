@@ -52,7 +52,7 @@ function Phone({ from, to, line, hot, tag, className = '' }: { from: string; to:
       style={{ background: `radial-gradient(120% 90% at 30% 15%, ${from} 0%, ${to} 70%)` }}>
       <div aria-hidden className="absolute inset-0 bg-[radial-gradient(circle_at_50%_100%,rgba(0,0,0,0.55),transparent_65%)]" />
       {tag && <span className="absolute top-3 left-3 rounded-full bg-black/40 px-2.5 py-1 text-[10px] font-medium text-white/90 backdrop-blur">{tag}</span>}
-      <p className="font-sinhala relative text-center text-lg leading-snug font-bold text-white [text-shadow:0_2px_12px_rgba(0,0,0,0.6)]">
+      <p lang="si" className="font-sinhala relative text-center text-lg leading-snug font-bold text-white [text-shadow:0_2px_12px_rgba(0,0,0,0.6)]">
         {hot ? <>{parts[0]}<span className="rounded bg-rose-500 px-1.5 text-white">{hot}</span>{parts[1]}</> : line}
       </p>
     </div>
@@ -140,7 +140,7 @@ function About() {
                 {[80, 60, 90, 50].map((w, i) => <div key={i} className="h-3 rounded bg-white/10" style={{ width: `${w}%` }} />)}
               </div>
               <div className="flex aspect-[9/10] items-end justify-center rounded-lg bg-[radial-gradient(100%_80%_at_50%_10%,#e0533d,#2a0d12)] p-3">
-                <p className="font-sinhala rounded bg-black/40 px-2 py-1 text-sm font-bold">අපි කතා කරමු</p>
+                <p lang="si" className="font-sinhala rounded bg-black/40 px-2 py-1 text-sm font-bold">අපි කතා කරමු</p>
               </div>
             </div>
             <div className="mt-5 flex gap-1" aria-hidden>

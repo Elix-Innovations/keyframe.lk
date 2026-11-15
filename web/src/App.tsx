@@ -27,9 +27,7 @@ function initialProjectId() {
   const fromHash = parseHash();
   if (location.hash === '#/new') { void startBlankProject(); return null; }
   if (fromHash || location.hash) return fromHash;
-  const last = lastProjectId();
-  if (last) history.replaceState(null, '', `#/p/${last}`);
-  return last;
+  return lastProjectId();
 }
 
 export function App() {
@@ -50,6 +48,8 @@ export function App() {
       setProjectId(parseHash());
       if (location.hash === '#/convert') useEditor.getState().setConverterOpen(true);
     };
+    // Put the reopened project in the URL here, not during render: Next.js turns replaceState into a Router update.
+    if (!location.hash && projectId) history.replaceState(null, '', `#/p/${projectId}`);
     onHash();
     window.addEventListener('hashchange', onHash);
     // Fonts (bundled FM + user uploads) and saved templates, once per session.

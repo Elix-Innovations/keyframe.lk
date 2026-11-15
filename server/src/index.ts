@@ -34,7 +34,7 @@
  *        e.g. fetch('/api/transcribe?language=si&provider=auto', { method: 'POST', body: file,
  *                                                               headers: { 'Content-Type': file.type } })
  *
- * There is no body size limit on /api/transcribe; JSON routes are limited to 20 MB.
+ * /api/transcribe is limited to MAX_UPLOAD_MB (default 2048 MB); JSON routes are limited to 20 MB.
  */
 import 'dotenv/config';
 import { existsSync } from 'node:fs';
@@ -105,6 +105,16 @@ app.use(
   bodyLimit({
     maxSize: 20 * 1024 * 1024,
     onError: (c) => c.json({ error: 'Request body is too large (limit 20 MB).' }, 413),
+  }),
+);
+
+// Uploads are streamed to disk, but still capped so a hosted instance cannot be filled up. MAX_UPLOAD_MB overrides it.
+const maxUploadMb = Number(process.env.MAX_UPLOAD_MB) || 2048;
+app.use(
+  '/api/transcribe',
+  bodyLimit({
+    maxSize: maxUploadMb * 1024 * 1024,
+    onError: (c) => c.json({ error: `File is too large (limit ${maxUploadMb} MB). Trim the video or raise MAX_UPLOAD_MB in server/.env.` }, 413),
   }),
 );
 

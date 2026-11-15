@@ -1,0 +1,37 @@
+name: Bug report
+description: Something in the editor, export or server doesn't work.
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What you did, what you expected, and what happened instead.
+    validations: { required: true }
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Import a 30 s 1080p MP4
+        2. Generate captions (Sinhala, Gemini)
+        3. ...
+    validations: { required: true }
+  - type: dropdown
+    id: where
+    attributes:
+      label: Where
+      options: [Web editor (npm run dev), Production build (npm start), Desktop app (macOS)]
+    validations: { required: true }
+  - type: input
+    id: browser
+    attributes:
+      label: Browser and OS
+      placeholder: Chrome 141, macOS 26
+    validations: { required: true }
+  - type: textarea
+    id: logs
+    attributes:
+      label: Errors or logs
+      description: Browser console errors or the server terminal output. Remove any API keys first.
+      render: text

@@ -21,6 +21,7 @@ import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/componen
 import { Logo } from './Logo';
 import { ThemeToggle } from './ThemeToggle';
 import { Preview } from './Preview';
+import { ErrorBoundary } from './ErrorBoundary';
 import { Timeline } from './Timeline';
 import { clipOps } from './ClipLane';
 import { Keys } from './ShortcutsDialog';
@@ -365,7 +366,7 @@ export function Editor() {
                   <h2 className="text-[13px] font-semibold">Preview</h2>
                   <span className="font-mono text-[11px] tabular-nums text-muted-foreground">{out.width} × {out.height}</span>
                 </div>
-                <div className="min-h-0 flex-1"><Preview /></div>
+                <div className="min-h-0 flex-1"><ErrorBoundary title="The preview hit an error."><Preview /></ErrorBoundary></div>
               </div>
             </ResizablePanel>
             <ResizableHandle className="bg-transparent" />
