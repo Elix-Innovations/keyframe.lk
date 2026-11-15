@@ -2,6 +2,7 @@ import { nanoid } from 'nanoid';
 import type { Caption, CaptionStyle, Fill, Word } from '../types';
 import { fmToUnicode, unicodeToFM } from './fm';
 import { distributeTokens } from './segment';
+import { applyCase } from '../render/captions';
 
 export interface Cue { start: number; end: number; text: string }
 
@@ -261,7 +262,7 @@ export function captionsToASS(
   opts: { fontFamily?: string } = {},
 ): string {
   const t = style.text;
-  const scale = size.width / 1080;
+  const scale = Math.min(size.width, size.height) / 1080;
   const L = style.layout;
 
   const vBand = L.y < 33 ? 7 : L.y < 67 ? 4 : 1;
@@ -309,7 +310,9 @@ export function captionsToASS(
   // layout.x/y is the caption centre, so anchor events at the vertical middle.
   const pos = `{\\an${4 + hOff}\\pos(${posX},${posY})}`;
   const emph = style.emphasis;
-  const wordText = (w: Word) => escapeASS(t.uppercaseEnglish ? w.text.toUpperCase() : w.text);
+  // Line breaks must come after escaping so the inserted \N is not doubled.
+  const wordText = (w: Word) =>
+    escapeASS(applyCase(w.text, w.style?.textCase ?? t.textCase ?? (t.uppercaseEnglish ? 'upper' : 'none'))).replace(/\r?\n/g, '\\N');
   const plainWord = (w: Word) =>
     emph.enabled && w.emphasize
       ? `{\\c${inlineColor(fillColor(emph.fill))}${emph.bold ? '\\b1' : ''}${emph.scale !== 1 ? `\\fscx${Math.round(emph.scale * 100)}\\fscy${Math.round(emph.scale * 100)}` : ''}}${wordText(w)}{\\r}`

@@ -57,7 +57,8 @@ export function formatName(pattern: string, v: NameVars, now = new Date()): stri
     date: `${now.getFullYear()}-${p(now.getMonth() + 1)}-${p(now.getDate())}`,
     time: `${p(now.getHours())}${p(now.getMinutes())}`,
   };
-  const out = pattern.replace(/\{(\w+)\}/g, (m, k: string) => (k in vars ? vars[k] : m)).replace(/[-_ .]+$/g, '').replace(/^[-_ .]+/, '');
+  // An empty token takes the separators in front of it along, so a middle gap leaves one separator; literal text and filled values are never rewritten.
+  const out = pattern.replace(/([-_ .]*)\{(\w+)\}/g, (m, sep: string, k: string) => (k in vars ? (vars[k] ? sep + vars[k] : '') : m)).replace(/[-_ .]+$/g, '').replace(/^[-_ .]+/, '');
   return safeFilename(out || v.project);
 }
 
@@ -75,26 +76,42 @@ async function uniqueName(dir: FileSystemDirectoryHandle, name: string): Promise
 /** Save a finished file where the user chose. Returns a short description of where it went. */
 export async function saveFile(blob: Blob, filename: string, prefs: SavePrefs): Promise<string> {
   const win = window as Win;
+  // The folder permission prompt and the save picker both need a recent user click, which a long export has outlived,
+  // and a folder can vanish or fill up. Only a deliberate cancel stops the save; anything else falls back to Downloads.
+  let fellBack = '';
   if (prefs.mode === 'folder' && prefs.folder) {
-    const dir = prefs.folder as PermHandle;
-    let perm = await dir.queryPermission({ mode: 'readwrite' }).catch(() => 'denied' as PermissionState);
-    if (perm !== 'granted') perm = await dir.requestPermission({ mode: 'readwrite' }).catch(() => 'denied' as PermissionState);
-    if (perm === 'granted') {
-      const name = await uniqueName(dir, filename);
-      const w = await (await dir.getFileHandle(name, { create: true })).createWritable();
-      await w.write(blob);
-      await w.close();
-      return `${dir.name}/${name}`;
+    try {
+      const dir = prefs.folder as PermHandle;
+      let perm = await dir.queryPermission({ mode: 'readwrite' }).catch(() => 'denied' as PermissionState);
+      if (perm !== 'granted') perm = await dir.requestPermission({ mode: 'readwrite' }).catch(() => 'denied' as PermissionState);
+      if (perm === 'granted') {
+        const name = await uniqueName(dir, filename);
+        const w = await (await dir.getFileHandle(name, { create: true })).createWritable();
+        await w.write(blob);
+        await w.close();
+        return `${dir.name}/${name}`;
+      }
+      fellBack = 'folder permission needed';
+    } catch (e) {
+      if ((e as Error).name === 'AbortError') throw e;
+      fellBack = 'could not write to the folder';
     }
   }
   if (prefs.mode === 'ask' && win.showSaveFilePicker) {
-    const ext = filename.slice(filename.lastIndexOf('.'));
-    const handle = await win.showSaveFilePicker({ suggestedName: filename, types: [{ description: ext.slice(1).toUpperCase(), accept: { [blob.type || 'application/octet-stream']: [ext] } }] });
-    const w = await handle.createWritable();
-    await w.write(blob);
-    await w.close();
-    return handle.name;
+    try {
+      const ext = filename.slice(filename.lastIndexOf('.'));
+      // accept keys must be bare MIME types, but text exports carry ';charset=utf-8'.
+      const mime = (blob.type || 'application/octet-stream').split(';')[0].trim() || 'application/octet-stream';
+      const handle = await win.showSaveFilePicker({ suggestedName: filename, types: [{ description: ext.slice(1).toUpperCase(), accept: { [mime]: [ext] } }] });
+      const w = await handle.createWritable();
+      await w.write(blob);
+      await w.close();
+      return handle.name;
+    } catch (e) {
+      if ((e as Error).name === 'AbortError') throw e;
+      fellBack = 'save dialog unavailable';
+    }
   }
   downloadBlob(blob, filename);
-  return filename;
+  return fellBack ? `Downloads (${fellBack}): ${filename}` : filename;
 }

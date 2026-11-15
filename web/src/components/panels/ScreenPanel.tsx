@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useMemo, useRef } from 'react';
 import { nanoid } from 'nanoid';
 import { Trash2 } from '@/components/icons';
 import { clipOps } from '@/components/ClipLane';
@@ -18,10 +18,12 @@ import { Row, Section, Slider } from '../controls';
 
 const num = (v: string, fallback: number) => { const n = parseFloat(v); return Number.isFinite(n) ? n : fallback; };
 const NONE = '__none__';
+const UPLOADED = '__uploaded__';
 
 /** A photo for a post or the page avatar: one from the media library, or a file from the computer. */
 function PhotoPick({ assetId, onPick }: { assetId?: string; onPick: (a: { assetId?: string; w?: number; h?: number }) => void }) {
-  const library = useEditor((s) => s.project!.library ?? []).filter((i) => i.kind === 'image');
+  const lib = useEditor((s) => s.project?.library); // select the stored reference: a fresh [] from the selector would loop forever
+  const library = useMemo(() => (lib ?? []).filter((i) => i.kind === 'image'), [lib]);
   const notify = useEditor((s) => s.notify);
   const input = useRef<HTMLInputElement>(null);
   const upload = async (f: File) => {
@@ -33,6 +35,7 @@ function PhotoPick({ assetId, onPick }: { assetId?: string; onPick: (a: { assetI
     } catch (e) { notify((e as Error).message || 'Could not add that image.', 'error'); }
   };
   const choose = async (id: string) => {
+    if (id === UPLOADED) return;
     if (id === NONE) { onPick({}); return; }
     const item = library.find((i) => i.assetId === id);
     const { getBlob } = await import('@/lib/db');
@@ -43,10 +46,11 @@ function PhotoPick({ assetId, onPick }: { assetId?: string; onPick: (a: { assetI
   };
   return (
     <div className="flex items-center gap-1.5">
-      <Select value={assetId && library.some((i) => i.assetId === assetId) ? assetId : NONE} onValueChange={(v) => void choose(v)}>
+      <Select value={!assetId ? NONE : library.some((i) => i.assetId === assetId) ? assetId : UPLOADED} onValueChange={(v) => void choose(v)}>
         <SelectTrigger size="sm" className="w-32"><SelectValue placeholder={assetId ? 'Uploaded image' : 'No photo'} /></SelectTrigger>
         <SelectContent>
-          <SelectItem value={NONE}>{assetId && !library.some((i) => i.assetId === assetId) ? 'Uploaded image' : 'No photo'}</SelectItem>
+          <SelectItem value={NONE}>No photo</SelectItem>
+          {assetId && !library.some((i) => i.assetId === assetId) && <SelectItem value={UPLOADED}>Uploaded image</SelectItem>}
           {library.map((i) => <SelectItem key={i.id} value={i.assetId}>{i.name}</SelectItem>)}
         </SelectContent>
       </Select>
@@ -58,13 +62,15 @@ function PhotoPick({ assetId, onPick }: { assetId?: string; onPick: (a: { assetI
 
 /** The selected phone-screen layer: the feed's posts and ad, when it scrolls and stops, and the pinned corners. */
 export function ScreenEdit({ o, patch }: { o: OverlayItem; patch: (p: Partial<OverlayItem>, key?: string) => void }) {
+  useEditor((s) => s.time); // re-render as the playhead moves so the pin highlight follows it
   const spec = o.screen;
   if (!spec) return null;
   const set = (fn: (s: ScreenSpec) => ScreenSpec, key?: string) => patch({ screen: fn(spec) }, key && `scr-${key}`);
-  const lt = Math.min(o.duration, Math.max(0, currentTime() - o.start));
+  const ltNow = () => Math.min(o.duration, Math.max(0, currentTime() - o.start)); // read at click time, not render time
+  const lt = ltNow();
   const editPost = (id: string, p: Partial<FeedPost>, key?: string) => set((s) => ({ ...s, feed: { ...s.feed, posts: s.feed.posts.map((x) => (x.id === id ? { ...x, ...p } : x)) } }), key);
   const pins = [...spec.quad].sort((a, b) => a.t - b.t);
-  const pinHere = () => set((s) => ({ ...s, quad: setQuadAt(s.quad, lt, quadAt(s.quad, lt)) }));
+  const pinHere = () => { const t = ltNow(); set((s) => ({ ...s, quad: setQuadAt(s.quad, t, quadAt(s.quad, t)) })); };
   const posts = spec.feed.posts;
   const keepHands = () => {
     const st = useEditor.getState();
@@ -92,7 +98,7 @@ export function ScreenEdit({ o, patch }: { o: OverlayItem; patch: (p: Partial<Ov
         {pins.length > 1 && (
           <div className="flex justify-end gap-1">
             <Button size="xs" variant="ghost" className="hover:text-destructive" disabled={!pins.some((k) => Math.abs(k.t - lt) < 0.05)}
-              onClick={() => set((s) => ({ ...s, quad: s.quad.filter((k) => Math.abs(k.t - lt) >= 0.05) }))}><Trash2 />Delete pin here</Button>
+              onClick={() => { const t = ltNow(); set((s) => ({ ...s, quad: s.quad.filter((k) => Math.abs(k.t - t) >= 0.05) })); }}><Trash2 />Delete pin here</Button>
           </div>
         )}
         <Row label="Screen corners"><Slider value={spec.corner} min={0} max={20} format={(v) => `${v}%`} onChange={(corner) => set((s) => ({ ...s, corner }), 'corner')} /></Row>
@@ -103,7 +109,7 @@ export function ScreenEdit({ o, patch }: { o: OverlayItem; patch: (p: Partial<Ov
         <Row label="Stops (s)" hint="The feed settles on the ad at this moment and stays there.">
           <Input type="number" step={0.1} min={0.1} className="h-7 w-24 text-xs" value={Number(spec.scroll.stop.toFixed(2))}
             onChange={(e) => set((s) => ({ ...s, scroll: { ...s.scroll, stop: Math.max(s.scroll.start + 0.1, num(e.target.value, s.scroll.stop)) } }), 'se')} />
-          <Button size="xs" variant="secondary" onClick={() => set((s) => ({ ...s, scroll: { ...s.scroll, stop: Math.max(s.scroll.start + 0.1, lt) } }))}>At playhead</Button>
+          <Button size="xs" variant="secondary" onClick={() => set((s) => ({ ...s, scroll: { ...s.scroll, stop: Math.max(s.scroll.start + 0.1, ltNow()) } }))}>At playhead</Button>
         </Row>
         <Row label="Easing">
           <Select value={spec.scroll.ease} onValueChange={(ease) => set((s) => ({ ...s, scroll: { ...s.scroll, ease: ease as ScreenSpec['scroll']['ease'] } }))}>

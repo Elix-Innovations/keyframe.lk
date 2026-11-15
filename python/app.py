@@ -17,6 +17,7 @@ from typing import Literal
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 
@@ -28,7 +29,68 @@ from keyframe_sinhala.wijesekara import type_keys
 
 Direction = Literal["u2fm", "fm2u"]
 
+SRT_MAX_BYTES = 5_000_000
+AUDIO_MAX_BYTES = 200 * 1024 * 1024
+
+
+class _BodyTooLarge(Exception):
+    pass
+
+
+class _BodyLimit:
+    """Reject request bodies over a per-path byte limit while they stream in.
+
+    Content-Length can be absent (chunked) or wrong, and `request.form()` spools
+    the whole multipart body before any handler-side size check could run."""
+
+    def __init__(self, app, limits: dict[str, int]) -> None:
+        self.app = app
+        self.limits = limits
+
+    async def __call__(self, scope, receive, send) -> None:
+        limit = self.limits.get(scope.get("path")) if scope["type"] == "http" else None
+        if limit is None:
+            await self.app(scope, receive, send)
+            return
+        total = 0
+        started = False
+
+        async def limited_receive():
+            nonlocal total
+            msg = await receive()
+            if msg["type"] == "http.request":
+                total += len(msg.get("body", b""))
+                if total > limit:
+                    raise _BodyTooLarge
+            return msg
+
+        async def tracking_send(msg) -> None:
+            nonlocal started
+            if msg["type"] == "http.response.start":
+                started = True
+            await send(msg)
+
+        try:
+            await self.app(scope, limited_receive, tracking_send)
+        except _BodyTooLarge:
+            if started:
+                raise
+            resp = JSONResponse({"detail": f"request body too large (max {limit // (1024 * 1024)} MB)"}, status_code=413)
+            await resp(scope, receive, tracking_send)
+
+
 app = FastAPI(title="Keyframe.lk Sinhala service", version=__version__)
+
+# Added before CORS so the CORS middleware stays outermost and 413s carry its headers.
+app.add_middleware(
+    _BodyLimit,
+    limits={
+        "/api/sinhala/audio/analyze": AUDIO_MAX_BYTES + 64 * 1024,
+        "/api/sinhala/align": AUDIO_MAX_BYTES + 64 * 1024,
+        # JSON bodies hold up to 5M characters (3-4 bytes each in UTF-8)
+        "/api/sinhala/srt": SRT_MAX_BYTES * 4 + 64 * 1024,
+    },
+)
 app.add_middleware(
     CORSMiddleware,
     allow_origin_regex=r"https?://(localhost|127\.0\.0\.1)(:\d+)?",
@@ -73,6 +135,9 @@ class WijesekaraOut(BaseModel):
 _TIMING = re.compile(r"^\s*\d{1,2}:\d{2}(:\d{2})?[.,]\d{1,3}\s*-->\s*\d{1,2}:\d{2}(:\d{2})?[.,]\d{1,3}")
 
 
+_TAG = re.compile(r"(<[^>]*>|\{\\[^}]*\})")
+
+
 def convert_srt(srt: str, direction: Direction) -> tuple[str, int]:
     """Re-encode cue text only; indexes, timings, WEBVTT headers and blank
     lines are kept byte-for-byte."""
@@ -91,7 +156,9 @@ def convert_srt(srt: str, direction: Direction) -> tuple[str, int]:
             in_cue = False
             out.append(line)
         elif in_cue:
-            out.append(convert(line, direction))
+            # Convert only the text between tags (<i>, <font ...>, <v Name>, {\an8}).
+            parts = _TAG.split(line)
+            out.append("".join(p if n % 2 else convert(p, direction) for n, p in enumerate(parts)))
         else:
             out.append(line)  # cue number, WEBVTT header, NOTE blocks
     return nl.join(out), cues
@@ -119,7 +186,9 @@ async def convert_srt_route(request: Request) -> SrtOut:
         direction = str(form.get("direction") or "u2fm")
         if upload is None or isinstance(upload, str):
             raise HTTPException(422, "multipart body needs a `file` field")
-        raw = await upload.read()
+        raw = await upload.read(SRT_MAX_BYTES + 1)
+        if len(raw) > SRT_MAX_BYTES:
+            raise HTTPException(413, f"file too large (max {SRT_MAX_BYTES // 1_000_000} MB)")
         try:
             srt = raw.decode("utf-8-sig")
         except UnicodeDecodeError:
@@ -127,12 +196,14 @@ async def convert_srt_route(request: Request) -> SrtOut:
     else:
         try:
             body = SrtIn.model_validate(await request.json())
+        except _BodyTooLarge:
+            raise  # let _BodyLimit turn this into a 413
         except Exception as e:  # noqa: BLE001
             raise HTTPException(422, f"invalid body: {e}") from e
         srt, direction = body.srt, body.direction
     if direction not in ("u2fm", "fm2u"):
         raise HTTPException(422, "direction must be 'u2fm' or 'fm2u'")
-    out, cues = convert_srt(srt, direction)  # type: ignore[arg-type]
+    out, cues = await run_in_threadpool(convert_srt, srt, direction)  # type: ignore[arg-type]
     return SrtOut(srt=out, direction=direction, cues=cues)  # type: ignore[arg-type]
 
 
@@ -151,9 +222,6 @@ def fonts() -> dict:
 @app.post("/api/sinhala/wijesekara", response_model=WijesekaraOut)
 def wijesekara(body: WijesekaraIn) -> WijesekaraOut:
     return WijesekaraOut(text=type_keys(body.keys))
-
-
-AUDIO_MAX_BYTES = 200 * 1024 * 1024
 
 
 async def _save_upload(request: Request, max_bytes: int):

@@ -44,7 +44,7 @@ async function clipBuffer(project: Project, c: Clip): Promise<AudioBuffer | null
   if (!base) return null;
   // A curved clip plays the raw file and varies the playback rate while scheduled.
   const fwd = c.speed === 1 || c.curve ? base : await stretchedFor(base, c.speed);
-  return c.reverse && !c.curve ? reversedOf(fwd) : fwd;
+  return c.reverse ? reversedOf(fwd) : fwd;
 }
 
 const reversedCache = new WeakMap<AudioBuffer, AudioBuffer>();
@@ -112,14 +112,25 @@ export function scheduleClipAudio(
     // The stretched buffer is already at clip speed, so source offset scales by 1/speed.
     let offset = c.in / c.speed + skip;
     if (c.reverse && !c.curve) offset = buf.duration - (c.in / c.speed + c.duration) + skip; // buffer is reversed
+    let lead = 0; // silence before the audio starts, when the reversed range reaches past the decoded audio
     if (c.curve) {
       const cv = { ...c, curve: c.curve };
-      offset = curveSrcAt(cv, skip);
+      // A reversed clip walks its curve backwards (like the picture), over a reversed buffer.
+      const loc = (tl: number) => (c.reverse ? c.duration - tl : tl);
+      offset = c.reverse ? buf.duration - curveSrcAt(cv, loc(skip)) : curveSrcAt(cv, skip);
       // Rate follows the curve in 50 ms steps (pitch moves with it, like a tape).
-      src.playbackRate.setValueAtTime(curveSpeedAt(cv, skip), t0);
-      for (let tl = skip + 0.05; tl < c.duration; tl += 0.05) src.playbackRate.linearRampToValueAtTime(curveSpeedAt(cv, tl), t0 + tl - skip);
+      src.playbackRate.setValueAtTime(curveSpeedAt(cv, loc(skip)), t0);
+      for (let tl = skip + 0.05; tl < c.duration; tl += 0.05) src.playbackRate.linearRampToValueAtTime(curveSpeedAt(cv, loc(tl)), t0 + tl - skip);
+    } else if (offset < 0) lead = -offset;
+    offset = Math.max(0, Math.min(offset, buf.duration - 0.001));
+    const t0s = t0 + lead;
+    // start()'s duration is in buffer seconds, so it is only right for the stretched (constant-speed) buffer;
+    // a curve clip consumes a different span of source, so it is ended by stop() at the clip's end instead.
+    if (t0s < t1) {
+      if (c.curve) src.start(t0s, offset);
+      else src.start(t0s, offset, c.duration - skip - lead);
+      src.stop(t1);
     }
-    src.start(t0, Math.min(offset, Math.max(0, buf.duration - 0.001)), c.duration - skip);
     srcs.push(src);
     nodes.push(g);
   }

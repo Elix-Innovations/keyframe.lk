@@ -97,22 +97,24 @@ export function Preview() {
 
   // Load a hidden video element per source file. If one is gone (failed save, cleared site data), offer to re-attach it.
   const [missing, setMissing] = useState<string | null>(null); // asset id that could not be loaded
-  const [needsAccess, setNeedsAccess] = useState<NeedsPermissionError | null>(null);
+  const [needsAccessAll, setNeedsAccess] = useState<NeedsPermissionError[]>([]); // one per linked file; the prompt shows the first
+  const needsAccess = needsAccessAll[0] ?? null;
+  const [retry, setRetry] = useState(0); // bumped after a grant so the remaining files are loaded through ensureVideo
   const [loaded, setLoaded] = useState(false);
   const assetKey = [...new Set(videoClips(project.clips ?? []).map((c) => keyOf(c.assetId, c.track ?? 0)))].join('|');
   useEffect(() => {
     let cancelled = false;
     const keys = assetKey ? assetKey.split('|') : [];
     setMissing(null);
-    setNeedsAccess(null);
+    setNeedsAccess([]);
     setLoaded(false);
     releaseUnused(new Set(keys));
     Promise.all(keys.map((k) => { const [id, slot] = k.split('#'); return ensureVideo(id, Number(slot)).then((el) => { if (!el && !cancelled) setMissing(id); }, (e) => {
       if (cancelled) return;
-      if (e instanceof NeedsPermissionError) setNeedsAccess(e); else setMissing(id);
+      if (e instanceof NeedsPermissionError) setNeedsAccess((l) => (l.some((x) => x.assetId === e.assetId) ? l : [...l, e])); else setMissing(id);
     }); })).then(() => { if (!cancelled) setLoaded(true); force((n) => n + 1); syncVideos(); });
     return () => { cancelled = true; };
-  }, [assetKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [assetKey, retry]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => onVideoFrame(() => force((n) => n + 1)), []);
   useEffect(() => onSegmenterChange(() => force((n) => n + 1)), []); // redraw when the AI cut-out model finishes loading
 
@@ -422,6 +424,8 @@ export function Preview() {
       st.setOverlays((l) => l.map((o) => { const v = at.get(o.id); return v ? { ...o, x: Math.round((v.x + (dx / W) * 100) * 10) / 10, y: Math.round((v.y + (dy / H) * 100) * 10) / 10 } : o; }), 'ovl-drag-group');
       force((n) => n + 1);
     } else if (d.kind === 'caption') {
+      // The press point is cx0 + dx, cy0 + dy. A click that shifts a pixel must not move the caption or skip selecting it.
+      if (!d.moved && Math.hypot(x - (d.cx0 + d.dx), y - (d.cy0 + d.dy)) <= 4 * dpr) return;
       d.moved = true;
       let cx = x - d.dx, cy = y - d.dy;
       guidesRef.current = [];
@@ -564,7 +568,7 @@ export function Preview() {
               <p className="text-sm text-muted-foreground">Keyframe.lk links to “{needsAccess.handle.name}” on your computer instead of copying it. Chrome asks again after a restart.</p>
               <Button onClick={async () => {
                 const b = await grantFileAccess(needsAccess).catch(() => undefined);
-                if (b) { registerVideoBlob(needsAccess.assetId, b); setNeedsAccess(null); } else setMissing(needsAccess.assetId);
+                if (b) setRetry((n) => n + 1); else { setMissing(needsAccess.assetId); setNeedsAccess((l) => l.filter((x) => x !== needsAccess)); }
               }}>Allow access</Button>
             </div>
           </div>

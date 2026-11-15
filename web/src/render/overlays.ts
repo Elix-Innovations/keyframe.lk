@@ -5,7 +5,7 @@ import { laneOf } from '../lib/videoFx';
 import { overlayClock, overlayPose, overlaysAt } from '../lib/overlays';
 import { IDENTITY, transformAt } from '../lib/videoFx';
 import { renderCaptionAt, type Ctx2D } from './captions';
-import { drawScene } from './scene';
+import { drawScene, sceneFontIds } from './scene';
 import { quadAt, scrollProgress } from '../lib/screen';
 import { feedCanvas, FEED_H, FEED_W, paintFeed, warpToQuad } from './screenFeed';
 
@@ -27,7 +27,11 @@ const EMOJI_STACK = '"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",san
 const hasSinhala = (s: string) => /[඀-෿]/.test(s);
 
 /** Font ids an overlay needs loaded before it is drawn. */
-export const overlayFontIds = (list: OverlayItem[] | undefined) => (list ?? []).flatMap((o) => (o.kind === 'text' && o.fontId ? [o.fontId] : []));
+export const overlayFontIds = (list: OverlayItem[] | undefined): string[] => (list ?? []).flatMap((o): (string | undefined)[] => [
+  ...(o.kind === 'text' && o.fontId ? [o.fontId] : []),
+  ...(o.scene ? sceneFontIds(o.scene) : []),
+  ...(o.tpl ? [o.tpl.style.text.sinhalaFont, o.tpl.style.text.englishFont, ...(o.tpl.style.creative?.lines.map((l) => l.font) ?? [])] : []),
+]).filter((x): x is string => !!x);
 
 function textFont(o: OverlayItem, project: Project) {
   const sin = getFont(o.fontId && getFont(o.fontId).script !== 'english' ? o.fontId : project.style.text.sinhalaFont);

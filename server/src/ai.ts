@@ -39,9 +39,15 @@ export function requireAi(): AiProvider {
 const providerLabel = () => (aiProvider() === 'gemini' ? 'Gemini' : 'Claude');
 
 let client: Anthropic | null = null;
+let clientKey = '';
 function getClient(): Anthropic {
   if (!hasAnthropicCredentials()) throw new HttpError(503, AI_NOT_CONFIGURED);
-  client ??= new Anthropic(); // resolves ANTHROPIC_API_KEY / ANTHROPIC_AUTH_TOKEN from env
+  // The SDK reads the env only at construction, and PUT /api/keys changes it at runtime: rebuild when the credential changes.
+  const key = `${process.env.ANTHROPIC_API_KEY ?? ''}|${process.env.ANTHROPIC_AUTH_TOKEN ?? ''}`;
+  if (!client || key !== clientKey) {
+    client = new Anthropic(); // resolves ANTHROPIC_API_KEY / ANTHROPIC_AUTH_TOKEN from env
+    clientKey = key;
+  }
   return client;
 }
 
@@ -235,7 +241,16 @@ async function callGemini<T>(opts: GenerateJSONOptions, attempt = 0): Promise<T>
     throw await geminiError(res);
   }
 
-  const data = (await res.json()) as GeminiResponse;
+  let data: GeminiResponse;
+  try {
+    data = (await res.json()) as GeminiResponse;
+  } catch (err) {
+    // The timeout signal also covers reading the body, and a truncated or non-JSON 200 body fails here too.
+    const name = (err as Error)?.name;
+    if (name === 'TimeoutError' || name === 'AbortError') throw new HttpError(504, 'Timed out waiting for Gemini.');
+    if (attempt < 1) return callGemini<T>(opts, attempt + 1);
+    throw new HttpError(502, 'Gemini returned an unreadable response.');
+  }
   recordGemini(geminiAiModel(), data.usageMetadata);
   if (data.promptFeedback?.blockReason) {
     throw new HttpError(422, `Gemini declined this request (${data.promptFeedback.blockReason}).`);

@@ -23,11 +23,16 @@ function run(args: string[], opts: { timeoutMs: number; cwd?: string; input?: st
     try { child = spawn(bin(), args, { cwd: opts.cwd, env, stdio: ['pipe', 'pipe', 'pipe'] }); }
     catch { resolve({ code: null, stdout: '', stderr: '', missing: true, timedOut: false }); return; }
     let stdout = '', stderr = '', done = false, timedOut = false;
-    const finish = (r: Partial<RunResult>) => { if (done) return; done = true; clearTimeout(timer); resolve({ code: null, stdout, stderr, missing: false, timedOut, ...r }); };
+    const finish = (r: Partial<RunResult>) => { if (done) return; done = true; clearTimeout(timer); opts.signal?.removeEventListener('abort', onAbort); resolve({ code: null, stdout, stderr, missing: false, timedOut, ...r }); };
     const timer = setTimeout(() => { timedOut = true; child.kill('SIGKILL'); }, opts.timeoutMs);
-    opts.signal?.addEventListener('abort', () => child.kill('SIGKILL'));
-    child.stdout?.on('data', (d: Buffer) => { stdout += d.toString(); });
-    child.stderr?.on('data', (d: Buffer) => { stderr += d.toString(); });
+    // The signal may already be aborted (the caller awaits other work before run()); that never fires an event.
+    const onAbort = () => { child.kill('SIGKILL'); };
+    if (opts.signal?.aborted) onAbort();
+    else opts.signal?.addEventListener('abort', onAbort, { once: true });
+    child.stdout?.setEncoding('utf8'); // decode as a stream so a multi-byte character split across chunks survives
+    child.stderr?.setEncoding('utf8');
+    child.stdout?.on('data', (d: string) => { stdout += d; });
+    child.stderr?.on('data', (d: string) => { stderr += d; });
     child.on('error', (e: NodeJS.ErrnoException) => finish({ missing: e.code === 'ENOENT' }));
     child.on('close', (code) => finish({ code }));
     child.stdin?.on('error', () => undefined);
@@ -92,7 +97,7 @@ export async function runClaudeJson<T>(opts: ClaudeJsonOptions): Promise<ClaudeJ
       '--json-schema', JSON.stringify(opts.schema),
       '--system-prompt', opts.system,
       '--max-turns', '3',
-      '--allowedTools', '',
+      '--tools', '',
       ...(opts.model ? ['--model', opts.model] : []),
     ];
     const r = await run(args, { timeoutMs: opts.timeoutMs ?? 180_000, cwd: dir, input: opts.prompt, signal: opts.signal });

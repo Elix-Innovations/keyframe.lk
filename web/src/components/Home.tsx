@@ -151,6 +151,7 @@ export function Home() {
   const [sort, setSort] = useState<SortKey>(() => readPref('sincap.home.sort', ['recent', 'name'] as const, 'recent'));
   const [view, setView] = useState<ViewMode>(() => readPref('sincap.home.view', ['grid', 'list'] as const, 'grid'));
   const input = useRef<HTMLInputElement>(null);
+  const importing = useRef(false);
   const notify = useEditor((s) => s.notify);
   const openConverter = useEditor((s) => s.setConverterOpen);
   const openShortcuts = useEditor((s) => s.setShortcutsOpen);
@@ -192,8 +193,12 @@ export function Home() {
       notify('Please choose a video file (MP4, MOV, WebM).', 'error');
       return;
     }
+    if (importing.current) return; // a drop or pick while an import runs would start a second concurrent create
+    importing.current = true;
     if (videos.length < entries.length) notify(`Skipped ${entries.length - videos.length} file(s) that are not videos.`, 'info');
     setBusy(true);
+    const stored: string[] = [];
+    let saved = false;
     try {
       let p: Project | null = null;
       let clips: Project['clips'] = [];
@@ -202,6 +207,7 @@ export function Home() {
         const meta = await probeVideo(file);
         // Link to the original file when the browser allows it (no copy, any size); otherwise copy it into storage.
         const assetId = handle ? await db.putFileHandle(handle, file) : await db.putBlob(file);
+        stored.push(assetId);
         const name = file.name.replace(/\.[^.]+$/, '');
         const sound = await hasAudio(file);
         const linkId = sound ? nanoid(6) : undefined;
@@ -215,53 +221,52 @@ export function Home() {
       }
       p = withClips(p!, clips!);
       await db.putProject(p);
+      saved = true;
       location.hash = `#/p/${p.id}`;
     } catch (e) {
       notify((e as Error).message, 'error');
     } finally {
+      // No project references these copies if the import failed part-way.
+      if (!saved) await Promise.all(stored.map((id) => db.deleteBlob(id).catch(() => undefined)));
+      importing.current = false;
       setBusy(false);
     }
   }
 
   async function rename() {
     if (!toRename) return;
-    const full = await db.getProject(toRename.p.id);
-    if (full) await db.putProject({ ...full, name: toRename.name.trim() || full.name, updatedAt: Date.now() });
+    try {
+      const full = await db.getProject(toRename.p.id);
+      if (full) await db.putProject({ ...full, name: toRename.name.trim() || full.name, updatedAt: Date.now() });
+    } catch (e) {
+      notify((e as Error).message, 'error');
+    }
     setToRename(null);
     refresh();
   }
 
   /** Copy a project. The copy shares the same video/B-roll assets (no second copy of the file). */
   async function duplicate(p: db.ProjectSummary) {
-    const full = await db.getProject(p.id);
-    if (!full) return;
-    const now = Date.now();
-    await db.putProject({ ...full, id: nanoid(10), name: `${full.name} copy`, createdAt: now, updatedAt: now });
-    notify(`Duplicated “${full.name}”`, 'success');
-    refresh();
+    try {
+      const full = await db.getProject(p.id);
+      if (!full) return;
+      const now = Date.now();
+      await db.putProject({ ...full, id: nanoid(10), name: `${full.name} copy`, createdAt: now, updatedAt: now });
+      notify(`Duplicated “${full.name}”`, 'success');
+    } catch (e) {
+      notify((e as Error).message, 'error');
+    } finally {
+      refresh();
+    }
   }
 
-  /** Delete a project, but keep any video/B-roll asset another project (e.g. a duplicate) still uses. */
+  /** Delete a project; db.deleteProject keeps any video/B-roll asset another project (e.g. a duplicate) still uses. */
   async function remove(p: db.ProjectSummary) {
-    const others = (projects ?? []).filter((o) => o.id !== p.id);
-    const inUse = new Set<string>();
-    for (const o of others) {
-      if (o.videoAssetId) inUse.add(o.videoAssetId);
-      for (const c of o.clips ?? []) inUse.add(c.assetId);
-      if (o.audio?.original?.denoise) inUse.add(o.audio.original.denoise.assetId);
-      for (const d of Object.values(o.audio?.original?.denoiseBy ?? {})) inUse.add(d.assetId);
-      for (const b of o.broll ?? []) inUse.add(b.assetId);
+    try {
+      await db.deleteProject(p.id);
+    } catch (e) {
+      notify((e as Error).message, 'error');
     }
-    const full = await db.getProject(p.id);
-    if (full && ((full.videoAssetId && inUse.has(full.videoAssetId)) || (full.clips ?? []).some((c) => inUse.has(c.assetId)) || (full.broll ?? []).some((b) => inUse.has(b.assetId)))) {
-      await db.putProject({
-        ...full,
-        videoAssetId: full.videoAssetId && inUse.has(full.videoAssetId) ? null : full.videoAssetId,
-        clips: (full.clips ?? []).filter((c) => !inUse.has(c.assetId)),
-        broll: (full.broll ?? []).filter((b) => !inUse.has(b.assetId)),
-      });
-    }
-    await db.deleteProject(p.id);
   }
 
   const shown = useMemo(() => {
@@ -293,9 +298,13 @@ export function Home() {
   const recent = useMemo(() => (projects ?? []).slice().sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 4), [projects]);
 
   async function blank() {
-    const p = newProject('Untitled project');
-    await db.putProject(p);
-    location.hash = `#/p/${p.id}`;
+    try {
+      const p = newProject('Untitled project');
+      await db.putProject(p);
+      location.hash = `#/p/${p.id}`;
+    } catch (e) {
+      notify((e as Error).message, 'error');
+    }
   }
 
   const sideItem = 'flex w-full items-center gap-3 rounded-lg px-3 py-2 text-[13px] text-muted-foreground transition-colors outline-none hover:bg-foreground/[0.06] hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50';

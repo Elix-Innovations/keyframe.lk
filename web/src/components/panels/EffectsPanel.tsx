@@ -37,7 +37,7 @@ export function useLayer() {
   const applyToAll = (pick: (l: VideoLayer) => Partial<VideoLayer>) => {
     if (!clip) return;
     const part = pick(layer);
-    setClips((cs) => cs.map((c) => (c.kind === 'video' ? { ...c, fx: { ...migrateVideo(c.fx), ...JSON.parse(JSON.stringify(part)) } } : c)));
+    setClips((cs) => cs.map((c) => (c.kind === 'video' ? { ...c, fx: { ...migrateVideo(c.fx), ...structuredClone(part) } } : c)));
   };
   return { layer, set, clip, applyToAll, clipCount: videoClips(clips ?? []).length };
 }

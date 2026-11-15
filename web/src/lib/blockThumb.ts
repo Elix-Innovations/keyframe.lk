@@ -11,7 +11,9 @@ function thumbOf(assetId: string, kind: 'image' | 'video'): Promise<string | nul
   if (!p) {
     p = getBlob(assetId)
       .then((b) => (!b ? null : kind === 'image' ? imageThumb(b, 480) : probeVideo(b).then((m) => m.thumbnail)))
-      .catch(() => null);
+      .catch(() => null)
+      // A failed or not-yet-permitted read must stay retryable on the next mount.
+      .then((u) => { if (u === null) cache.delete(key); return u; });
     cache.set(key, p);
   }
   return p;

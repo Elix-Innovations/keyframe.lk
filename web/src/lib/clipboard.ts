@@ -100,6 +100,7 @@ export function pasteAtPlayhead(asOverlay = false): boolean {
     const mainId = held.main;
     const main = held.items.find((c) => c.id === mainId) ?? held.items[0];
     const group = asOverlay ? held.items.filter((c) => c.kind === 'video') : held.items;
+    if (!group.length) { note('Only a video clip can be pasted as an overlay window.', 'info'); return false; }
     const link = !asOverlay && main.linkId ? nanoid(6) : undefined;
     const clips = p.clips ?? [];
     const vtrack = freeVideoTrack(clips, at, main.duration, asOverlay ? Math.max(1, main.track ?? 0) : main.track ?? 0, undefined, p.overlays);
@@ -112,7 +113,7 @@ export function pasteAtPlayhead(asOverlay = false): boolean {
     });
     st.setClips((cs) => [...cs, ...copies]);
     const pick = copies.find((c) => c.kind === main.kind) ?? copies[0];
-    st.selectClip(pick.id);
+    if (pick) st.selectClip(pick.id);
     note(asOverlay ? `Pasted the clip as an overlay on video track ${vtrack + 1}. Drag it in the preview to place it.` : `Pasted clip at ${at.toFixed(1)}s${vtrack > 0 ? ` on video track ${vtrack + 1}` : ''}.`);
   } else if (held.kind === 'adj') {
     const a = held.items[0];

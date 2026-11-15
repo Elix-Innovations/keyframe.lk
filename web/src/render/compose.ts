@@ -197,7 +197,14 @@ function drawLayerRaw(
         // Canvas point -> the layer's own (untransformed) frame -> the cut-out frame.
         const px = x - cx, py = y - cy, cos = Math.cos(-a), sin = Math.sin(-a);
         const lx = (px * cos - py * sin) / k + W / 2, ly = (px * sin + py * cos) / sc + H / 2;
-        return alphaAt((lx - r.x) / r.w, (ly - r.y) / r.h) > 0.15;
+        // Undo the shaping (quarter-turn, flips, crop) so the point lands on the full source frame alphaAt expects.
+        const rr = (-(layer.rot90 ?? 0) * Math.PI) / 180, rc = Math.cos(rr), rs = Math.sin(rr);
+        const bx = lx - (r.x + r.w / 2), by = ly - (r.y + r.h / 2);
+        const ux = (bx * rc - by * rs) * (layer.flipH ? -1 : 1), uy = (bx * rs + by * rc) * (layer.flipV ? -1 : 1);
+        const bw = turned ? r.h : r.w, bh = turned ? r.w : r.h;
+        const u = cr.l / 100 + (ux / bw + 0.5) * (1 - (cr.l + cr.r) / 100);
+        const v = cr.t / 100 + (uy / bh + 0.5) * (1 - (cr.t + cr.b) / 100);
+        return alphaAt(u, v) > 0.15;
       };
     }
     hits.push(hit);
@@ -283,7 +290,9 @@ export function composeFrame(
     ctx.save();
     ctx.globalCompositeOperation = 'source-over';
     ctx.globalAlpha = 1;
+    // Effect passes leave transparent corners, so the destination must be reset (callers reuse their canvas).
     if (opts.background === 'transparent') ctx.clearRect(0, 0, W, H);
+    else { ctx.fillStyle = opts.background ?? (project.fit === 'color' ? project.fitColor ?? '#000000' : '#000'); ctx.fillRect(0, 0, W, H); }
     ctx.drawImage(cur.c, 0, 0);
     ctx.restore();
   }
@@ -308,7 +317,7 @@ function applyFilterPass(out: Ctx2D, src: OffscreenCanvas, W: number, H: number,
     const b = buffer(3, W, H);
     b.x.drawImage((out as unknown as { canvas: OffscreenCanvas }).canvas, 0, 0);
     out.clearRect(0, 0, W, H);
-    drawGraded(out, b.c, f, a.start);
+    if (!drawGraded(out, b.c, f, a.start)) out.drawImage(b.c, 0, 0);
   }
   if (f.vignette > 0) {
     const g = out.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.25, W / 2, H / 2, Math.max(W, H) * 0.75);

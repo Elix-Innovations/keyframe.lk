@@ -141,7 +141,7 @@ def run(only: set[str] | None, record: bool, sample_fonts: int) -> dict:
     t = load_table()
     items = build_items(t)
     fonts = load_fonts(only)
-    noto = ensure_noto()
+    noto = ensure_noto() if HAS_RAQM else None
 
     # Glyph check covers every code point unicode_to_fm() can emit. Decode-only
     # aliases (legacy ligatures) do not need to exist in every font.

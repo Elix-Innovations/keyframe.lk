@@ -1,6 +1,6 @@
 import { BufferTarget, CanvasSource, Output, QUALITY_VERY_HIGH, WebMOutputFormat } from 'mediabunny';
 import type { MotionScene, Project } from '../types';
-import { drawScene } from '../render/scene';
+import { drawScene, sceneFontIds } from '../render/scene';
 import { ensureFonts } from './fonts';
 import { downloadBlob, projectFontIds, safeFilename } from './util';
 
@@ -8,7 +8,7 @@ const FPS = 30;
 
 /** Render one motion scene alone, on a transparent background, to a VP9 WebM with alpha. */
 export async function renderSceneWebm(scene: MotionScene, project: Project, onProgress?: (p: number) => void): Promise<Blob> {
-  await ensureFonts(projectFontIds(project));
+  await ensureFonts([...projectFontIds(project), ...sceneFontIds(scene)]);
   const frame = scene.frame ?? { w: 1080, h: 1920 };
   const even = (n: number) => Math.max(2, Math.round(n / 2) * 2);
   const width = even(frame.w), height = even(frame.h);

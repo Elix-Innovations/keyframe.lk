@@ -49,6 +49,7 @@ export async function extractCutout(clip: Clip, onProgress: (p: number) => void,
   const wasPlaying = matteHints.playing;
   matteHints.playing = false;
   let k = 0;
+  let finalized = false;
   try {
     for await (const wrapped of sink.canvasesAtTimestamps(ts)) {
       signal?.throwIfAborted();
@@ -76,9 +77,12 @@ export async function extractCutout(clip: Clip, onProgress: (p: number) => void,
     if (!output || !vsrc) throw new Error('No frames could be read from the video.');
     vsrc.close();
     await output.finalize();
+    finalized = true;
     const assetId = await putBlob(new Blob([output.target.buffer!], { type: 'video/webm' }));
     return { assetId, width: canvas!.width, height: canvas!.height };
   } finally {
     matteHints.playing = wasPlaying;
+    if (!finalized) await output?.cancel().catch(() => {});
+    input.dispose();
   }
 }

@@ -92,27 +92,44 @@ function Hook() {
   );
 }
 
+/** B-roll pools per project, so leaving the tab does not discard the images the user already added. */
+type BrollImage = { assetId: string; thumb: string; w: number; h: number };
+const brollPools = new Map<string, BrollImage[]>();
+
 function Broll() {
   const project = useEditor((s) => s.project)!;
   const update = useEditor((s) => s.update);
   const notify = useEditor((s) => s.notify);
   const { busy, run } = useBusy();
   const input = useRef<HTMLInputElement>(null);
-  const [pool, setPool] = useState<{ assetId: string; thumb: string }[]>([]);
+  const [pool, setPool] = useState<BrollImage[]>(() => brollPools.get(project.id) ?? []);
+  useEffect(() => { brollPools.set(project.id, pool); }, [project.id, pool]);
   const addBroll = (items: { assetId: string; start: number; end: number; note?: string }[]) =>
     update((p) => {
       const list = [...(p.overlays ?? [])];
-      for (const b of items) list.push(brollOverlay({ ...b, mode: 'fullscreen' }, list, { w: p.videoWidth || 1080, h: p.videoHeight || 1920 }));
+      for (const b of items) {
+        const im = pool.find((x) => x.assetId === b.assetId);
+        list.push(brollOverlay({ ...b, mode: 'fullscreen' }, list, { w: p.videoWidth || 1080, h: p.videoHeight || 1920 }, im && { w: im.w, h: im.h }));
+      }
       return { ...p, overlays: list };
     });
 
   const addFiles = async (files: FileList) => {
-    const added: { assetId: string; thumb: string }[] = [];
+    const added: BrollImage[] = [];
     for (const f of Array.from(files)) {
       if (!f.type.startsWith('image/')) continue;
-      added.push({ assetId: await db.putBlob(f), thumb: await imageThumb(f) });
+      try {
+        // Decode before storing, so an undecodable file leaves no orphaned blob.
+        const bmp = await createImageBitmap(f);
+        const { width: w, height: h } = bmp;
+        bmp.close();
+        const thumb = await imageThumb(f);
+        added.push({ assetId: await db.putBlob(f), thumb, w, h });
+      } catch (e) {
+        notify(`Could not add “${f.name}”: ${(e as Error).message || 'unreadable image'}.`, 'error');
+      }
     }
-    setPool((p) => [...p, ...added]);
+    if (added.length) setPool((p) => [...p, ...added]);
   };
   const placeAtPlayhead = (assetId: string) => {
     const t = currentTime();
@@ -129,7 +146,7 @@ function Broll() {
     <Section title="B-roll images">
       <p className="text-xs text-muted-foreground">Add photos, then place them at the playhead or let AI match each one to the moment you talk about it.</p>
       <Button variant="outline" size="sm" onClick={() => input.current?.click()}><ImagePlus />Add images…</Button>
-      <input ref={input} type="file" accept="image/*" multiple hidden onChange={(e) => { if (e.target.files) addFiles(e.target.files); e.target.value = ''; }} />
+      <input ref={input} type="file" accept="image/*" multiple hidden onChange={(e) => { if (e.target.files) void addFiles(e.target.files); e.target.value = ''; }} />
       {pool.length > 0 && (
         <>
           <div className="grid grid-cols-4 gap-1.5">
@@ -170,7 +187,7 @@ function Description() {
       {d && (
         <>
           <Textarea className="sinhala resize-y" rows={10} value={full} readOnly />
-          <Button variant="outline" size="sm" onClick={() => navigator.clipboard.writeText(full).then(() => notify('Copied.', 'success'))}><Copy />Copy</Button>
+          <Button variant="outline" size="sm" onClick={() => navigator.clipboard.writeText(full).then(() => notify('Copied.', 'success'), () => notify('Could not copy. Select the text and copy it manually.', 'error'))}><Copy />Copy</Button>
         </>
       )}
     </Section>

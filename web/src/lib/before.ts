@@ -1,7 +1,7 @@
 import type { Project, VideoLayer } from '../types';
 import { NEUTRAL_FILTERS } from './videoFx';
 
-const bare = (l: VideoLayer): VideoLayer => ({ ...l, filters: NEUTRAL_FILTERS, presetId: null, effects: [], matte: undefined, regionBlurs: undefined });
+const bare = (l: VideoLayer): VideoLayer => ({ ...l, filters: NEUTRAL_FILTERS, presetId: null, effects: [], matte: undefined, regionBlurs: undefined, fkf: undefined });
 
 let last: { from: Project; to: Project } | null = null;
 

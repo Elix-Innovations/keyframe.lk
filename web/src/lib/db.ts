@@ -10,6 +10,7 @@
  */
 import { nanoid } from 'nanoid';
 import type { FontDef, Project, Template } from '../types';
+import { overlayAssetIds } from './screen';
 
 // Legacy name from before the Keyframe.lk rename. Keep it, or existing projects disappear.
 const DB_NAME = 'sincap-studio';
@@ -66,7 +67,8 @@ export async function retryStorage(): Promise<boolean> {
     try { await run('blobs', 'readwrite', (s) => s.put(blob, id)); } catch { /* keep in memory; still readable this session */ }
   }
   for (const p of [...memProjects.values()]) {
-    try { await run('projects', 'readwrite', (s) => s.put(p)); memProjects.delete(p.id); } catch { scheduleRetry(); return false; }
+    // A save that failed while this put was in flight left a newer copy in memory: only drop the one just written.
+    try { await run('projects', 'readwrite', (s) => s.put(p)); if (memProjects.get(p.id) === p) memProjects.delete(p.id); } catch { scheduleRetry(); return false; }
   }
   if (storageBlocked) { storageBlocked = false; storageListeners.forEach((f) => f(false)); }
   return true;
@@ -167,9 +169,9 @@ export async function putProject(project: Project): Promise<void> {
   }
 }
 
-/** Every stored file a project points at (video, B-roll images, music). */
+/** Every stored file a project points at (video, B-roll images, music, media library, overlay and phone-feed images). */
 function assetsOf(p: Project): string[] {
-  return [p.videoAssetId, ...(p.clips ?? []).map((c) => c.assetId), ...(p.audio?.original?.denoise ? [p.audio.original.denoise.assetId] : []), ...Object.values(p.audio?.original?.denoiseBy ?? {}).map((d) => d.assetId), ...(p.broll ?? []).map((b) => b.assetId), ...(p.audio?.tracks ?? []).map((t) => t.assetId)]
+  return [p.videoAssetId, ...(p.clips ?? []).map((c) => c.assetId), ...(p.audio?.original?.denoise ? [p.audio.original.denoise.assetId, p.audio.original.denoise.sourceAssetId] : []), ...Object.values(p.audio?.original?.denoiseBy ?? {}).map((d) => d.assetId), ...(p.broll ?? []).map((b) => b.assetId), ...(p.audio?.tracks ?? []).map((t) => t.assetId), ...(p.library ?? []).map((l) => l.assetId), ...(p.overlays ?? []).flatMap(overlayAssetIds)]
     .filter((x): x is string => !!x);
 }
 

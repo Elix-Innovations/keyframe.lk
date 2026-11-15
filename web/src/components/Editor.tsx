@@ -221,8 +221,10 @@ export function Editor() {
       const st = useEditor.getState();
       const mod = e.metaKey || e.ctrlKey;
       if (mod && e.key.toLowerCase() === 's') { e.preventDefault(); void saveNow(); return; }
-      if (mod && e.key.toLowerCase() === 'z') { e.preventDefault(); if (e.shiftKey) st.redo(); else st.undo(); return; }
-      if (mod && e.key.toLowerCase() === 'y') { e.preventDefault(); st.redo(); return; }
+      // Text fields keep their native undo, except the ones that edit the project (marked data-project-undo).
+      const projectUndo = !isTyping(e) || !!(e.target as HTMLElement).closest('[data-project-undo]');
+      if (mod && projectUndo && e.key.toLowerCase() === 'z') { e.preventDefault(); if (e.shiftKey) st.redo(); else st.undo(); return; }
+      if (mod && projectUndo && e.key.toLowerCase() === 'y') { e.preventDefault(); st.redo(); return; }
       if (mod && e.key.toLowerCase() === 'k') { e.preventDefault(); st.setConverterOpen(!st.converterOpen); return; }
       // Copy / cut / paste on the timeline (⌘C, ⌘X, ⌘V; ⌥⌘V pastes a video clip as an overlay; ⇧⌘V pastes only the look).
       if (mod && !isTyping(e) && !window.getSelection()?.toString()) {
@@ -235,12 +237,16 @@ export function Editor() {
         if (e.code === 'KeyV' && hasClipboard()) { e.preventDefault(); if (e.shiftKey) pasteAttributes(); else pasteAtPlayhead(e.altKey); return; }
       }
       if (isTyping(e) || mod) return;
+      // Keys aimed at an open menu or dialog belong to it, not to the timeline. A focused slider/tab only owns the arrow keys (the panel tabs and
+      // inspector sliders keep focus after a click, so the other shortcuts must still work there).
+      if (e.defaultPrevented || (e.target instanceof Element && (e.target.closest('[role=dialog],[role=menu],[role=listbox]')
+        || (e.key.startsWith('Arrow') && e.target.closest('[role=slider],[role=tab]'))))) return;
       const p = st.project;
       if (!p) return;
       const sel = p.captions.find((c) => c.id === st.selectedCaptionId) ?? null;
       if (/^[1-9]$/.test(e.key)) { st.setPanel(PANELS[Number(e.key) - 1]); return; }
-      // In / Out preview range, like Premiere: I and O mark at the playhead, ⌥I / ⌥O / ⌥X clear, ⇧/ plays In to Out.
-      if (e.code === 'KeyI' || e.code === 'KeyO' || (e.altKey && e.code === 'KeyX') || (e.shiftKey && e.code === 'Slash')) {
+      // In / Out preview range, like Premiere: I and O mark at the playhead, ⌥I / ⌥O / ⌥X clear, ⌥/ plays In to Out.
+      if (e.code === 'KeyI' || e.code === 'KeyO' || (e.altKey && e.code === 'KeyX') || (e.altKey && e.code === 'Slash')) {
         e.preventDefault();
         const t = currentTime();
         const { markIn, markOut } = st;
@@ -311,7 +317,7 @@ export function Editor() {
         <Logo size={24} />
         <div className="absolute left-1/2 flex -translate-x-1/2 items-center gap-2">
           <Input className="h-8 w-56 border-transparent bg-transparent text-center font-medium shadow-none hover:border-border focus-visible:border-ring dark:bg-transparent"
-            value={project.name} onChange={(e) => update((p) => ({ ...p, name: e.target.value }), 'rename')} aria-label="Project name" />
+            value={project.name} onChange={(e) => update((p) => ({ ...p, name: e.target.value }), 'rename')} aria-label="Project name" data-project-undo />
           <Tooltip>
             <TooltipTrigger asChild>
               <Badge variant="outline" className="gap-1 text-muted-foreground">

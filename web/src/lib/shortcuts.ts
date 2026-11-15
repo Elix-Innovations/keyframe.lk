@@ -16,7 +16,7 @@ export const SHORTCUTS = {
   markIn: { keys: ['I'], label: 'Mark In at the playhead (⌥I clears)' },
   markOut: { keys: ['O'], label: 'Mark Out at the playhead (⌥O clears)' },
   clearMarks: { keys: ['⌥', 'X'], label: 'Clear In and Out' },
-  playInOut: { keys: ['⇧', '/'], label: 'Play In to Out' },
+  playInOut: { keys: ['⌥', '/'], label: 'Play In to Out' },
   panels: { keys: ['1 – 9'], label: 'Switch side panel' },
   converter: { keys: ['⌘', 'K'], label: 'Unicode ⇄ FM converter' },
   help: { keys: ['?'], label: 'Show shortcuts' },

@@ -73,7 +73,7 @@ export async function parseMogrt(file: File): Promise<MogrtResult> {
     } catch { /* binary or unrelated: keep looking */ }
   }
   const vid = entries.find((e) => VIDEO.test(e.name));
-  const video = !anims.length && !aep && vid ? new Blob([(await vid.read()) as BlobPart], { type: 'video/mp4' }) : null;
+  const video = !anims.length && vid ? new Blob([(await vid.read()) as BlobPart], { type: 'video/mp4' }) : null;
   if (!anims.length && !aep && !video) notes.push('The graphic inside is binary (made in After Effects) and the pack has no preview video, so its keyframes cannot be read. Import the pack\'s preview video instead.');
   return { info, anims, aep, video, notes };
 }

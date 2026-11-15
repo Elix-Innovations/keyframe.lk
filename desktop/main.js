@@ -7,6 +7,7 @@ const net = require('node:net');
 const API_PORT = 8787;
 let children = [];
 let win;
+let quitting = false;
 
 const resBase = () => (app.isPackaged ? process.resourcesPath : path.join(__dirname, 'build'));
 
@@ -30,14 +31,29 @@ function waitFor(port, timeoutMs = 30000) {
   });
 }
 
-function startNode(script, env, cwd) {
+// Something already accepting connections on the port (a stale API from a force-quit run, `npm run dev`, ...).
+function portInUse(port) {
+  return new Promise((resolve) => {
+    const c = net.connect(port, '127.0.0.1');
+    c.once('connect', () => { c.destroy(); resolve(true); });
+    c.once('error', () => { c.destroy(); resolve(false); });
+  });
+}
+
+function startNode(name, script, env, cwd) {
   const child = spawn(process.execPath, [script], {
     cwd,
     env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', ...env },
     stdio: 'inherit',
   });
   children.push(child);
-  return child;
+  // Rejects if the child fails to spawn or exits at any point; callers decide what that means.
+  const dead = new Promise((_, reject) => {
+    child.once('error', (e) => reject(new Error(`${name} failed to start: ${e.message}`)));
+    child.once('exit', (code, signal) => reject(new Error(`${name} stopped unexpectedly (${signal || `exit code ${code}`}).`)));
+  });
+  dead.catch(() => {});
+  return dead;
 }
 
 async function boot() {
@@ -47,10 +63,21 @@ async function boot() {
   const PATH = ['/opt/homebrew/bin', '/usr/local/bin', process.env.PATH || ''].join(':');
   const base = resBase();
 
-  startNode(path.join(base, 'server', 'index.mjs'), { PORT: String(API_PORT), KEYFRAME_DATA_DIR: dataDir, PATH }, dataDir);
+  if (await portInUse(API_PORT)) {
+    throw new Error(`Port ${API_PORT} is already in use (another Keyframe or a dev server?). Close it and try again.`);
+  }
+  // HOST keeps the API (and its saved API keys) off the LAN.
+  const apiDead = startNode('API server', path.join(base, 'server', 'index.mjs'), { PORT: String(API_PORT), HOST: '127.0.0.1', KEYFRAME_DATA_DIR: dataDir, PATH }, dataDir);
   const webPort = await freePort();
-  startNode(path.join(base, 'web', 'server.js'), { PORT: String(webPort), HOSTNAME: '127.0.0.1' }, path.join(base, 'web'));
-  await Promise.all([waitFor(API_PORT), waitFor(webPort)]);
+  const webDead = startNode('Web server', path.join(base, 'web', 'server.js'), { PORT: String(webPort), HOSTNAME: '127.0.0.1' }, path.join(base, 'web'));
+  const dead = Promise.race([apiDead, webDead]);
+  await Promise.race([Promise.all([waitFor(API_PORT), waitFor(webPort)]), dead]);
+  // A child dying after boot would otherwise leave the editor talking to nothing.
+  dead.catch((e) => {
+    if (quitting) return;
+    dialog.showErrorBox('Keyframe stopped working', String(e && e.message || e));
+    app.quit();
+  });
   return webPort;
 }
 
@@ -71,6 +98,16 @@ async function createWindow() {
   }
 }
 
-app.whenReady().then(createWindow);
+// A second instance would fight the first over port 8787 and the data dir.
+if (!app.requestSingleInstanceLock()) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    if (!win) return;
+    if (win.isMinimized()) win.restore();
+    win.focus();
+  });
+  app.whenReady().then(createWindow);
+}
 app.on('window-all-closed', () => app.quit());
-app.on('before-quit', () => { for (const c of children) try { c.kill(); } catch {} });
+app.on('before-quit', () => { quitting = true; for (const c of children) try { c.kill(); } catch {} });

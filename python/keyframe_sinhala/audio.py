@@ -120,6 +120,7 @@ def _beats(mono: np.ndarray, sr: int) -> tuple[float | None, list[float]]:
     # Fold into 60..180 BPM (the usual editing range); keep the beat grid consistent.
     while bpm < 60:
         bpm *= 2
+        frames = np.sort(np.concatenate([frames, (frames[:-1] + frames[1:]) // 2]))
     while bpm > 180:
         bpm /= 2
         frames = frames[::2]

@@ -33,7 +33,7 @@ function noiseBuffer(ctx: BaseAudioContext, seconds: number) {
   const b = ctx.createBuffer(1, Math.ceil(seconds * ctx.sampleRate), ctx.sampleRate);
   const d = b.getChannelData(0);
   let seed = 12345;
-  for (let i = 0; i < d.length; i++) { seed = (seed * 1103515245 + 12345) & 0x7fffffff; d[i] = (seed / 0x3fffffff) - 1; }
+  for (let i = 0; i < d.length; i++) { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; d[i] = seed / 0x80000000 - 1; }
   return b;
 }
 

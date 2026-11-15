@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import type { MatteSettings, RegionBlur } from '@/types';
 import { DEFAULT_MATTE, newRegionBlur } from '@/lib/videoFx';
 import { analysisStatus, cancelCutout, loadPrecise, loadSegmenter, onSegmenterChange, preciseStatus, prepareCutout, segmenterState } from '@/render/matte';
-import { getBlob } from '@/lib/db';
+import { NeedsPermissionError, getBlob, grantFileAccess } from '@/lib/db';
 import { Plus, Trash2 } from '@/components/icons';
 import { useEditor } from '@/store';
 import { Button } from '@/components/ui/button';
@@ -23,7 +23,12 @@ export function BackgroundSection() {
   const an = clip ? analysisStatus(clip.assetId) : null;
   const prepare = async () => {
     if (!clip) return;
-    const blob = await getBlob(clip.assetId);
+    let blob: Blob | undefined;
+    try { blob = await getBlob(clip.assetId); }
+    catch (e) {
+      try { blob = e instanceof NeedsPermissionError ? await grantFileAccess(e) : undefined; } catch { blob = undefined; }
+      if (!blob) { useEditor.getState().notify(e instanceof NeedsPermissionError ? e.message : `Could not read the video file: ${(e as Error).message}`, 'error'); return; }
+    }
     if (!blob) { useEditor.getState().notify('The video file is missing from local storage.', 'error'); return; }
     void prepareCutout(clip.assetId, blob, clip.in, clip.in + clip.duration * clip.speed);
   };

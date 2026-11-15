@@ -6,7 +6,7 @@
  * reflected. Check your provider's billing page for the real amount.
  */
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { copyFileSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { UsageRecord, UsageResponse } from './types.js';
@@ -61,9 +61,19 @@ const FILE = process.env.KEYFRAME_DATA_DIR
   : path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../data/usage.json');
 const MAX_RECORDS = 5000;
 let records: UsageRecord[] = [];
-try {
-  records = JSON.parse(readFileSync(FILE, 'utf8')) as UsageRecord[];
-} catch { /* first run */ }
+let raw: string | null = null;
+try { raw = readFileSync(FILE, 'utf8'); } catch { /* first run */ }
+if (raw !== null) {
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) throw new Error('not an array');
+    records = parsed as UsageRecord[];
+  } catch (e) {
+    // Don't let the next save silently overwrite a corrupt history: keep a copy of the bad file.
+    console.warn('usage: usage.json is unreadable, starting empty (backup kept as usage.json.bak)', e);
+    try { copyFileSync(FILE, `${FILE}.bak`); } catch { /* best effort */ }
+  }
+}
 
 let saveTimer: NodeJS.Timeout | null = null;
 function save() {
@@ -72,7 +82,9 @@ function save() {
     saveTimer = null;
     try {
       mkdirSync(path.dirname(FILE), { recursive: true });
-      writeFileSync(FILE, JSON.stringify(records));
+      const tmp = `${FILE}.tmp`;
+      writeFileSync(tmp, JSON.stringify(records));
+      renameSync(tmp, FILE); // atomic, so a crash mid-write can't leave a truncated usage.json
     } catch (e) {
       console.warn('usage: could not save', e);
     }

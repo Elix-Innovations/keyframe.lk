@@ -37,8 +37,8 @@ export async function addTemplateLayer(tpl: Template, start: number, track?: num
   st.setOverlays((l) => [...l, o]);
   st.selectOverlay(o.id);
   const sfx = sound === 'template' ? t.sfx ?? null : sound === 'none' ? null : sound;
-  if (sfx) await addSfxTracks(sfx, [o.start]).catch(() => undefined);
-  st.notify(`Added “${t.name}” as a text layer at ${o.start.toFixed(1)}s.${sfx ? ' Its sound effect is on the Sound layer.' : ''}`, 'success');
+  const sfxOk = sfx ? await addSfxTracks(sfx, [o.start]).then(() => true, () => false) : false;
+  st.notify(`Added “${t.name}” as a text layer at ${o.start.toFixed(1)}s.${sfxOk ? ' Its sound effect is on the Sound layer.' : ''}`, 'success');
   return o.id;
 }
 
@@ -61,21 +61,29 @@ export async function applyTemplate(tpl: Template, captions: Caption[] | 'all', 
     return;
   }
   const ids = new Set(hit.map((c) => c.id));
-  // Keep the user's caption position; take everything else from the template.
-  const keep = (p: Project, s: CaptionStyle): CaptionStyle => ({ ...s, layout: { ...s.layout, x: p.style.layout.x, y: p.style.layout.y } });
+  // Keep the user's caption positions (the project's, and any a single caption was dragged to); take everything else from the template.
+  const keep = (p: Project, s: CaptionStyle, c?: Caption): CaptionStyle => ({
+    ...s, layout: { ...s.layout, x: c?.styleOverride?.layout?.x ?? p.style.layout.x, y: c?.styleOverride?.layout?.y ?? p.style.layout.y },
+  });
+  /** An 'all' apply clears per-caption overrides, except a position the user dragged the caption to. */
+  const dragged = (c: Caption): Caption['styleOverride'] => {
+    const x = c.styleOverride?.layout?.x, y = c.styleOverride?.layout?.y;
+    return x === undefined && y === undefined ? undefined : { layout: { ...(x !== undefined && { x }), ...(y !== undefined && { y }) } };
+  };
   st.update((p) => captions === 'all'
-    ? { ...p, templateId: t.id, style: keep(p, t.style), captions: p.captions.map((c) => (c.styleOverride ? { ...c, styleOverride: undefined } : c)) }
-    : { ...p, captions: p.captions.map((c) => (ids.has(c.id) ? { ...c, styleOverride: { ...keep(p, t.style), creative: t.style.creative ?? null } } : c)) });
+    ? { ...p, templateId: t.id, style: keep(p, t.style), captions: p.captions.map((c) => (c.styleOverride ? { ...c, styleOverride: dragged(c) } : c)) }
+    : { ...p, captions: p.captions.map((c) => (ids.has(c.id) ? { ...c, styleOverride: { ...keep(p, t.style, c), creative: t.style.creative ?? null } } : c)) });
 
   // Sound effects: one at the start of each line group that appears, replacing sounds an earlier template added there.
   const sfx = sound === 'template' ? t.sfx ?? null : sound === 'none' ? null : sound;
   const span = captions === 'all' ? null : { a: Math.min(...hit.map((c) => c.start)), b: Math.max(...hit.map((c) => c.end)) };
   const inSpan = (x: { start: number }) => !span || (x.start >= span.a - 0.01 && x.start <= span.b);
   const times = sfx ? hit.flatMap((c) => chunkWords(c.words, t.style.creative ? t.style.wordsPerChunk : 0).map((ch, i) => (i === 0 ? c.start : ch[0].start))).slice(0, 150) : [];
+  let sfxFailed = false;
   try {
     const had = useEditor.getState().project?.audio.tracks.some((x) => x.fromTemplate && inSpan(x));
     if (sfx || had) await addSfxTracks(sfx ?? 'pop', times, (x) => !!x.fromTemplate && inSpan(x));
-  } catch (e) { st.notify((e as Error).message || 'Could not add the sound effect.', 'error'); }
+  } catch (e) { sfxFailed = true; st.notify((e as Error).message || 'Could not add the sound effect.', 'error'); }
   const where = captions === 'all' ? 'the whole video' : `${hit.length} caption${hit.length > 1 ? 's' : ''}`;
-  st.notify(`Applied “${t.name}” to ${where}${times.length ? ` with ${times.length} sound effect${times.length > 1 ? 's' : ''}` : ''}.`, 'success');
+  st.notify(`Applied “${t.name}” to ${where}${times.length && !sfxFailed ? ` with ${times.length} sound effect${times.length > 1 ? 's' : ''}` : ''}.`, 'success');
 }

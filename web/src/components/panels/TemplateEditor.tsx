@@ -19,11 +19,11 @@ const LOOPS: { id: TextLoop; label: string }[] = [
 ];
 const SHADOW_LABELS: Record<ShadowPreset, string> = { none: 'None', soft: 'Soft', default: 'Normal', strong: 'Strong', darker: 'Dark', wideBlur: 'Wide' };
 
-function AnimSelect({ value, onChange, allowNone = true }: { value: AnimationId; onChange: (v: AnimationId) => void; allowNone?: boolean }) {
+function AnimSelect({ value, onChange, allowNone = true, allowCustom = false }: { value: AnimationId; onChange: (v: AnimationId) => void; allowNone?: boolean; allowCustom?: boolean }) {
   return (
     <Select value={value} onValueChange={(v) => onChange(v as AnimationId)}>
       <SelectTrigger size="sm" className="w-36"><SelectValue /></SelectTrigger>
-      <SelectContent>{ANIM_IDS.filter((id) => allowNone || id !== 'none').map((id) => <SelectItem key={id} value={id}>{ANIMATION_LABELS[id]}</SelectItem>)}</SelectContent>
+      <SelectContent>{ANIM_IDS.filter((id) => (allowNone || id !== 'none') && (id !== 'custom' || allowCustom || value === 'custom')).map((id) => <SelectItem key={id} value={id}>{ANIMATION_LABELS[id]}</SelectItem>)}</SelectContent>
     </Select>
   );
 }
@@ -38,13 +38,21 @@ function KeyTable({ title, keys, onChange }: { title: string; keys: AnimKey[]; o
       <Input type="number" step={step} className="h-6 w-14 px-1 text-[11px]" value={Number(v.toFixed(3))} onChange={(e) => { const n = parseFloat(e.target.value); if (Number.isFinite(n)) set(i, apply(n)); }} />
     </label>
   );
+  // Editing the time re-sorts the rows, so apply it on blur / Enter: sorting while typing would move the focused input onto another keyframe.
+  const timeField = (i: number, v: number) => (
+    <label className="flex flex-col gap-0.5 text-[10px] text-muted-foreground">Time s
+      <Input key={`${i}-${v}`} type="number" step={0.05} className="h-6 w-14 px-1 text-[11px]" defaultValue={Number(v.toFixed(3))}
+        onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
+        onBlur={(e) => { const n = parseFloat(e.target.value); if (Number.isFinite(n) && n !== v) set(i, { t: n }); else e.target.value = String(Number(v.toFixed(3))); }} />
+    </label>
+  );
   return (
     <div className="flex flex-col gap-1.5">
       <div className="flex items-center justify-between"><span className="text-xs font-medium">{title}</span>
         <Button size="xs" variant="secondary" onClick={() => onChange([...keys, { ...(keys[keys.length - 1] ?? { alpha: 1, dx: 0, dy: 0, scale: 1, rot: 0, sx: 1, sy: 1, blur: 0 }), t: Number(((keys[keys.length - 1]?.t ?? 0) + 0.1).toFixed(2)), ease: 'easeOut' }])}><Plus />Key</Button></div>
       {keys.map((k, i) => (
         <div key={i} className="flex flex-wrap items-end gap-1 rounded-md bg-muted/50 p-1.5">
-          {field(i, 'Time s', k.t, (t) => ({ t }), 0.05)}
+          {timeField(i, k.t)}
           {field(i, 'Opacity %', k.alpha * 100, (n) => ({ alpha: n / 100 }))}
           {field(i, 'X em', k.dx, (dx) => ({ dx }), 0.1)}
           {field(i, 'Y em', k.dy, (dy) => ({ dy }), 0.1)}
@@ -187,13 +195,13 @@ export function TemplateEditor({ style, onStyle, sfx, onSfx }: {
 
       <Section title="Motion">
         {cr ? <>
-          <Row label="Enter"><AnimSelect value={cr.lineAnim} onChange={(lineAnim) => setCr({ lineAnim })} /></Row>
-          <Row label="Exit"><AnimSelect value={cr.outAnim ?? 'none'} onChange={(outAnim) => setCr({ outAnim })} /></Row>
+          <Row label="Enter"><AnimSelect value={cr.lineAnim} allowCustom={!!cr.customIn} onChange={(lineAnim) => setCr({ lineAnim })} /></Row>
+          <Row label="Exit"><AnimSelect value={cr.outAnim ?? 'none'} allowCustom={!!cr.customOut} onChange={(outAnim) => setCr({ outAnim })} /></Row>
           {cr.lineAnim === 'custom' && cr.customIn && <KeyTable title="Entrance keyframes" keys={cr.customIn} onChange={(customIn) => setCr({ customIn })} />}
           {cr.outAnim === 'custom' && cr.customOut && <KeyTable title="Exit keyframes" keys={cr.customOut} onChange={(customOut) => setCr({ customOut })} />}
           <Row label="Line delay" hint="Seconds between one line entering and the next."><Slider value={cr.stagger} min={0} max={0.6} step={0.01} format={(v) => `${v.toFixed(2)}s`} onChange={(stagger) => setCr({ stagger }, 'stg')} /></Row>
           <Row label="Letter delay" hint="Kinetic type: each letter enters in turn. 0 = the whole line together. Sinhala words enter whole."><Slider value={cr.perLetter ?? 0} min={0} max={0.15} step={0.005} format={(v) => (v ? `${v.toFixed(3)}s` : 'Off')} onChange={(perLetter) => setCr({ perLetter }, 'pl')} /></Row>
-          {!!cr.perLetter && <Row label="Letter enter"><AnimSelect value={cr.letterAnim ?? cr.lineAnim} onChange={(letterAnim) => setCr({ letterAnim })} /></Row>}
+          {!!cr.perLetter && <Row label="Letter enter"><AnimSelect value={cr.letterAnim ?? cr.lineAnim} allowCustom={!!cr.customIn} onChange={(letterAnim) => setCr({ letterAnim })} /></Row>}
           <Row label="Idle loop"><Select value={cr.loop ?? 'none'} onValueChange={(loop) => setCr({ loop: loop as TextLoop })}>
             <SelectTrigger size="sm" className="w-36"><SelectValue /></SelectTrigger>
             <SelectContent>{LOOPS.map((l) => <SelectItem key={l.id} value={l.id}>{l.label}</SelectItem>)}</SelectContent>

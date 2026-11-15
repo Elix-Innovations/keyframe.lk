@@ -53,17 +53,24 @@ export function StylePreview({ style, animate = false, height = 110 }: { style: 
       layout: { ...style.layout, x: 50, y: 50, maxWidth: 96 },
     };
     let raf = 0;
+    let alive = true;
     const start = performance.now();
-    const draw = () => {
+    const paint = () => {
+      if (!alive) return;
       const t = animate ? ((performance.now() - start) / 1000) % (creative ? 3 : 2.2) : 0.55;
       ctx.clearRect(0, 0, W, H);
       renderCaptionAt(ctx, W, H, [creative ? SAMPLE_CREATIVE : SAMPLE], preview, creative ? (animate ? t : 2) : t);
-      if (animate) raf = requestAnimationFrame(draw);
     };
-    ensureFonts([style.text.sinhalaFont, style.text.englishFont]).then(draw);
-    const off = onFontsChanged(draw);
-    draw();
-    return () => { cancelAnimationFrame(raf); off(); };
+    // One rAF chain per run; font callbacks only repaint (the running loop repaints anyway when animating).
+    const tick = () => {
+      if (!alive) return;
+      paint();
+      raf = requestAnimationFrame(tick);
+    };
+    ensureFonts([style.text.sinhalaFont, style.text.englishFont]).then(paint);
+    const off = onFontsChanged(paint);
+    if (animate) tick(); else paint();
+    return () => { alive = false; cancelAnimationFrame(raf); off(); };
   }, [style, animate, height]);
   return <canvas ref={ref} className="block w-full" style={{ height }} />;
 }

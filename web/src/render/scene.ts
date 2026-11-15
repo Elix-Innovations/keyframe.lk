@@ -145,18 +145,19 @@ function drawNode(ctx: Ctx2D, n: SceneNode, t: number, duration: number, L: Loca
   if (n.blend && BLEND[n.blend]) ctx.globalCompositeOperation = BLEND[n.blend];
   const blur = sampleNum(n.blur, t, 0);
   if (blur > 0.2 && 'filter' in ctx) (ctx as { filter: string }).filter = `blur(${(blur * L.s).toFixed(2)}px)`;
-  if (n.shadow) { ctx.shadowColor = n.shadow.color; ctx.shadowBlur = n.shadow.blur; ctx.shadowOffsetX = n.shadow.x ?? 0; ctx.shadowOffsetY = n.shadow.y ?? 0; }
+  if (n.shadow) { ctx.shadowColor = n.shadow.color; // Shadow metrics ignore the current transform, so scale them to the output size like the blur above.
+    ctx.shadowBlur = n.shadow.blur * L.s; ctx.shadowOffsetX = (n.shadow.x ?? 0) * L.s; ctx.shadowOffsetY = (n.shadow.y ?? 0) * L.s; }
   ctx.translate(x, y);
   if (rot) ctx.rotate(rot);
   if (sx !== 1 || sy !== 1) ctx.scale(sx, sy);
 
   const fill = sampleColour(n.fill, t);
-  const paint = (): string | CanvasGradient | null => {
+  const paint = (cx = 0, cy = 0): string | CanvasGradient | null => {
     if (n.gradient && n.gradient.stops.length > 1) {
       const a = (n.gradient.angle * Math.PI) / 180, dx = Math.sin(a), dy = -Math.cos(a);
       const hw = n.type === 'text' ? 200 : w / 2, hh = n.type === 'text' ? 40 : h / 2;
       const len = Math.abs(hw * dx) + Math.abs(hh * dy);
-      const g = ctx.createLinearGradient(-dx * len, -dy * len, dx * len, dy * len);
+      const g = ctx.createLinearGradient(cx - dx * len, cy - dy * len, cx + dx * len, cy + dy * len);
       for (const st of n.gradient.stops) g.addColorStop(Math.max(0, Math.min(1, st.p)), st.c);
       return g;
     }
@@ -165,7 +166,7 @@ function drawNode(ctx: Ctx2D, n: SceneNode, t: number, duration: number, L: Loca
 
   if (n.type === 'rect' || n.type === 'ellipse') {
     const left = -ax * w, top = -ay * h;
-    const p = paint();
+    const p = paint(left + w / 2, top + h / 2);
     ctx.beginPath();
     if (n.type === 'ellipse') ctx.ellipse(left + w / 2, top + h / 2, Math.max(0, w / 2), Math.max(0, h / 2), 0, 0, Math.PI * 2);
     else ctx.roundRect(left, top, Math.max(0, w), Math.max(0, h), Math.max(0, sampleNum(n.radius, t, 0)));
@@ -175,13 +176,15 @@ function drawNode(ctx: Ctx2D, n: SceneNode, t: number, duration: number, L: Loca
   } else if (n.type === 'line') {
     const x2 = sampleNum(n.x2, t, 100), y2 = sampleNum(n.y2, t, 0), trim = Math.max(0, Math.min(1, sampleNum(n.trim, t, 1)));
     // The line is drawn from the node origin to (x2 - x, y2 - y), so rotation and scale pivot at its start.
-    ctx.beginPath();
-    ctx.moveTo(0, 0);
-    ctx.lineTo((x2 - x) * trim, (y2 - y) * trim);
-    ctx.strokeStyle = n.stroke ?? fill ?? '#fff';
-    ctx.lineWidth = sampleNum(n.strokeWidth, t, 6);
-    ctx.lineCap = n.cap ?? 'round';
-    ctx.stroke();
+    if (trim > 0) { // a zero-length segment would still paint a round-cap dot
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.lineTo((x2 - x) * trim, (y2 - y) * trim);
+      ctx.strokeStyle = n.stroke ?? fill ?? '#fff';
+      ctx.lineWidth = sampleNum(n.strokeWidth, t, 6);
+      ctx.lineCap = n.cap ?? 'round';
+      ctx.stroke();
+    }
   } else if (n.type === 'path' && n.points && n.points.length >= 6) {
     const pts = n.points, m = pts.length / 2, closed = !!n.closed, trim = Math.max(0, Math.min(1, sampleNum(n.trim, t, 1)));
     const P = (i: number) => { const j = closed ? ((i % m) + m) % m : Math.max(0, Math.min(m - 1, i)); return [pts[j * 2], pts[j * 2 + 1]]; };
@@ -196,7 +199,7 @@ function drawNode(ctx: Ctx2D, n: SceneNode, t: number, duration: number, L: Loca
     if (closed) ctx.closePath();
     const p = paint();
     if (p && n.fill) { ctx.fillStyle = p; ctx.fill(); }
-    if (n.stroke) {
+    if (n.stroke && trim > 0) { // at trim 0 the zero-length dash would still paint a round-cap dot
       ctx.strokeStyle = n.stroke; ctx.lineWidth = sampleNum(n.strokeWidth, t, 2); ctx.lineJoin = 'round'; ctx.lineCap = n.cap ?? 'round';
       if (trim < 1) {
         let len = 0;
