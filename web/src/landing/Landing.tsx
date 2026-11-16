@@ -2,6 +2,8 @@ import Link from 'next/link';
 import type { ReactNode } from 'react';
 import { Logo } from '@/components/Logo';
 import { CopyButton } from './CopyButton';
+import { LoopVideo } from './LoopVideo';
+import { ReelFrame } from './ReelFrame';
 
 const EDITOR = '/editor';
 const START = '/editor#/new'; // opens a blank project straight in the workspace
@@ -88,15 +90,17 @@ function Console() {
         {/* 9:16 frame */}
         <div className="border-b border-white/[0.07] p-4 md:border-r md:border-b-0">
           <div className="relative mx-auto aspect-[9/16] w-full max-w-[13.5rem] overflow-hidden rounded-md p-2"
-            style={{ background: 'radial-gradient(120% 80% at 30% 10%, #3b1830 0%, #0a0a14 60%), #0a0a14' }}>
-            <div className="hud-corners pointer-events-none absolute inset-1" />
-            <div className="absolute inset-x-2 top-2 flex justify-between"><span className="mono text-[9px] text-white/40">SAFE 9:16</span><span className="mono text-[9px] text-white/40">REELS</span></div>
-            <div className="absolute inset-4 rounded-sm border border-dashed border-white/[0.12]" />
+            style={{ background: '#0a0a14' }}>
+            <ReelFrame overlay={
             <div className="absolute inset-x-3 bottom-[18%] text-center">
               <p lang="si" className="font-sinhala flex flex-wrap justify-center gap-y-1 text-[1.15rem] leading-snug font-bold text-white [text-shadow:0_2px_14px_rgba(0,0,0,.7)]">
                 {CAPTION.map((w, i) => <span key={w} className="demo-word" style={{ ['--i' as string]: i }}>{w}</span>)}
               </p>
             </div>
+            } />
+            <div className="hud-corners pointer-events-none absolute inset-1" />
+            <div className="absolute inset-x-2 top-2 flex justify-between"><span className="mono text-[9px] text-white/40">SAFE 9:16</span><span className="mono text-[9px] text-white/40">REELS</span></div>
+            <div className="absolute inset-4 rounded-sm border border-dashed border-white/[0.12]" />
           </div>
         </div>
 
@@ -298,29 +302,24 @@ function Features() {
 /* ---------- caption styles ---------- */
 
 const LOOKS = [
-  { name: 'Word highlight', note: 'each word lights as it is spoken', from: '#5b1d3a', hot: 'වැඩේ', line: ['අද', 'වැඩේ', 'පටන්', 'ගමු'] },
-  { name: 'Bold punch', note: 'big, centred, built for a thumb scroll', from: '#103a52', hot: 'should', line: ['This', 'is', 'how', 'it', 'should', 'look'] },
-  { name: 'Clean subtitle', note: 'quiet lower third for talking heads', from: '#3a2a10', hot: '', line: ['ඔයාට', 'මේක', 'පුළුවන්', 'නේද?'] },
+  { name: 'Word highlight', note: 'each word lights as it is spoken', clip: 'style-highlight' },
+  { name: 'Bold punch', note: 'big, centred, built for a thumb scroll', clip: 'style-punch' },
+  { name: 'Clean subtitle', note: 'quiet lower third for talking heads', clip: 'style-clean' },
 ];
 
 function Looks() {
   return (
     <section className="mx-auto max-w-7xl px-5 pb-28">
       <SectionHead index="02" label="Styles" title="Same words, different energy.">
-        Templates give you a starting point. Every style is per-word editable, with stroke, shadow, glow, plates and gradients.
+        Real reels, captioned in Keyframe. Templates give you a starting point, and every style is per-word editable, with stroke, shadow, glow, plates and gradients.
       </SectionHead>
       <div className="mt-14 grid gap-4 md:grid-cols-3">
         {LOOKS.map((l, k) => (
           <figure key={l.name} className="reveal hud-panel overflow-hidden rounded-2xl p-3">
-            <div className="relative flex aspect-square items-end justify-center overflow-hidden rounded-lg p-5"
-              style={{ background: `radial-gradient(110% 80% at 30% 0%, ${l.from}, #07080d 72%)` }}>
+            <div className="relative aspect-[9/16] overflow-hidden rounded-lg bg-black">
+              <LoopVideo src={`/landing/${l.clip}.mp4`} poster={`/landing/${l.clip}.jpg`} className="absolute inset-0 size-full object-cover" />
               <div className="hud-corners pointer-events-none absolute inset-2" />
-              <span className="mono absolute top-3 left-3 text-[10px] text-white/40">STYLE/0{k + 1}</span>
-              <p lang="si" className={`font-sinhala text-center leading-snug text-white ${k === 1 ? 'text-3xl font-black uppercase' : k === 0 ? 'text-xl font-bold' : 'rounded bg-black/55 px-3 py-1.5 text-base font-medium'}`}>
-                {l.line.map((w, i) => (
-                  <span key={i}>{w === l.hot ? <span className="rounded bg-[var(--hot)] px-1.5">{w}</span> : w}{' '}</span>
-                ))}
-              </p>
+              <span className="mono absolute top-3 left-3 rounded bg-black/50 px-1.5 py-0.5 text-[10px] text-white/70 backdrop-blur">STYLE/0{k + 1}</span>
             </div>
             <figcaption className="px-2 pt-4 pb-2">
               <span className="block text-sm font-medium">{l.name}</span>
