@@ -8,7 +8,6 @@
 
 Reels · TikTok · Shorts &nbsp;|&nbsp; සිංහල · English · code-mixed &nbsp;|&nbsp; Unicode + legacy FM fonts
 
-[![CI](https://github.com/Elix-Innovations/keyframe.lk/actions/workflows/ci.yml/badge.svg)](https://github.com/Elix-Innovations/keyframe.lk/actions/workflows/ci.yml)
 ![Next.js](https://img.shields.io/badge/Next.js-16-000000?logo=nextdotjs&logoColor=white)
 ![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)
 ![TypeScript](https://img.shields.io/badge/TypeScript-7-3178C6?logo=typescript&logoColor=white)
@@ -493,7 +492,7 @@ The project license does not cover third-party code, fonts or models. Legacy FM 
 
 ## 20. Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). By opening a pull request you agree to its [Contributor License Agreement](CONTRIBUTING.md#contributor-license-agreement). Run `npm run typecheck` and `npm run test:py` before opening a PR; CI runs the same. Please also read the [Code of Conduct](CODE_OF_CONDUCT.md) and report vulnerabilities as described in [SECURITY.md](SECURITY.md).
+See [CONTRIBUTING.md](CONTRIBUTING.md). By opening a pull request you agree to its [Contributor License Agreement](CONTRIBUTING.md#contributor-license-agreement). Run `npm run typecheck` and `npm run test:py` before opening a PR. Please also read the [Code of Conduct](CODE_OF_CONDUCT.md) and report vulnerabilities as described in [SECURITY.md](SECURITY.md).
 
 <div align="center">
 

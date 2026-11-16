@@ -11,7 +11,7 @@ npm run dev        # server (8787), Python service (8788), web (5180)
 npm run typecheck
 npm run test:py
 ```
-Both must pass. CI runs the same commands.
+Both must pass.
 
 ## Layout
 - `web/` Next.js editor. Panels live in `web/src/components/panels/`. The compositor is `web/src/render/compose.ts`; preview and export share it, so a visual change there shows up in both.
