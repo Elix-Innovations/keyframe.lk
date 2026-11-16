@@ -21,12 +21,11 @@ Both must pass.
 ## Style
 Match the surrounding code. Keep comments for the non-obvious why. Put user-facing shortcuts in `web/src/lib/shortcuts.ts` and update `docs/KEYBOARD_SHORTCUTS.md`.
 
-## Contributor License Agreement
-Keyframe.lk is owned by Elix Innovations (Pvt) Ltd (https://elix.lk) and released under the [PolyForm Noncommercial License 1.0.0](LICENSE). By submitting a contribution (a pull request, patch, issue attachment or any other material), you agree that:
+## Licensing of contributions
+Keyframe.lk is open source under the [MIT License](LICENSE), copyright Elix Innovations (Pvt) Ltd (https://elix.lk). By submitting a contribution (a pull request, patch or any other material), you agree that:
 
 1. You wrote the contribution yourself, or you have the right to submit it under these terms.
-2. You assign all copyright in the contribution to Elix Innovations (Pvt) Ltd. Where such an assignment is not possible under applicable law, you grant Elix Innovations (Pvt) Ltd a perpetual, worldwide, irrevocable, royalty-free, non-exclusive license to use, copy, modify, sublicense, relicense and distribute the contribution, including under commercial licenses.
-3. The contribution will be distributed under this repository's [LICENSE](LICENSE).
-4. You will not receive payment for the contribution unless you have a separate written agreement with Elix Innovations (Pvt) Ltd.
+2. The contribution is licensed under this repository's [MIT License](LICENSE), the same as the rest of the project.
+3. You keep the copyright in your contribution. You will not receive payment for it unless you have a separate written agreement with Elix Innovations (Pvt) Ltd.
 
 If you can't agree to these terms, please don't submit a contribution.

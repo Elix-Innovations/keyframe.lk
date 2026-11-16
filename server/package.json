@@ -9,7 +9,7 @@
   },
   "keywords": [],
   "author": "",
-  "license": "PolyForm-Noncommercial-1.0.0",
+  "license": "MIT",
   "dependencies": {
     "@anthropic-ai/sdk": "^0.128.0",
     "@hono/node-server": "^2.1.1",

@@ -16,7 +16,7 @@ Reels · TikTok · Shorts &nbsp;|&nbsp; සිංහල · English · code-mixed
 ![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)
 ![FastAPI](https://img.shields.io/badge/FastAPI-service-009688?logo=fastapi&logoColor=white)
 ![Electron](https://img.shields.io/badge/Electron-desktop-47848F?logo=electron&logoColor=white)
-[![License: PolyForm Noncommercial](https://img.shields.io/badge/License-PolyForm%20Noncommercial-blue)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue)](LICENSE)
 
 [![Download for macOS](https://img.shields.io/badge/Download-macOS-000000?logo=apple&logoColor=white)](https://github.com/Elix-Innovations/keyframe.lk/releases/latest)
 [![Download for Windows](https://img.shields.io/badge/Download-Windows-eb104e)](https://github.com/Elix-Innovations/keyframe.lk/releases/latest)
@@ -499,17 +499,17 @@ npm run dist       # build the app and a .dmg into desktop/dist
 
 ## License
 
-Copyright © 2026 Elix Innovations (Pvt) Ltd ([elix.lk](https://elix.lk)). All rights not granted by the license are reserved.
+Copyright © 2026 Elix Innovations (Pvt) Ltd ([elix.lk](https://elix.lk)).
 
-Keyframe.lk is released under the [PolyForm Noncommercial License 1.0.0](LICENSE). You may use, change and share it for personal and other non-commercial purposes. **Commercial use requires a separate license** from Elix Innovations (Pvt) Ltd; contact us through [elix.lk](https://elix.lk).
+Keyframe.lk is open source under the [MIT License](LICENSE). You may use, change, share and sell it, including commercially, as long as you keep the copyright and licence notice.
 
-Contributions are welcome and are covered by the Contributor License Agreement in [CONTRIBUTING.md](CONTRIBUTING.md#contributor-license-agreement).
+Contributions are welcome and are licensed under the same MIT License; see [CONTRIBUTING.md](CONTRIBUTING.md#licensing-of-contributions).
 
 The project license does not cover third-party code, fonts or models. Legacy FM / Tharu fonts (`npm run fonts:fetch`) and the forced-aligner model (`npm run align:fetch`) are downloaded separately under their own terms. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) (regenerate with `npm run notices`).
 
 ## 20. Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). By opening a pull request you agree to its [Contributor License Agreement](CONTRIBUTING.md#contributor-license-agreement). Run `npm run typecheck` and `npm run test:py` before opening a PR. Please also read the [Code of Conduct](CODE_OF_CONDUCT.md) and report vulnerabilities as described in [SECURITY.md](SECURITY.md).
+See [CONTRIBUTING.md](CONTRIBUTING.md). By opening a pull request you agree to [license your contribution under MIT](CONTRIBUTING.md#licensing-of-contributions). Run `npm run typecheck` and `npm run test:py` before opening a PR. Please also read the [Code of Conduct](CODE_OF_CONDUCT.md) and report vulnerabilities as described in [SECURITY.md](SECURITY.md).
 
 <div align="center">
 

@@ -10,7 +10,7 @@
   },
   "keywords": [],
   "author": "",
-  "license": "PolyForm-Noncommercial-1.0.0",
+  "license": "MIT",
   "dependencies": {
     "@fontsource-variable/geist": "^5.3.0",
     "@hugeicons/core-free-icons": "^4.3.5",
