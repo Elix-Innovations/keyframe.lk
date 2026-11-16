@@ -187,14 +187,65 @@
 @media (prefers-reduced-motion: reduce) { .drift-a, .drift-b { animation: none; } }
 
 /* Landing page */
-@keyframes marquee { from { transform: translateX(0); } to { transform: translateX(-50%); } }
-.marquee { animation: marquee 40s linear infinite; }
-.marquee-wrap:hover .marquee { animation-play-state: paused; }
-@media (prefers-reduced-motion: reduce) { .marquee { animation: none; } }
-.landing { scroll-behavior: smooth; font-size: 16px; }
+.landing { scroll-behavior: smooth; font-size: 16px; --ink: #05060a; --signal: #ff8a4c; --hot: #ff2d5a; --line: rgba(255,255,255,.09); }
 .landing details > summary { list-style: none; }
 .landing details > summary::-webkit-details-marker { display: none; }
 .landing details[open] .faq-plus { transform: rotate(45deg); }
+.landing .mono { font-family: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace; font-feature-settings: "zero", "ss01"; }
+
+/* Engineering-paper grid, faded toward the edges. */
+.hud-grid {
+  background-image: linear-gradient(var(--line) 1px, transparent 1px), linear-gradient(90deg, var(--line) 1px, transparent 1px);
+  background-size: 56px 56px;
+  mask-image: radial-gradient(70% 60% at 50% 30%, #000 20%, transparent 75%);
+}
+.hud-panel { background: linear-gradient(180deg, rgba(255,255,255,.045), rgba(255,255,255,.012)); border: 1px solid var(--line); box-shadow: inset 0 1px 0 rgba(255,255,255,.06); }
+/* Corner ticks, like a viewfinder. */
+.hud-corners { --c: rgba(255,255,255,.35); background:
+  linear-gradient(var(--c), var(--c)) 0 0 / 10px 1px, linear-gradient(var(--c), var(--c)) 0 0 / 1px 10px,
+  linear-gradient(var(--c), var(--c)) 100% 0 / 10px 1px, linear-gradient(var(--c), var(--c)) 100% 0 / 1px 10px,
+  linear-gradient(var(--c), var(--c)) 0 100% / 10px 1px, linear-gradient(var(--c), var(--c)) 0 100% / 1px 10px,
+  linear-gradient(var(--c), var(--c)) 100% 100% / 10px 1px, linear-gradient(var(--c), var(--c)) 100% 100% / 1px 10px;
+  background-repeat: no-repeat; }
+.text-signal-grad { background: linear-gradient(100deg, #fff 8%, var(--hot) 55%, var(--signal) 100%); -webkit-background-clip: text; background-clip: text; color: transparent; }
+
+/* Hero render demo: one 6 s loop drives the words, playhead and timecode together. */
+@property --sec { syntax: "<integer>"; initial-value: 0; inherits: false; }
+@property --frm { syntax: "<integer>"; initial-value: 0; inherits: false; }
+@keyframes demo-sec { to { --sec: 6; } }
+@keyframes demo-frm { to { --frm: 30; } }
+@keyframes demo-word { 0%, 19% { background: var(--hot); color: #fff; transform: translateY(-3px) scale(1.06); } 20%, 100% { background: transparent; color: rgba(255,255,255,.92); transform: none; } }
+@keyframes demo-head { from { left: 0; } to { left: 100%; } }
+@keyframes demo-wave { 0%, 100% { transform: scaleY(.35); } 50% { transform: scaleY(1); } }
+@keyframes demo-blink { 50% { opacity: .25; } }
+@keyframes demo-dash { to { stroke-dashoffset: -24; } }
+@keyframes demo-duck { 0%, 100% { transform: scaleY(1); } 30%, 70% { transform: scaleY(.28); } }
+@keyframes demo-swap { 0%, 42% { opacity: 1; transform: none; } 50%, 92% { opacity: 0; transform: translateY(-6px); } 100% { opacity: 1; transform: none; } }
+@keyframes demo-swap-b { 0%, 42% { opacity: 0; transform: translateY(6px); } 50%, 92% { opacity: 1; transform: none; } 100% { opacity: 0; transform: translateY(6px); } }
+@keyframes demo-pulse { 0%, 100% { opacity: .5; } 50% { opacity: 1; } }
+.demo-clock { counter-reset: s var(--sec) f var(--frm); animation: demo-sec 6s steps(6) infinite, demo-frm 1s steps(30) infinite; }
+.demo-clock::after { content: "00:0" counter(s) ":" counter(f, decimal-leading-zero); }
+.demo-word { border-radius: 6px; padding: 0 .28em; margin: 0 -.05em; animation: demo-word 6s linear infinite; animation-delay: calc(var(--i) * 1.2s); }
+.demo-head { animation: demo-head 6s linear infinite; }
+.demo-bar { transform-origin: 50% 100%; animation: demo-wave 1.4s ease-in-out infinite; animation-delay: calc(var(--i) * -.11s); }
+.demo-duck { transform-origin: 50% 100%; animation: demo-duck 6s ease-in-out infinite; }
+.demo-rec { animation: demo-blink 1.2s steps(2, jump-none) infinite; }
+.demo-flow { animation: demo-dash 1.2s linear infinite; }
+.demo-swap-a { animation: demo-swap 5s ease-in-out infinite; }
+.demo-swap-b { animation: demo-swap-b 5s ease-in-out infinite; }
+.demo-pulse { animation: demo-pulse 2.4s ease-in-out infinite; }
+
+/* Scroll-driven reveal, only where supported; everything is visible otherwise. */
+@keyframes reveal-up { from { opacity: 0; transform: translateY(28px); filter: blur(6px); } to { opacity: 1; transform: none; filter: none; } }
+@supports (animation-timeline: view()) {
+  .reveal { animation: reveal-up linear both; animation-timeline: view(); animation-range: entry 0% entry 35%; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .demo-clock, .demo-word, .demo-head, .demo-bar, .demo-duck, .demo-rec, .demo-flow, .demo-swap-a, .demo-swap-b, .demo-pulse, .reveal { animation: none !important; }
+  .demo-swap-b { opacity: 0; }
+  html:has(.landing) { scroll-behavior: auto; }
+}
+html:has(.landing) { scroll-padding-top: 5rem; }
 
 /* Editor shell: floating rounded panes on a darker backdrop, like Concat. */
 .pane { @apply overflow-clip rounded-xl border bg-sidebar; }
