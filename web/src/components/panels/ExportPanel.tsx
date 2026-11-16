@@ -25,6 +25,8 @@ export function ExportPanel() {
   const prores = transparent && alphaFormat === 'mov';
   const capExt = exportExtension(background, alphaFormat);
   const [progress, setProgress] = useState<number | null>(null);
+  // Video export encodes with WebCodecs; Firefox and older Safari lack VideoEncoder.
+  const canEncode = typeof VideoEncoder !== 'undefined';
   const [mode, setMode] = useState<'video' | 'captions'>('video');
   const [startedAt, setStartedAt] = useState(0);
   const abort = useRef<AbortController | null>(null);
@@ -106,6 +108,7 @@ export function ExportPanel() {
         <div className="text-xs text-muted-foreground">Example: {formatName(prefs.videoName, { project: project.name, kind: 'captioned', res: `${size.width}x${size.height}` })}.mp4</div>
       </Section>
       <Section title="Video with captions">
+        {!canEncode && <div role="status" className="rounded-md border border-warn/40 p-2 text-xs text-warn">This browser can't export video (no WebCodecs). Use Chrome or Edge to export MP4. Subtitle files below still work.</div>}
         <Row label="Resolution">
           <Segmented size="sm" value={longSide} onChange={setLongSide} options={[
             { value: 1280, label: '720p' },
@@ -122,7 +125,7 @@ export function ExportPanel() {
           {longSide > src && src > 0 && <span className="text-warn"> Larger than the source ({project.videoWidth}×{project.videoHeight}) — text will be sharper but video won't gain detail.</span>}
         </div>
         {progress === null || mode !== 'video' ? (
-          <Button size="sm" className="h-8" disabled={!project.videoAssetId || progress !== null} onClick={() => run(false)}><Clapperboard />Export MP4</Button>
+          <Button size="sm" className="h-8" disabled={!canEncode || !project.videoAssetId || progress !== null} onClick={() => run(false)}><Clapperboard />Export MP4</Button>
         ) : renderBar()}
         <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
           <span>Audio:</span>
@@ -164,7 +167,7 @@ export function ExportPanel() {
           Output {size.width}×{size.height} {prores ? 'MOV (ProRes 4444 + alpha)' : transparent ? 'WebM (VP9 + alpha)' : 'MP4'}, captions only on {transparent ? 'a transparent background' : `${background} screen`}{screenAudio ? (prores ? ', with PCM audio' : ', with audio') : ', silent'}. Same length and timing as your video; B-roll is left out.
         </div>
         {progress === null || mode !== 'captions' ? (
-          <Button size="sm" className="h-8" disabled={!project.videoAssetId || progress !== null || !project.captions.length} onClick={() => run(true)}><Clapperboard />Export captions only {{ mov: 'MOV', webm: 'WebM', mp4: 'MP4' }[capExt]}</Button>
+          <Button size="sm" className="h-8" disabled={!canEncode || !project.videoAssetId || progress !== null || !project.captions.length} onClick={() => run(true)}><Clapperboard />Export captions only {{ mov: 'MOV', webm: 'WebM', mp4: 'MP4' }[capExt]}</Button>
         ) : renderBar()}
         {!project.captions.length && <p className="text-xs text-muted-foreground">Add captions first.</p>}
         <p className="text-xs text-muted-foreground">{prores

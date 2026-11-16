@@ -1,6 +1,6 @@
 import { cn } from '@/lib/utils';
 
-/** The Keyframe.lk mark (public/logo.png): a "K" with a keyframe diamond on a rose tile. */
+/** The Keyframe.lk mark (public/logo.png): a "K" with a keyframe diamond on a rose tile (public/logo.svg; PNGs are rendered from it). */
 export function LogoMark({ size = 28, className }: { size?: number; className?: string }) {
   return (
     <img src="/logo.png" width={size} height={size} alt="" aria-hidden="true" draggable={false}
@@ -16,7 +16,7 @@ export function Logo({ size = 28, withWordmark = false, className }: { size?: nu
       <LogoMark size={size} />
       <span className="flex items-baseline leading-none tracking-tight" style={{ fontSize: Math.max(14, size * 0.56) }}>
         <span className="font-semibold">Keyframe</span>
-        <span className="bg-linear-to-r from-brand-1 to-brand-2 bg-clip-text font-semibold text-transparent">.lk</span>
+        <span className="font-semibold text-primary">.lk</span>
       </span>
     </span>
   );

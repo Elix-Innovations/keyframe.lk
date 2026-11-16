@@ -50,6 +50,8 @@ web/public/fonts/fm/*
 *.m4v
 *.mkv
 *.webm
+# ...except the small clips the landing page plays
+!web/public/landing/*.mp4
 *.avi
 *.wav
 *.flac

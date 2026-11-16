@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
 <defs>
-  <linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#be123c"/><stop offset="1" stop-color="#ff7a59"/></linearGradient>
+  <linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#eb104e"/><stop offset="1" stop-color="#eb104e"/></linearGradient>
   <linearGradient id="w" gradientUnits="userSpaceOnUse" x1="260" y1="200" x2="760" y2="820"><stop offset="0" stop-color="#ffffff"/><stop offset="1" stop-color="#ffe4e6"/></linearGradient>
 </defs>
 <rect width="1024" height="1024" rx="230" fill="url(#g)"/>
@@ -9,6 +9,6 @@
     <path d="M330 250 V774"/>
     <path d="M700 250 L430 512 L700 774"/>
   </g>
-  <rect x="-62" y="-62" width="124" height="124" rx="26" fill="#be123c" transform="translate(430 512) rotate(45)"/>
+  <rect x="-62" y="-62" width="124" height="124" rx="26" fill="#a10031" transform="translate(430 512) rotate(45)"/>
   <rect x="-40" y="-40" width="80" height="80" rx="16" fill="url(#w)" transform="translate(430 512) rotate(45)"/>
 </g></svg>
