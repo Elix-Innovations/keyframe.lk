@@ -911,7 +911,7 @@ function Footer() {
         ))}
       </div>
       <div className="mx-auto flex max-w-6xl flex-wrap justify-between gap-3 border-t border-[var(--line)] px-5 py-6 text-xs text-[var(--subtle)]">
-        <span>© 2026 Elix Innovations · Keyframe.lk</span>
+        <span>© 2026 <a href={ELIX} target="_blank" rel="noreferrer" className="underline-offset-4 hover:text-[var(--rose)] hover:underline">Elix Innovations</a> · Keyframe.lk</span>
         <span>Source available under PolyForm Noncommercial 1.0.0</span>
       </div>
     </footer>
