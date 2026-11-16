@@ -3,9 +3,14 @@ import type { ReactNode } from 'react';
 import { HugeiconsIcon } from '@hugeicons/react';
 import {
   AiMagicIcon, AudioWave01Icon, Clock01Icon, Download04Icon, KeyframesDoubleIcon, LaptopIcon, MusicNote01Icon,
-  ShieldKeyIcon, SparklesIcon, SubtitleIcon, Tick02Icon, Upload04Icon, Video01Icon,
+  ShieldKeyIcon, SubtitleIcon, Tick02Icon, Upload04Icon, Video01Icon,
 } from '@hugeicons/core-free-icons';
 import { Logo, LogoMark } from '@/components/Logo';
+import {
+  Activity, ArrowLeft, Captions, CloudCheck, Copy, Download, Ellipsis, Film, Frame, Highlighter, Languages, LayoutTemplate,
+  Play, Redo2, Save, Scissors, Search, Sparkles, Trash2, Type, Undo2, WandSparkles, ZoomIn, ZoomOut,
+} from '@/components/icons';
+import { Magnet, Music, Volume } from '@/components/icons-audio';
 import { CopyButton } from './CopyButton';
 import { LoopVideo } from './LoopVideo';
 import { ReelFrame } from './ReelFrame';
@@ -44,6 +49,16 @@ function Arrow() {
 
 function Ico({ icon, className = 'size-5' }: { icon: Icon; className?: string }) {
   return <HugeiconsIcon icon={icon} className={className} strokeWidth={1.8} aria-hidden />;
+}
+
+/** Keyframe's own chip glyph: a solid keyframe diamond inside a thin outline, like a key on the timeline. */
+function Mark({ className = 'size-3.5' }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 16 16" className={className} aria-hidden>
+      <path d="M8 .9 15.1 8 8 15.1.9 8Z" fill="none" stroke="currentColor" strokeWidth="1.1" opacity=".55" />
+      <path d="M8 4 12 8 8 12 4 8Z" fill="currentColor" />
+    </svg>
+  );
 }
 
 function Diamond({ className = 'size-2.5 bg-[var(--rose)]' }: { className?: string }) {
@@ -98,13 +113,50 @@ function ShowCard({ title, copy, children, panel = 'h-64', wash }: { title: stri
   );
 }
 
-/** Faint outlined rounded frames, the "ghost UI" behind the hero and CTA. */
-function Ghosts({ frames }: { frames: string[] }) {
+// Ruler ticks for the hero texture: a long tick every 5th.
+const TICKS = Array.from({ length: 27 }, (_, i) => i * 20);
+
+/** Left hero texture: a ghost timeline. Ruler, clip blocks on tracks, a keyframe lane, a waveform and the playhead. */
+function TimelineGhost({ className }: { className: string }) {
   return (
-    <div aria-hidden className="pointer-events-none absolute inset-0 -z-10 hidden md:block">
-      {frames.map((f) => <span key={f} className={`absolute rounded-[26px] border border-white/25 ${f}`} />)}
-    </div>
+    <svg viewBox="0 0 520 900" className={`absolute top-0 h-[56rem] w-auto ${className}`} fill="none" stroke="#fff" strokeOpacity=".24" strokeWidth="1.2">
+      <path d="M0 130H520" />
+      {TICKS.map((x, i) => <path key={x} d={`M${x} 130v${i % 5 ? 6 : 14}`} />)}
+      {[200, 270, 340].map((y) => <path key={y} d={`M0 ${y + 22}H520`} strokeOpacity=".08" />)}
+      <rect x="20" y="200" width="150" height="44" rx="12" /><rect x="182" y="200" width="210" height="44" rx="12" /><rect x="404" y="200" width="110" height="44" rx="12" />
+      <rect x="60" y="270" width="240" height="44" rx="12" /><rect x="312" y="270" width="160" height="44" rx="12" />
+      <rect x="20" y="340" width="120" height="44" rx="12" /><rect x="152" y="340" width="300" height="44" rx="12" />
+      <path d="M0 440H520" />
+      {[70, 190, 330, 450].map((x) => <path key={x} d={`M${x} 430l10 10-10 10-10-10Z`} fill="#fff" fillOpacity=".14" />)}
+      {WAVE.slice(0, 40).map((h, i) => <path key={i} d={`M${20 + i * 12.5} ${520 - h * 0.4}V${520 + h * 0.4}`} strokeLinecap="round" />)}
+      <rect x="20" y="600" width="490" height="120" rx="28" />
+      <path d="M362 110V760" strokeOpacity=".5" />
+      <path d="M362 102l8 8-8 8-8-8Z" fill="#fff" fillOpacity=".6" stroke="none" />
+    </svg>
   );
+}
+
+/** Right hero texture: a ghost graph editor (easing curve with handles) above a selection box with resize handles. */
+function GraphGhost({ className }: { className: string }) {
+  return (
+    <svg viewBox="0 0 520 900" className={`absolute top-0 h-[56rem] w-auto ${className}`} fill="none" stroke="#fff" strokeOpacity=".24" strokeWidth="1.2">
+      <rect x="40" y="150" width="460" height="300" rx="28" />
+      {[225, 300, 375].map((y) => <path key={y} d={`M40 ${y}H500`} strokeOpacity=".08" />)}
+      {[155, 270, 385].map((x) => <path key={x} d={`M${x} 150V450`} strokeOpacity=".08" />)}
+      <path d="M80 410C240 410 300 190 460 190" strokeOpacity=".55" strokeWidth="1.6" />
+      <path d="M80 410H210M460 190H330" strokeDasharray="3 4" />
+      <circle cx="210" cy="410" r="6" /><circle cx="330" cy="190" r="6" />
+      <path d="M80 400l10 10-10 10-10-10ZM460 180l10 10-10 10-10-10Z" fill="#fff" fillOpacity=".3" />
+      <rect x="110" y="540" width="330" height="220" rx="4" strokeDasharray="5 5" />
+      {[[110, 540], [440, 540], [110, 760], [440, 760], [275, 540], [275, 760], [110, 650], [440, 650]].map(([x, y]) => <rect key={`${x}-${y}`} x={x - 6} y={y - 6} width="12" height="12" rx="3" fill="#fff" fillOpacity=".12" />)}
+      <path d="M275 540V500" /><circle cx="275" cy="494" r="6" />
+    </svg>
+  );
+}
+
+/** Hairline with short glowing segments, the reference's lit edges. */
+function Glint({ className }: { className: string }) {
+  return <span aria-hidden className={`absolute bg-white shadow-[0_0_10px_1px_rgba(255,255,255,.7)] ${className}`} />;
 }
 
 /* ---------- nav ---------- */
@@ -136,122 +188,179 @@ function Nav() {
 const CAPTION = ['අද', 'video', 'එක', 'edit', 'කරමු'];
 // Deterministic pseudo-waveform so server and client markup match.
 const WAVE = Array.from({ length: 64 }, (_, i) => Math.round(28 + 62 * Math.abs(Math.sin(i * 0.61) * Math.cos(i * 0.17 + 1.3))));
-const SIDE = [['Media', true], ['Captions', false], ['Style', false], ['Music', false], ['Export', false]] as const;
+// Mirrors the real editor (components/Editor.tsx): library rail on the left, inspector tabs on the right, timeline below.
+const RAIL: [Ic, string][] = [[Film, 'Media'], [Captions, 'Captions'], [Type, 'Text'], [Volume, 'Sounds'], [Activity, 'Transitions'], [WandSparkles, 'Effects'], [Sparkles, 'Filters'], [LayoutTemplate, 'Templates']];
+const TABS: [Ic, string][] = [[Type, 'Style'], [Highlighter, 'Display'], [Activity, 'Motion'], [Frame, 'Layout'], [Music, 'Audio']];
+const MEDIA = [['style-highlight', '0:12'], ['style-punch', '0:09'], ['style-clean', '0:15'], ['hero', '0:06']];
+const RULER = [0, 1, 2, 3, 4, 5, 6];
+type Ic = (p: { className?: string }) => ReactNode;
 
-function Track({ label, children }: { label: string; children: ReactNode }) {
+/** Small square icon button like the editor header and timeline toolbar. */
+function Tool({ icon: I, on }: { icon: Ic; on?: boolean }) {
+  return <span className={`grid size-6 place-items-center rounded-md ${on ? 'bg-[var(--rose)]/15 text-[var(--rose)]' : 'text-[var(--subtle)]'}`}><I className="size-3.5" /></span>;
+}
+
+function Lane({ icon: I, h = 'h-7', children }: { icon: Ic; h?: string; children: ReactNode }) {
   return (
-    <div className="grid grid-cols-[2rem_1fr] items-center gap-3">
-      <span className="mono text-[9px] tracking-wider text-[var(--subtle)]">{label}</span>
-      {children}
+    <div className="flex items-stretch border-b border-[var(--line)] last:border-b-0">
+      <span className={`grid w-10 shrink-0 place-items-center border-r border-[var(--line)] bg-white text-[var(--subtle)] ${h}`}><I className="size-3.5" /></span>
+      <div className={`relative flex-1 px-1.5 py-1 ${h}`}>{children}</div>
     </div>
   );
 }
 
-function Field({ label, value, children }: { label: string; value?: string; children?: ReactNode }) {
+function Prop({ label, value, children }: { label: string; value?: string; children?: ReactNode }) {
   return (
     <div>
-      <p className="text-[10px] text-[var(--subtle)]">{label}</p>
-      {children ?? <p className="mt-1 flex h-7 items-center justify-between rounded-lg border border-[var(--line)] bg-white px-2.5 text-[11px] text-[var(--ink)]">{value}<span className="text-[var(--subtle)]">▾</span></p>}
+      <p className="text-[10px] font-medium text-[var(--ink-2)]">{label}</p>
+      {children ?? <p className="mt-1 flex h-7 items-center justify-between rounded-md border border-[var(--line)] bg-white px-2 text-[11px] text-[var(--ink)]">{value}<span className="text-[9px] text-[var(--subtle)]">▾</span></p>}
     </div>
   );
 }
 
 function EditorWindow() {
   return (
-    <div className="relative overflow-hidden rounded-[22px] border-[6px] border-white/60 bg-white text-left shadow-[0_40px_100px_-40px_rgba(120,20,40,.55)] backdrop-blur" aria-hidden>
-      <div className="grid lg:grid-cols-[11.5rem_1fr_13rem]">
-        <aside className="hidden flex-col border-r border-[var(--line)] p-3 lg:flex">
-          <div className="flex items-center gap-2 px-1"><LogoMark size={20} /><span className="text-xs font-semibold">Keyframe</span></div>
-          <div className="mt-3 flex h-7 items-center gap-2 rounded-lg border border-[var(--line)] bg-white px-2 text-[10px] text-[var(--subtle)]">⌕ Search</div>
-          <p className="mt-4 px-1 text-[9px] font-semibold tracking-wider text-[var(--subtle)] uppercase">Project</p>
-          <ul className="mt-1.5 space-y-0.5 text-[11px]">
-            {SIDE.map(([s, on]) => (
-              <li key={s} className={`flex items-center gap-2 rounded-lg px-2 py-1.5 ${on ? 'bg-[var(--rose)]/8 font-medium text-[var(--rose)]' : 'text-[var(--ink-2)]'}`}>
-                <Diamond className={`size-1.5 ${on ? 'bg-[var(--rose)]' : 'bg-[var(--ink)]/25'}`} />{s}
-              </li>
+    <div className="relative overflow-hidden rounded-[18px] bg-[#ecebee] text-left shadow-[0_40px_100px_-40px_rgba(120,20,40,.55)]" aria-hidden>
+      {/* header */}
+      <div className="relative flex h-11 items-center gap-1.5 px-3">
+        <Tool icon={ArrowLeft} />
+        <LogoMark size={20} /><span className="text-xs font-semibold text-[var(--ink)]">Keyframe</span>
+        <div className="absolute left-1/2 hidden -translate-x-1/2 items-center gap-2 sm:flex">
+          <span className="text-xs font-medium text-[var(--ink)]">My first reel</span>
+          <span className="flex items-center gap-1 rounded-full border border-[var(--line)] bg-white px-2 py-0.5 text-[9px] text-[var(--subtle)]"><CloudCheck className="size-3 text-emerald-600" />Saved</span>
+        </div>
+        <div className="ml-auto flex items-center gap-0.5">
+          <span className="hidden items-center gap-0.5 md:flex">{[Save, Undo2, Redo2, Languages, Ellipsis].map((I, i) => <Tool key={i} icon={I} />)}</span>
+          <span className="btn-rose ml-1 flex h-7 items-center gap-1 rounded-lg px-2.5 text-[10px] font-medium"><Download className="size-3" />Export</span>
+        </div>
+      </div>
+
+      <div className="grid gap-1.5 px-1.5 lg:grid-cols-[14rem_1fr_14rem]">
+        {/* library: icon rail + media grid */}
+        <aside className="hidden overflow-hidden rounded-xl border border-[var(--line)] bg-[#f8f7f9] lg:flex">
+          <div className="flex w-14 shrink-0 flex-col gap-0.5 border-r border-[var(--line)] p-1">
+            {RAIL.map(([I, l], i) => (
+              <span key={l} className={`flex flex-col items-center gap-1 rounded-lg px-0.5 py-1.5 text-[8px] leading-none ${i === 0 ? 'bg-[var(--rose)]/15 text-[var(--ink)]' : 'text-[var(--subtle)]'}`}>
+                <I className={`size-3.5 ${i === 0 ? 'text-[var(--rose)]' : ''}`} />{l}
+              </span>
             ))}
-          </ul>
-          <div className="mt-auto rounded-xl border border-[var(--line)] bg-[var(--canvas)] p-2.5">
-            <p className="text-[11px] font-semibold">macOS app</p>
-            <p className="mt-0.5 text-[9px] leading-snug text-[var(--subtle)]">Same editor, packaged.</p>
-            <span className="btn-rose mt-2 block rounded-md py-1 text-center text-[9px] font-medium">Download</span>
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="border-b border-[var(--line)] p-1.5"><p className="flex h-6 items-center gap-1.5 rounded-md border border-[var(--line)] bg-white px-2 text-[9px] text-[var(--subtle)]"><Search className="size-3" />Search media</p></div>
+            <div className="grid grid-cols-2 gap-1.5 p-1.5">
+              {MEDIA.map(([m, d], i) => (
+                <span key={m} className={`relative aspect-[9/14] overflow-hidden rounded-md bg-[#0d0a10] ${i === 0 ? 'ring-2 ring-[var(--rose)]' : ''}`}>
+                  <img src={`/landing/${m}.jpg`} alt="" loading="lazy" className="size-full object-cover" />
+                  <span className="mono absolute right-1 bottom-1 rounded bg-black/60 px-1 text-[8px] text-white">{d}</span>
+                </span>
+              ))}
+            </div>
           </div>
         </aside>
 
-        <div className="flex min-w-0 flex-col">
-          <div className="flex items-center justify-between border-b border-[var(--line)] px-4 py-2.5 text-[11px]">
-            <span className="flex items-center gap-2 font-medium">My first reel
-              <span className="flex items-center gap-1.5 rounded-full bg-[var(--rose)]/8 px-2 py-0.5 text-[9px] font-normal text-[var(--rose)]"><span className="demo-rec size-1.5 rounded-full bg-[var(--rose)]" />Auto captions</span>
-            </span>
-            <span className="mono demo-clock text-[var(--rose)]" />
+        {/* preview pane */}
+        <div className="flex min-w-0 flex-col overflow-hidden rounded-xl border border-[var(--line)] bg-white">
+          <div className="flex h-8 items-center justify-between border-b border-[var(--line)] px-3">
+            <span className="text-[11px] font-semibold text-[var(--ink)]">Preview</span>
+            <span className="mono text-[9px] text-[var(--subtle)]">1080 × 1920</span>
           </div>
-          <div className="dot-grid relative grid flex-1 place-items-center bg-[var(--canvas)] px-4 py-6">
-            <div className="relative aspect-[9/16] w-full max-w-[11.5rem] overflow-hidden rounded-2xl bg-[#0d0a10] shadow-[0_24px_50px_-20px_rgba(31,22,34,.6)]">
+          <div className="dot-grid relative grid flex-1 place-items-center bg-[#f6f5f7] px-4 py-5">
+            <div className="relative aspect-[9/16] w-full max-w-[10.5rem] overflow-hidden rounded-lg bg-[#0d0a10] shadow-[0_20px_40px_-20px_rgba(31,22,34,.6)]">
               <ReelFrame overlay={
                 <div className="absolute inset-x-3 bottom-[18%] text-center">
-                  <p lang="si" className="font-sinhala flex flex-wrap justify-center gap-y-1 text-[1rem] leading-snug font-bold text-white [text-shadow:0_2px_14px_rgba(0,0,0,.7)]">
+                  <p lang="si" className="font-sinhala flex flex-wrap justify-center gap-y-1 text-[0.95rem] leading-snug font-bold text-white [text-shadow:0_2px_14px_rgba(0,0,0,.7)]">
                     {CAPTION.map((w, i) => <span key={w} className="demo-word" style={{ ['--i' as string]: i }}>{w}</span>)}
                   </p>
                 </div>
               } />
-              <div className="hud-corners pointer-events-none absolute inset-1.5" />
+              {/* safe-zone guide, as the editor draws it */}
+              <span className="pointer-events-none absolute inset-x-2 top-[8%] bottom-[16%] rounded border border-dashed border-white/35" />
             </div>
-            <span className="demo-float mono absolute top-6 left-4 hidden rounded-xl border border-[var(--line)] bg-white px-3 py-2 text-[10px] shadow-md sm:block" style={{ ['--i' as string]: 0 }}>
-              <span className="text-[var(--subtle)]">word</span> <span lang="si" className="font-sinhala text-[var(--ink)]">කරමු</span> <span className="text-[var(--rose)]">4.80s</span>
-            </span>
-            <span className="demo-float mono absolute right-4 bottom-8 hidden rounded-xl border border-[var(--line)] bg-white px-3 py-2 text-[10px] shadow-md sm:block" style={{ ['--i' as string]: 2 }}>
-              <span className="text-[var(--subtle)]">font</span> FM Abhaya · <span className="text-[var(--rose)]">live</span>
-            </span>
           </div>
-          <div className="relative space-y-2 border-t border-[var(--line)] p-3">
-            <div aria-hidden className="pointer-events-none absolute top-2 right-3 bottom-2 left-[3.5rem] z-10">
-              <span className="demo-head absolute inset-y-0 w-px bg-[var(--rose)] shadow-[0_0_12px_2px_rgba(232,52,79,.35)]">
-                <span className="keyframe-diamond absolute -top-1 left-1/2 size-2.5 -translate-x-1/2 bg-[var(--rose)]" />
-              </span>
-            </div>
-            <Track label="CAP">
-              <div className="flex h-5 gap-1">
-                {CAPTION.map((w, i) => <div key={w} lang="si" className="font-sinhala grid min-w-0 place-items-center truncate rounded-md border border-[var(--rose)]/25 bg-[var(--rose)]/10 text-[9px] text-[var(--rose)]" style={{ flex: [1, 1.3, 0.8, 1.1, 1][i] }}>{w}</div>)}
-              </div>
-            </Track>
-            <Track label="VID">
-              <div className="flex h-5 gap-1">
-                {[1.4, 1, 1.6].map((w, i) => <div key={i} className="rounded-md border border-[var(--line)] bg-[var(--canvas)] bg-[repeating-linear-gradient(90deg,rgba(31,22,34,.07)_0_1px,transparent_1px_12px)]" style={{ flex: w }} />)}
-              </div>
-            </Track>
-            <Track label="VOX">
-              <div className="flex h-7 items-center gap-[2px]">
-                {WAVE.map((h, i) => <span key={i} className="demo-bar block flex-1 rounded-full bg-[var(--ink)]/30" style={{ height: `${h}%`, ['--i' as string]: i % 9 }} />)}
-              </div>
-            </Track>
-            <Track label="MUS">
-              <div className="flex h-5 items-center gap-[2px]">
-                {WAVE.map((h, i) => <span key={i} className="demo-duck block flex-1 rounded-full bg-[var(--coral)]/60" style={{ height: `${30 + ((h * 7) % 60)}%` }} />)}
-              </div>
-            </Track>
+          <div className="flex items-center justify-center gap-3 border-t border-[var(--line)] py-1.5">
+            <span className="mono demo-clock text-[10px] text-[var(--ink)]" />
+            <span className="btn-rose grid size-6 place-items-center rounded-full"><Play className="size-3" /></span>
+            <span className="mono text-[10px] text-[var(--subtle)]">00:06:00</span>
           </div>
         </div>
 
-        <aside className="hidden flex-col gap-3 border-l border-[var(--line)] p-3 lg:flex">
-          <p className="text-[11px] font-semibold">Caption style</p>
-          <div className="grid grid-cols-3 gap-1 rounded-lg bg-[var(--canvas)] p-0.5 text-center text-[9px]">
-            <span className="rounded-md bg-white py-1 font-medium shadow-sm">Highlight</span><span className="py-1 text-[var(--subtle)]">Punch</span><span className="py-1 text-[var(--subtle)]">Clean</span>
+        {/* inspector: tab strip + style panel */}
+        <aside className="hidden flex-col overflow-hidden rounded-xl border border-[var(--line)] bg-[#f8f7f9] lg:flex">
+          <div className="flex gap-0.5 border-b border-[var(--line)] p-1">
+            {TABS.map(([I, l], i) => (
+              <span key={l} className={`flex min-w-0 flex-1 flex-col items-center gap-1 rounded-lg py-1.5 text-[8px] leading-none ${i === 0 ? 'bg-[var(--rose)]/15 text-[var(--ink)]' : 'text-[var(--subtle)]'}`}>
+                <I className={`size-3.5 ${i === 0 ? 'text-[var(--rose)]' : ''}`} />{l}
+              </span>
+            ))}
           </div>
-          <Field label="Font" value="FM Abhaya" />
-          <Field label="Animation" value="Pop in" />
-          <Field label="Highlight">
-            <div className="mt-1 flex gap-1.5">
-              {['var(--hot)', 'var(--coral)', '#ffd84d', '#1f1622', '#fff'].map((c, i) => <span key={c} className={`size-5 rounded-full border border-[var(--line)] ${i === 0 ? 'ring-2 ring-[var(--rose)] ring-offset-1' : ''}`} style={{ background: c }} />)}
-            </div>
-          </Field>
-          <Field label="Size">
-            <div className="relative mt-2.5 h-1 rounded-full bg-[var(--line)]"><div className="h-1 w-3/5 rounded-full bg-[var(--rose)]" /><span className="absolute top-1/2 left-3/5 size-3 -translate-1/2 rounded-full border-2 border-[var(--rose)] bg-white" /></div>
-          </Field>
-          <div className="mt-auto grid grid-cols-2 gap-1.5 text-[10px]">
-            <span className="rounded-lg border border-[var(--line)] bg-white py-1.5 text-center">Preview</span>
-            <span className="btn-rose rounded-lg py-1.5 text-center">Export 4K</span>
+          <div className="flex flex-1 flex-col gap-3 p-3">
+            <Prop label="Font" value="FM Abhaya" />
+            <Prop label="Size">
+              <div className="relative mt-2 h-1 rounded-full bg-[var(--line)]"><div className="h-1 w-3/5 rounded-full bg-[var(--rose)]" /><span className="absolute top-1/2 left-3/5 size-3 -translate-1/2 rounded-full border-2 border-[var(--rose)] bg-white" /></div>
+            </Prop>
+            <Prop label="Highlight">
+              <div className="mt-1 flex gap-1.5">
+                {['var(--hot)', '#ffd84d', '#1f1622', '#fff'].map((c, i) => <span key={c} className={`size-4 rounded-full border border-[var(--line)] ${i === 0 ? 'ring-2 ring-[var(--rose)] ring-offset-1' : ''}`} style={{ background: c }} />)}
+              </div>
+            </Prop>
+            <Prop label="Animation" value="Pop in" />
+            <Prop label="Stroke">
+              <div className="mt-1 grid grid-cols-3 gap-1 rounded-md bg-[var(--line)]/60 p-0.5 text-center text-[9px]">
+                <span className="rounded bg-white py-0.5 font-medium shadow-sm">Off</span><span className="py-0.5 text-[var(--subtle)]">Thin</span><span className="py-0.5 text-[var(--subtle)]">Bold</span>
+              </div>
+            </Prop>
           </div>
         </aside>
+      </div>
+
+      {/* timeline pane */}
+      <div className="m-1.5 overflow-hidden rounded-xl border border-[var(--line)] bg-white">
+        <div className="flex h-8 items-center gap-0.5 border-b border-[var(--line)] px-1.5">
+          {[Undo2, Redo2].map((I, i) => <Tool key={i} icon={I} />)}
+          <span className="mx-1 h-4 w-px bg-[var(--line)]" />
+          {[Scissors, Copy, Trash2].map((I, i) => <Tool key={i} icon={I} />)}
+          <span className="mx-1 h-4 w-px bg-[var(--line)]" />
+          <Tool icon={Magnet} on />
+          <span className="ml-2 hidden text-[9px] text-[var(--subtle)] md:inline">5 captions · right-click a caption for more</span>
+          <span className="ml-auto flex items-center gap-1.5"><Tool icon={ZoomOut} /><span className="relative h-1 w-16 rounded-full bg-[var(--line)]"><span className="absolute top-1/2 left-1/3 size-2.5 -translate-1/2 rounded-full border border-[var(--line)] bg-white shadow-sm" /></span><Tool icon={ZoomIn} /></span>
+        </div>
+        <div className="relative">
+          <div className="flex h-5 border-b border-[var(--line)] bg-[#f8f7f9]">
+            <span className="w-10 shrink-0 border-r border-[var(--line)] bg-white" />
+            <div className="relative flex-1">
+              {RULER.map((t) => <span key={t} className="mono absolute top-0 h-full border-l border-[var(--line)] pt-0.5 pl-1 text-[8px] text-[var(--subtle)]" style={{ left: `${(t / 6) * 96 + 1}%` }}>{t}s</span>)}
+            </div>
+          </div>
+          <Lane icon={Captions}>
+            <div className="flex h-full gap-1">
+              {CAPTION.map((w, i) => <div key={w} lang="si" className={`font-sinhala grid min-w-0 place-items-center truncate rounded-lg border text-[9px] text-[var(--ink)] ${i === 1 ? 'border-[var(--rose)] bg-[var(--rose)]/40 shadow-sm' : 'border-[var(--rose)]/25 bg-[var(--rose)]/15'}`} style={{ flex: [1, 1.3, 0.8, 1.1, 1][i] }}>{w}</div>)}
+            </div>
+          </Lane>
+          <Lane icon={Film} h="h-9">
+            <div className="flex h-full gap-1">
+              {[['style-highlight', 1.4], ['style-punch', 1], ['style-clean', 1.6]].map(([m, f]) => (
+                <div key={m as string} className="overflow-hidden rounded-md border border-sky-500/40 bg-sky-500/10" style={{ flex: f as number, backgroundImage: `url(/landing/${m}.jpg)`, backgroundSize: 'auto 100%', backgroundRepeat: 'repeat-x' }} />
+              ))}
+            </div>
+          </Lane>
+          <Lane icon={Volume}>
+            <div className="flex h-full items-center gap-[2px] rounded-md border border-[var(--ink)]/10 bg-[var(--ink)]/[.03] px-1">
+              {WAVE.map((h, i) => <span key={i} className="demo-bar block flex-1 rounded-full bg-[var(--ink)]/35" style={{ height: `${h}%`, ['--i' as string]: i % 9 }} />)}
+            </div>
+          </Lane>
+          <Lane icon={Music}>
+            <div className="relative flex h-full items-center gap-[2px] overflow-hidden rounded-md border border-violet-500/40 bg-violet-500/10 px-1">
+              <span className="absolute top-0 left-1.5 text-[8px] font-medium text-[var(--ink)]/80">♪ Sunny morning</span>
+              {WAVE.map((h, i) => <span key={i} className="demo-duck mt-2 block flex-1 rounded-full bg-violet-500/50" style={{ height: `${20 + ((h * 7) % 45)}%` }} />)}
+            </div>
+          </Lane>
+          {/* playhead */}
+          <div className="pointer-events-none absolute top-0 right-1.5 bottom-0 left-[3.4rem] z-10">
+            <span className="demo-head absolute inset-y-0 w-px bg-[var(--rose)] shadow-[0_0_12px_2px_rgba(232,52,79,.35)]">
+              <span className="keyframe-diamond absolute -top-0.5 left-1/2 size-2.5 -translate-x-1/2 bg-[var(--rose)]" />
+            </span>
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -260,14 +369,25 @@ function EditorWindow() {
 function Hero() {
   return (
     <section className="relative isolate overflow-hidden">
-      {/* rose wash that melts into the page canvas */}
-      <div aria-hidden className="absolute inset-x-0 top-0 -z-20 h-[60rem] bg-[linear-gradient(180deg,#e11d48_0%,#f43f5e_22%,#ff7a6e_46%,#ffc0ad_68%,var(--canvas)_92%)]" />
-      <div aria-hidden className="absolute top-[30rem] left-1/2 -z-20 h-[30rem] w-[70rem] -translate-x-1/2 rounded-full bg-white/45 blur-3xl" />
-      <Ghosts frames={['top-24 -left-20 h-44 w-80', 'top-[19rem] -left-28 h-56 w-80', 'top-24 -right-20 h-44 w-80', 'top-[19rem] -right-28 h-56 w-80', 'top-28 left-1/2 h-[19rem] w-[46rem] -translate-x-1/2']} />
+      {/* theme wash: rose (brand-1) only, lightening through rose tints, a soft blush bloom on the right, fading to the canvas at the bottom */}
+      <div aria-hidden className="absolute inset-x-0 top-0 -z-20 h-[64rem] [mask-image:linear-gradient(180deg,#000_80%,transparent)] bg-[radial-gradient(42%_38%_at_86%_50%,color-mix(in_oklab,var(--rose)_35%,white),transparent_72%),radial-gradient(70%_32%_at_50%_100%,color-mix(in_oklab,var(--rose)_6%,white),transparent_75%),linear-gradient(180deg,var(--rose)_0%,var(--rose)_40%,color-mix(in_oklab,var(--rose)_80%,white)_60%,color-mix(in_oklab,var(--rose)_35%,white)_80%,var(--canvas)_100%)]" />
+      <div aria-hidden className="pointer-events-none absolute inset-0 -z-10 hidden lg:block">
+        <TimelineGhost className="-left-24" />
+        <GraphGhost className="-right-24" />
+        {/* hairline under the nav, lit in two places */}
+        <span className="absolute inset-x-0 top-20 h-px bg-white/15" />
+        <Glint className="top-20 left-[31%] h-px w-28" />
+        <Glint className="top-20 right-[31%] h-px w-28" />
+        {/* the headline sits in a canvas safe zone: corner brackets and a lit playhead edge */}
+        <span className="hud-corners absolute top-32 left-1/2 h-[30rem] w-[56rem] -translate-x-1/2 opacity-60">
+          <Glint className="top-[18rem] -left-px h-20 w-px" />
+          <Glint className="top-[20rem] -right-px h-16 w-px" />
+        </span>
+      </div>
       <Nav />
       <div className="mx-auto max-w-6xl px-5 pt-14 text-center sm:pt-20">
         <span className="inline-flex items-center gap-2 rounded-full border border-white/30 bg-white/10 px-3.5 py-1.5 text-xs font-medium text-white backdrop-blur">
-          <Ico icon={SparklesIcon} className="size-3.5" />Sinhala, English and code-mixed
+          <Mark />Sinhala, English and code-mixed
         </span>
         <h1 className="mx-auto mt-6 max-w-3xl text-[2.7rem] leading-[1.04] font-semibold tracking-[-0.05em] text-balance text-white sm:text-6xl lg:text-[4.4rem]">
           Sinhala captions, timed to the frame.
@@ -275,13 +395,27 @@ function Hero() {
         <p className="mx-auto mt-5 max-w-lg text-[15px] leading-relaxed text-white/90">
           Word-by-word captions, live FM fonts, music and 4K export, all in your browser. The video never leaves your computer.
         </p>
-        {/* the reference's email pill, reworked as a launch pill */}
+        {/* the reference's email pill, reworked: repo on the left, download on the right */}
         <div className="mx-auto mt-9 flex w-fit items-center gap-3 rounded-full bg-white/85 p-1.5 shadow-[0_20px_40px_-20px_rgba(120,20,40,.6)] backdrop-blur sm:pl-5">
-          <span className="hidden text-sm text-[var(--ink-2)] sm:inline">No account. No upload.</span>
-          <Button href={START} kind="dark">Start a project <Arrow /></Button>
+          <a href={REPO} target="_blank" rel="noreferrer" className="hidden items-center gap-2 text-sm text-[var(--ink-2)] transition-colors hover:text-[var(--ink)] sm:flex">
+            <GitHubMark /><span className="mono">elixinnovations/keyframe-web</span>
+          </a>
+          <Button href={RELEASES} kind="dark" external>Download for macOS <Arrow /></Button>
+        </div>
+        <p className="mt-4 text-sm text-white/90">
+          or <Link href={START} className="font-medium text-white underline decoration-white/40 underline-offset-4 hover:decoration-white">try it in your browser</Link>, no account needed
+        </p>
+      </div>
+      {/* the editor inside a ghost browser frame, as in the reference */}
+      <div className="mx-auto mt-16 max-w-5xl px-5">
+        <div className="rounded-[30px] border border-white/45 bg-white/10 p-2 pt-0 backdrop-blur-sm sm:p-3 sm:pt-0">
+          <div aria-hidden className="flex h-10 items-center gap-1.5 px-2">
+            {[0, 1, 2].map((i) => <span key={i} className="size-3 rounded-full border border-white/60" />)}
+            <span className="mx-auto h-4 w-1/3 rounded-full border border-white/50" />
+          </div>
+          <EditorWindow />
         </div>
       </div>
-      <div className="mx-auto mt-16 max-w-5xl px-5"><EditorWindow /></div>
     </section>
   );
 }
@@ -330,7 +464,7 @@ function Features() {
             <div className="mt-3 space-y-1.5">
               {WORDS.map(([w, t], i) => (
                 <div key={w} className={`flex items-center justify-between rounded-lg px-3 py-1.5 text-sm ${i === 1 ? 'bg-[var(--rose)]/8 ring-1 ring-[var(--rose)]/30' : 'bg-[var(--canvas)]'}`}>
-                  <span className="flex items-center gap-2"><Ico icon={i === 1 ? SparklesIcon : SubtitleIcon} className={`size-3.5 ${i === 1 ? 'text-[var(--rose)]' : 'text-[var(--subtle)]'}`} /><span lang="si" className="font-sinhala font-medium text-[var(--ink)]">{w}</span></span>
+                  <span className="flex items-center gap-2">{i === 1 ? <Mark className="size-3.5 text-[var(--rose)]" /> : <Ico icon={SubtitleIcon} className="size-3.5 text-[var(--subtle)]" />}<span lang="si" className="font-sinhala font-medium text-[var(--ink)]">{w}</span></span>
                   <span className="mono text-[11px] text-[var(--rose)]">{t}s</span>
                 </div>
               ))}
@@ -455,7 +589,7 @@ function Steps() {
 /* ---------- pricing (licence), nested-box cards ---------- */
 
 const PLANS = [
-  { name: 'Noncommercial', icon: SparklesIcon, price: 'Free', per: 'forever', note: 'For creators, students and personal channels.', cta: 'Open the editor', href: START, external: false, hot: true,
+  { name: 'Noncommercial', icon: LaptopIcon, price: 'Free', per: 'forever', note: 'For creators, students and personal channels.', cta: 'Open the editor', href: START, external: false, hot: true,
     items: ['Every editor feature', 'Unlimited projects', 'Unlimited exports', 'Your own speech keys', 'macOS desktop app', 'Source on GitHub'] },
   { name: 'Commercial', icon: KeyframesDoubleIcon, price: 'Licence', per: 'on request', note: 'For agencies, brands and paid client work.', cta: 'Contact Elix', href: ELIX, external: true, hot: false,
     items: ['Everything in Free', 'Paid and client work', 'Licence from Elix', 'Talk to us about setup'] },
@@ -674,7 +808,7 @@ function Cta() {
           <div className="mt-3 flex h-6 items-end gap-[2px]">{WAVE.slice(0, 28).map((h, i) => <span key={i} className="block flex-1 rounded-full bg-white/30" style={{ height: `${h}%` }} />)}</div>
         </div>
       </div>
-      <span className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/5 px-3.5 py-1.5 text-xs font-medium text-white"><Ico icon={SparklesIcon} className="size-3.5" />Free · source available</span>
+      <span className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/5 px-3.5 py-1.5 text-xs font-medium text-white"><Mark />Free · source available</span>
       <h2 className="mx-auto mt-6 max-w-2xl text-4xl leading-[1.05] font-semibold tracking-[-0.045em] text-balance text-white sm:text-6xl">Your next reel, captioned before the kettle boils.</h2>
       <p className="mx-auto mt-5 max-w-md text-[15px] leading-relaxed text-white/70">Open the editor in your browser. No account, no upload.</p>
       <div className="mt-9 flex flex-wrap justify-center gap-2">
