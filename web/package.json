@@ -13,6 +13,7 @@
   "license": "PolyForm-Noncommercial-1.0.0",
   "dependencies": {
     "@fontsource-variable/archivo": "^5.3.0",
+    "@fontsource-variable/geist": "^5.3.0",
     "@hugeicons/core-free-icons": "^4.3.5",
     "@hugeicons/react": "^1.1.10",
     "@jitsi/rnnoise-wasm": "^0.2.1",
