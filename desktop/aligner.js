@@ -93,6 +93,8 @@ function createAligner({ userData, base, port: PORT = 8788, track, env: extraEnv
       const why = unsupportedReason();
       if (why) return { ...st, phase: 'unsupported', message: why };
       if (!installed()) return { ...st, phase: 'missing', interrupted: !!saved().installing };
+      // Installed, and the service is being started (main.js waits a few seconds first): never offer to install it.
+      if (st.phase === 'missing') return { ...st, phase: 'starting', percent: 99, message: 'Starting caption timing…', detail: '', booting: true };
     }
     return { ...st };
   }
@@ -260,7 +262,19 @@ function createAligner({ userData, base, port: PORT = 8788, track, env: extraEnv
   /** Start the alignment service if its pieces are installed. Resolves true when it is running and answering. */
   async function start() {
     if (!installed()) return false;
-    if (service && service.exitCode === null) return true;
+    if (service && service.exitCode === null && st.phase === 'ready') return true;
+    if (!installing) set({ phase: 'starting', percent: 99, message: 'Starting caption timing…', detail: '', error: '', booting: true });
+    const ok = await launch();
+    set({ booting: false });
+    // During an install, install() reports the failure itself.
+    if (!ok && !installing) {
+      set({ phase: 'failed', message: 'Caption timing did not start.', error: 'See service.log next to setup.log.', detail: '' });
+    }
+    return ok;
+  }
+
+  async function launch() {
+    if (service && service.exitCode === null) { kill(service); service = null; }
     if (await portInUse(PORT)) return false; // taken since boot picked it; try again next launch
     const child = spawn(p.py, ['-m', 'uvicorn', 'app:app', '--app-dir', p.pyDir, '--host', '127.0.0.1', '--port', String(PORT)], {
       cwd: p.pyDir,
@@ -289,6 +303,7 @@ function createAligner({ userData, base, port: PORT = 8788, track, env: extraEnv
       } catch {}
       await sleep(1000);
     }
+    if (child.exitCode === null) kill(child); // never answered: don't leave it running behind a "failed" state
     return false;
   }
 
@@ -296,6 +311,8 @@ function createAligner({ userData, base, port: PORT = 8788, track, env: extraEnv
 
   async function install() {
     if (installing || st.phase === 'ready') return;
+    // Already installed (e.g. Retry after the service failed to start): just start it again, no downloads.
+    if (installed()) { await start(); return; }
     installing = true;
     cancelled = false;
     set({ error: '', link: '', interrupted: false });

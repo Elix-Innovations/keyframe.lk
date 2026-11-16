@@ -166,8 +166,20 @@ function redirectMovedPorts(webPort, apiPort, alignPort) {
   });
 }
 
+/**
+ * The binary that runs the bundled Node servers. On macOS that is the Helper app, not the main executable: Next.js sets
+ * process.title, which checks the process in with LaunchServices, and the bare main binary then shows up in the Dock as
+ * a generic "exec" app. The Helper app is LSUIElement, so it never gets a Dock icon.
+ */
+function nodeBinary() {
+  if (process.platform !== 'darwin') return process.execPath;
+  const exe = path.basename(process.execPath);
+  const helper = path.join(path.dirname(process.execPath), '..', 'Frameworks', `${exe} Helper.app`, 'Contents', 'MacOS', `${exe} Helper`);
+  return fs.existsSync(helper) ? helper : process.execPath;
+}
+
 function startNode(name, script, env, cwd) {
-  const child = spawn(process.execPath, [script], {
+  const child = spawn(nodeBinary(), [script], {
     cwd,
     env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', ...env },
     stdio: 'inherit',
