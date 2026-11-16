@@ -16,6 +16,8 @@ export type AlignerState = {
   link?: string;
   /** A previous install was cancelled or the app quit during it; installing again resumes. */
   interrupted: boolean;
+  /** Already installed; the service is starting up (no install to offer). */
+  booting?: boolean;
   logPath: string;
 };
 

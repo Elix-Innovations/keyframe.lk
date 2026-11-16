@@ -135,7 +135,7 @@ const ALIGNER_CARD_KEY = 'keyframe.alignerCardDismissed';
 function AlignerCard() {
   const setup = useAlignerSetup();
   const [dismissed, setDismissed] = useState(() => { try { return localStorage.getItem(ALIGNER_CARD_KEY) === '1'; } catch { return false; } });
-  if (!setup || setup.phase === 'ready' || setup.phase === 'unsupported') return null;
+  if (!setup || setup.booting || setup.phase === 'ready' || setup.phase === 'unsupported') return null;
   const busy = ALIGNER_BUSY.includes(setup.phase);
   if (dismissed && !busy && setup.phase !== 'failed') return null;
   return (
