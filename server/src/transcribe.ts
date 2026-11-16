@@ -14,6 +14,7 @@ export type Language = 'si' | 'en' | 'auto';
 export type Provider = 'auto' | 'elevenlabs' | 'openai' | 'gemini';
 type Concrete = Exclude<Provider, 'auto'>;
 type Word = TranscribeResponse['words'][number];
+type Alignment = NonNullable<TranscribeResponse['alignment']>;
 
 export const ffmpegPath = () => process.env.FFMPEG_PATH || 'ffmpeg';
 export const ffprobePath = () => process.env.FFPROBE_PATH || 'ffprobe';
@@ -537,36 +538,59 @@ function distributeOverSpeech(raw: RawWord[], speech: [number, number][]): RawWo
 const sinhalaServiceUrl = () => process.env.SINHALA_SERVICE_URL || 'http://localhost:8788';
 let alignerNotice = '';
 
+export type AlignerStatus = 'ready' | 'downloading' | 'missing' | 'unavailable';
+
+/** Asks the Python service whether the forced aligner can run right now ('unavailable' = service down or packages missing). */
+export async function alignerStatus(): Promise<AlignerStatus> {
+  try {
+    const res = await fetch(`${sinhalaServiceUrl()}/api/sinhala/health`, { signal: AbortSignal.timeout(2000) });
+    if (!res.ok) return 'unavailable';
+    const { align } = (await res.json()) as { align?: string };
+    if (align === 'ready' || align === 'available') return 'ready';
+    if (align === 'downloading' || align === 'missing') return align;
+    return 'unavailable';
+  } catch {
+    return 'unavailable';
+  }
+}
+
+/** Why a chunk kept Gemini's own timings; shown to the user so unaligned captions are never a surprise. */
+type AlignResult = { words: RawWord[]; reason?: undefined } | { words: null; reason: string };
+
 /**
- * Re-time a clip's words from the audio itself (MMS forced aligner in python/). Returns null
- * when the aligner is not running, still downloading its model, or rejects the match; the caller
- * then keeps Gemini's own timings.
+ * Re-time a clip's words from the audio itself (MMS forced aligner in python/). Returns
+ * `words: null` plus a reason when the aligner is not running, still downloading its model, or
+ * rejects the match; the caller then keeps Gemini's own timings.
  */
-async function alignWords(file: string, raw: RawWord[], language: Language): Promise<RawWord[] | null> {
-  if (raw.length === 0) return raw;
+async function alignWords(file: string, raw: RawWord[], language: Language): Promise<AlignResult> {
+  if (raw.length === 0) return { words: raw };
   const form = new FormData();
   form.append('file', await openAsBlob(file, { type: 'audio/mpeg' }), path.basename(file));
   form.append('words', JSON.stringify(raw.map((w) => w.text)));
   form.append('language', language);
-  const warn = (msg: string) => { if (msg !== alignerNotice) console.warn(`[align] ${msg}`); alignerNotice = msg; };
+  const fail = (reason: string): AlignResult => {
+    if (reason !== alignerNotice) console.warn(`[align] ${reason}; keeping Gemini timings`);
+    alignerNotice = reason;
+    return { words: null, reason };
+  };
   try {
     const res = await fetch(`${sinhalaServiceUrl()}/api/sinhala/align`, { method: 'POST', body: form, signal: AbortSignal.timeout(180_000) });
     if (!res.ok) {
       const detail = await res.json().then((j: { detail?: string }) => j.detail).catch(() => res.statusText);
-      warn(`${res.status}: ${detail}; keeping Gemini timings`);
-      return null;
+      return fail(res.status === 503 ? `aligner model not ready (${detail})` : `aligner rejected the clip (${res.status}: ${detail})`);
     }
     const data = (await res.json()) as { words: [number, number][] };
-    if (data.words?.length !== raw.length) return null;
+    if (data.words?.length !== raw.length) {
+      return fail(`aligner returned ${data.words?.length ?? 0} timings for ${raw.length} words`);
+    }
     alignerNotice = '';
-    return raw.map((w, i) => ({ text: w.text, start: data.words[i][0], end: data.words[i][1] }));
+    return { words: raw.map((w, i) => ({ text: w.text, start: data.words[i][0], end: data.words[i][1] })) };
   } catch (err) {
-    warn(`Python service unreachable at ${sinhalaServiceUrl()} (${(err as Error).message}); keeping Gemini timings`);
-    return null;
+    return fail(`aligner service unreachable at ${sinhalaServiceUrl()} (${(err as Error).message})`);
   }
 }
 
-async function transcribeGemini(audioPath: string, language: Language, dir: string): Promise<{ words: Word[]; language: string }> {
+async function transcribeGemini(audioPath: string, language: Language, dir: string): Promise<{ words: Word[]; language: string; alignment: Alignment }> {
   // A duration of 0 would clamp every word timing to 0, so never default to it.
   const duration = (await probeDuration(audioPath)) ?? (await ffmpegDuration(audioPath));
   if (duration === null) throw new HttpError(500, 'Could not read the audio duration (is ffprobe installed?).');
@@ -593,6 +617,7 @@ async function transcribeGemini(audioPath: string, language: Language, dir: stri
   }));
 
   const results: Word[][] = new Array(pieces.length);
+  const alignment: Alignment = { aligned: 0, total: pieces.length };
   let next = 0;
   await Promise.all(Array.from({ length: Math.min(GEMINI_CONCURRENCY, pieces.length) }, async () => {
     while (next < pieces.length) {
@@ -602,10 +627,12 @@ async function transcribeGemini(audioPath: string, language: Language, dir: stri
       const [audio, speech] = await Promise.all([readFile(p.file), speechIntervals(p.file, clipDur)]);
       let raw = await geminiRequest(audio, language);
       const aligned = await alignWords(p.file, raw, language);
-      if (aligned) {
-        results[i] = normalizeWords(sanitizeTimings(aligned, clipDur), p.start);
+      if (aligned.words) {
+        alignment.aligned++;
+        results[i] = normalizeWords(sanitizeTimings(aligned.words, clipDur), p.start);
         continue;
       }
+      alignment.reason ??= aligned.reason;
       for (let attempt = 0; attempt < 2 && timingsLookBroken(raw, clipDur, speech); attempt++) {
         console.warn(`[gemini] chunk ${i} timings look broken, retrying (${attempt + 1})`);
         raw = await geminiRequest(audio, language);
@@ -617,7 +644,7 @@ async function transcribeGemini(audioPath: string, language: Language, dir: stri
       results[i] = normalizeWords(sanitizeTimings(raw, clipDur), p.start);
     }
   }));
-  return { words: results.flat(), language: language === 'auto' ? 'unknown' : language };
+  return { words: results.flat(), language: language === 'auto' ? 'unknown' : language, alignment };
 }
 
 // ---------------------------------------------------------------------------
@@ -658,7 +685,7 @@ export async function transcribeFile(
   const codecArgs = mp3 ? ['-c:a', 'libmp3lame', '-b:a', '64k'] : ['-c:a', 'flac'];
   await ffmpeg(['-i', inputPath, '-vn', '-map', '0:a:0', '-ac', '1', '-ar', '16000', ...codecArgs, audioPath]);
 
-  const result = chosen === 'elevenlabs'
+  const result: { words: Word[]; language: string; alignment?: Alignment } = chosen === 'elevenlabs'
     ? await transcribeElevenLabs(audioPath, language)
     : chosen === 'gemini'
       ? await transcribeGemini(audioPath, language, dir)
@@ -668,5 +695,6 @@ export async function transcribeFile(
     ?? (await probeDuration(audioPath))
     ?? (result.words.length ? result.words[result.words.length - 1].end : 0);
 
-  return { provider: chosen, language: result.language, duration, words: result.words };
+  // Only Gemini's timings go through the forced aligner; ElevenLabs and Whisper times are used as returned.
+  return { provider: chosen, language: result.language, duration, words: result.words, ...(result.alignment ? { alignment: result.alignment } : {}) };
 }

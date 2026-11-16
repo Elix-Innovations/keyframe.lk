@@ -446,7 +446,7 @@ Run from the repo root:
 
 ## 19. Desktop app
 
-`desktop/` wraps the built editor and API in an Electron app for macOS (Apple silicon).
+`desktop/` wraps the built editor and API in an Electron app for macOS (Apple silicon) and Windows (x64).
 
 ### Download
 
@@ -457,6 +457,23 @@ The app is not signed yet, so macOS blocks the first launch. Right-click **Keyfr
 ```bash
 xattr -dr com.apple.quarantine /Applications/Keyframe.app
 ```
+
+### Windows
+
+`npm run dist:win` builds `desktop/dist/Keyframe Setup <version>.exe` (x64). ffmpeg and ffprobe are bundled, so nothing else needs installing. The installer is not signed, so Windows SmartScreen shows "Windows protected your PC": choose **More info → Run anyway**. Before the first build, fetch the Windows ffmpeg once:
+
+```bash
+cd desktop
+npm install
+npm_config_platform=win32 npm_config_arch=x64 node node_modules/ffmpeg-static/install.js
+npm run dist:win
+```
+
+### Accurate caption timing
+
+Gemini's own word times drift, so the Python aligner (`python/`) re-measures every word from the audio. The installer does not include it: on first launch the app offers to set it up (about 1.5 GB, once: Python, PyTorch and the aligner model, installed into the app's data folder with a bundled `uv`). You can choose **Later** and keep editing, but after each caption run the app tells you whether the word times were matched to the audio. Setup logs are in `aligner/setup.log` in the app data folder.
+
+In development, run `npm run align:fetch` once, then `npm run dev` (it starts the aligner on port 8788). `GET /api/health` reports `align: "ready"` when it works.
 
 ### Build it yourself
 

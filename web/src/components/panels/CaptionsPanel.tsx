@@ -10,7 +10,7 @@ import { cssFamily, getFont } from '@/lib/fonts';
 import { englishFor } from '@/lib/english-words';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { useEditor } from '@/store';
-import { ai, health, transcribe } from '@/lib/api';
+import { ai, alignmentNote, health, transcribe } from '@/lib/api';
 import { getBlob } from '@/lib/db';
 import { segmentWords, retimeWordsWithBreaks, wordsToText } from '@/lib/segment';
 import { cuesToCaptions, formatClock, parseSubtitles } from '@/lib/srt';
@@ -70,7 +70,7 @@ function Generate() {
       const words: Word[] = res.words.map((w) => ({ id: nanoid(8), text: w.text, start: w.start, end: w.end }));
       if (words.length === 0) { notify('No speech was detected in this video.', 'error'); return; }
       update((p) => ({ ...p, words, language: lang === 'en' ? 'en' : 'si', duration: p.duration || res.duration, captions: segmentWords(words, p.segmentation) }));
-      notify(`Generated ${words.length} words with ${res.provider}.`, 'success');
+      notify(`Generated ${words.length} words with ${res.provider}.${alignmentNote(res)}`, res.alignment && res.alignment.aligned < res.alignment.total ? 'info' : 'success');
     } catch (e) {
       if ((e as Error).name !== 'AbortError') notify((e as Error).message, 'error');
     } finally {

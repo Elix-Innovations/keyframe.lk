@@ -72,6 +72,7 @@ import { sfxFile, sfxSearch } from './sfx.js';
 import { cancelProRes, finishProRes, proResFrames, startProRes } from './prores.js';
 import { HttpError } from './errors.js';
 import {
+  alignerStatus,
   checkFfmpeg,
   makeTempDir,
   receiveUpload,
@@ -210,6 +211,7 @@ app.get('/api/health', async (c) => {
     aiProvider: aiProvider(),
     music: hasMusicLibrary(),
     ffmpeg: await checkFfmpeg(),
+    align: await alignerStatus(),
   };
   return c.json(body);
 });

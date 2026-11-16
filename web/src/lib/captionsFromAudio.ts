@@ -1,7 +1,7 @@
 import { nanoid } from 'nanoid';
 import { toast } from 'sonner';
 import type { Word } from '../types';
-import { transcribe } from './api';
+import { alignmentNote, transcribe } from './api';
 import { getBlob } from './db';
 import { normalizeCaptions, segmentWords } from './segment';
 import { useEditor } from '../store';
@@ -69,7 +69,7 @@ export async function generateCaptionsFromAudio(id: string): Promise<void> {
       words: [...p.words.filter((w) => w.end <= at || w.start >= end), ...words].sort((a, b) => a.start - b.start),
       captions: normalizeCaptions([...p.captions.filter((c) => c.end <= at || c.start >= end), ...segmentWords(words, p.segmentation)]),
     }));
-    st.notify(`Added captions for ${words.length} words.`, 'success');
+    st.notify(`Added captions for ${words.length} words.${alignmentNote(res)}`, res.alignment && res.alignment.aligned < res.alignment.total ? 'info' : 'success');
   } catch (e) {
     toast.dismiss(toastId);
     st.notify((e as Error).message || 'Could not generate captions.', 'error');
