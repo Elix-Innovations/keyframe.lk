@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, shell, dialog, session } = require('electron');
+const { app, BrowserWindow, Menu, shell, dialog, session, ipcMain } = require('electron');
 const { spawn, execFile } = require('node:child_process');
 const path = require('node:path');
 const fs = require('node:fs');
@@ -6,7 +6,10 @@ const net = require('node:net');
 const os = require('node:os');
 const { createAligner } = require('./aligner');
 
+// Ports the editor's /api and /api/sinhala rewrites point at (fixed when the web app is built, see web/next.config.ts).
+// If another program holds one, the server moves to the next free port and the window's requests are redirected there.
 const API_PORT = 8787;
+const ALIGN_PORT = 8788;
 let children = [];
 let win;
 let quitting = false;
@@ -42,7 +45,8 @@ function canListen(port) {
   });
 }
 async function pickWebPort() {
-  for (const p of WEB_PORTS) if (await canListen(p)) return p;
+  // A web server left by a force-quit run is stopped rather than skipped: moving port would hide the user's projects.
+  for (const p of WEB_PORTS) if (await takePort(p)) return p;
   return new Promise((resolve, reject) => {
     const s = net.createServer();
     s.listen(0, '127.0.0.1', () => { const p = s.address().port; s.close(() => resolve(p)); });
@@ -91,38 +95,75 @@ async function listenersOn(port) {
   return out.split(/\s+/).map(Number).filter((p) => p > 0);
 }
 
-/** Is `pid` one of our own server processes (they run the Keyframe executable itself, as Node)? */
+/**
+ * Is `pid` one of our own server processes? The API and web servers run the Keyframe executable itself (as Node); the
+ * caption-timing service runs the Python installed under <userData>/aligner.
+ */
 async function isKeyframeProcess(pid) {
   if (pid === process.pid) return false;
   const exe = path.basename(process.execPath).toLowerCase();
+  const alignerDir = path.join(app.getPath('userData'), 'aligner').toLowerCase();
   if (process.platform === 'win32') {
     const out = await run('tasklist', ['/FI', `PID eq ${pid}`, '/FO', 'CSV', '/NH']);
-    return out.toLowerCase().includes(`"${exe}"`);
+    if (out.toLowerCase().includes(`"${exe}"`)) return true;
+    const exePath = await run('powershell', ['-NoProfile', '-NonInteractive', '-Command', `(Get-CimInstance Win32_Process -Filter "ProcessId=${Number(pid)}").ExecutablePath`]);
+    return exePath.trim().toLowerCase().startsWith(alignerDir);
   }
-  const out = await run('ps', ['-p', String(pid), '-o', 'comm=']);
-  return path.basename(out.trim()).toLowerCase() === exe;
+  // The executable's real path: the process name can't be trusted (the web server renames itself "next-server").
+  const txt = await run('lsof', ['-a', '-p', String(pid), '-d', 'txt', '-Fn']);
+  const exePath = (txt.split('\n').find((l) => l.startsWith('n')) || '').slice(1);
+  if (exePath && exePath === process.execPath) return true;
+  const cmd = await run('ps', ['-p', String(pid), '-o', 'command=']);
+  return cmd.trim().toLowerCase().startsWith(alignerDir);
 }
 
-/**
- * A server left over from an earlier run (the app was force-closed, crashed, or was updated while running) still holds
- * the port. Only Keyframe's own processes are stopped: a dev server or another program is reported instead.
- */
-async function freePort(port) {
-  if (!(await portInUse(port))) return;
+/** Free (or held by a leftover Keyframe process, which is stopped) -> usable. */
+async function takePort(p) {
+  if (!(await portInUse(p))) return canListen(p);
   const ours = [];
-  for (const pid of await listenersOn(port)) if (await isKeyframeProcess(pid)) ours.push(pid);
+  for (const pid of await listenersOn(p)) if (await isKeyframeProcess(pid)) ours.push(pid);
+  if (!ours.length) return false;
   for (const pid of ours) {
     try { process.kill(pid); } catch {}
     if (process.platform === 'win32') await run('taskkill', ['/PID', String(pid), '/T', '/F']);
   }
   const end = Date.now() + 5000;
   while (Date.now() < end) {
-    if (!(await portInUse(port))) { mark(`stopped a leftover Keyframe server on ${port}`); return; }
+    if (!(await portInUse(p))) { mark(`stopped a leftover Keyframe server on ${p}`); return true; }
     await new Promise((r) => setTimeout(r, 150));
   }
-  throw new Error(ours.length
-    ? `An earlier Keyframe is still holding port ${port} and could not be stopped. Restart the computer and try again.`
-    : `Port ${port} is used by another program (a dev server?). Close it and try again.`);
+  return false;
+}
+
+/**
+ * A server left over from an earlier run (the app was force-closed, crashed, or was updated while running) still holds
+ * the port: stop it. Only Keyframe's own processes are stopped. If something else (a dev server, another program) holds
+ * the port, return the next free one instead.
+ */
+async function claimPort(port, avoid = []) {
+  const take = takePort;
+  if (await take(port)) return port;
+  // Something else holds it: the next port that is free or was ours (a force-quit run may have moved there too).
+  for (let p = port + 1; p < port + 200; p++) {
+    if (avoid.includes(p)) continue;
+    if (await take(p)) { mark(`port ${port} is taken by another program, using ${p}`); return p; }
+  }
+  throw new Error(`Port ${port} is used by another program and no free port was found nearby. Close it and try again.`);
+}
+
+/**
+ * The editor calls relative /api URLs, which its web server proxies to the default ports. When a server had to move,
+ * send the window's requests straight to it instead (both servers accept any localhost origin).
+ */
+function redirectMovedPorts(webPort, apiPort, alignPort) {
+  if (apiPort === API_PORT && alignPort === ALIGN_PORT) return;
+  const prefix = `http://127.0.0.1:${webPort}/api/`;
+  session.defaultSession.webRequest.onBeforeRequest({ urls: [`${prefix}*`] }, (details, cb) => {
+    const rest = details.url.slice(prefix.length);
+    const port = rest.startsWith('sinhala/') ? alignPort : apiPort;
+    const def = rest.startsWith('sinhala/') ? ALIGN_PORT : API_PORT;
+    cb(port === def ? {} : { redirectURL: `http://127.0.0.1:${port}/api/${rest}` });
+  });
 }
 
 function startNode(name, script, env, cwd) {
@@ -164,16 +205,23 @@ async function boot() {
   const dataDir = path.join(app.getPath('userData'), 'data');
   fs.mkdirSync(dataDir, { recursive: true });
   const base = resBase();
-  const env = { PORT: String(API_PORT), KEYFRAME_DATA_DIR: dataDir, ...ffmpegEnv() };
+  const avoid = [API_PORT, ALIGN_PORT, ...WEB_PORTS];
+  const apiPort = await claimPort(API_PORT, avoid);
+  // The aligner starts later (if installed), but the API needs to know where it will be. Anything already on its port
+  // is not ours to reuse: it may be a dev service from another checkout.
+  // A caption-timing service left by a force-quit Keyframe is stopped; anything else there makes ours move.
+  const alignPort = (await portInUse(ALIGN_PORT)) ? await claimPort(ALIGN_PORT, [...avoid, apiPort]) : ALIGN_PORT;
+  const env = {
+    PORT: String(apiPort), KEYFRAME_DATA_DIR: dataDir, SINHALA_SERVICE_URL: `http://127.0.0.1:${alignPort}`, ...ffmpegEnv(),
+  };
 
-  await freePort(API_PORT);
   // HOST keeps the API (and its saved API keys) off the LAN.
   const apiDead = startNode('API server', path.join(base, 'server', 'index.mjs'), { ...env, HOST: '127.0.0.1' }, dataDir);
   const webPort = await pickWebPort();
   const webDead = startNode('Web server', path.join(base, 'web', 'server.js'), { PORT: String(webPort), HOSTNAME: '127.0.0.1' }, path.join(base, 'web'));
   mark(`servers spawned (web on ${webPort})`);
   const dead = Promise.race([apiDead, webDead]);
-  const apiUp = waitFor(API_PORT).then(() => mark('API listening'));
+  const apiUp = waitFor(apiPort).then(() => mark('API listening'));
   const webUp = waitFor(webPort).then(() => mark('web listening'));
   apiUp.catch(() => {}); webUp.catch(() => {}); // when a child dies first, `dead` reports it
   await Promise.race([Promise.all([apiUp, webUp]), dead]);
@@ -183,7 +231,7 @@ async function boot() {
     dialog.showErrorBox('Keyframe stopped working', String(e && e.message || e));
     app.quit();
   });
-  return webPort;
+  return { webPort, apiPort, alignPort };
 }
 
 /** Tell the splash screen what is happening (no-op once the editor has replaced it). */
@@ -205,6 +253,37 @@ function appMenu() {
   ]);
 }
 
+// ---- Caption-timing setup, driven from the editor UI through preload.js ----
+let editorOrigin = null;
+let resolveAligner;
+const alignerReady = new Promise((r) => { resolveAligner = r; });
+
+// Progress arrives many times a second; the UI only needs a few updates per second.
+let pendingState = null;
+let stateTimer = null;
+function pushAlignerState(s) {
+  pendingState = s;
+  if (stateTimer) return;
+  stateTimer = setTimeout(() => {
+    stateTimer = null;
+    if (win && !win.isDestroyed()) win.webContents.send('aligner:state', pendingState);
+  }, 250);
+}
+
+function registerAlignerIpc() {
+  // Only the local editor may drive the installer (never a page a link navigated to).
+  const fromEditor = (e) => !!editorOrigin && String(e.senderFrame?.url || '').startsWith(`${editorOrigin}/`);
+  const handle = (name, fn) => ipcMain.handle(`aligner:${name}`, async (e) => {
+    if (!fromEditor(e)) throw new Error('Not allowed');
+    return fn(await alignerReady);
+  });
+  handle('status', (a) => a.state());
+  handle('install', (a) => { a.install(); return a.state(); }); // runs in the background; progress arrives as events
+  handle('cancel', (a) => { a.cancel(); return a.state(); });
+  handle('openLog', (a) => { shell.showItemInFolder(a.paths.log); });
+  handle('openLink', (a) => { const url = a.state().link; if (/^https:\/\//.test(url || '')) shell.openExternal(url); });
+}
+
 // `booting` is started before Electron is ready (see below), so the servers warm up while the window is being created.
 async function createWindow(booting) {
   win = new BrowserWindow({
@@ -213,7 +292,8 @@ async function createWindow(booting) {
     icon: path.join(__dirname, 'icon.png'),
     show: false, // shown on ready-to-show so there is never a blank frame
     ...(process.platform === 'darwin' ? { titleBarStyle: 'hiddenInset' } : { autoHideMenuBar: true }),
-    webPreferences: { contextIsolation: true, sandbox: true },
+    // preload.js exposes only window.keyframeDesktop (caption-timing setup) to the editor.
+    webPreferences: { contextIsolation: true, sandbox: true, preload: path.join(__dirname, 'preload.js') },
   });
   win.once('ready-to-show', () => { win.show(); mark('splash shown'); });
   setTimeout(() => { if (win && !win.isDestroyed() && !win.isVisible()) win.show(); }, 3000); // never leave the app invisible
@@ -221,7 +301,6 @@ async function createWindow(booting) {
   const external = (url) => { try { if (/^https?:$/.test(new URL(url).protocol)) shell.openExternal(url); } catch {} };
   win.webContents.setWindowOpenHandler(({ url }) => { external(url); return { action: 'deny' }; });
   // The window only ever shows the local editor (loadURL/loadFile don't fire this; links and redirects do).
-  let editorOrigin = null;
   win.webContents.on('will-navigate', (e, url) => {
     if (editorOrigin && url.startsWith(`${editorOrigin}/`)) return;
     e.preventDefault();
@@ -230,20 +309,23 @@ async function createWindow(booting) {
   // Local splash right away (logo + progress) instead of a black window while the servers start.
   win.loadFile(path.join(__dirname, 'splash.html')).then(() => splashStatus('Starting local servers…')).catch(() => {});
   try {
-    const port = await booting;
+    const { webPort: port, apiPort, alignPort } = await booting;
     if (win.isDestroyed()) return;
+    redirectMovedPorts(port, apiPort, alignPort);
     splashStatus('Opening the editor…');
     editorOrigin = `http://127.0.0.1:${port}`;
     await win.loadURL(`http://127.0.0.1:${port}/editor`);
     mark('editor loaded');
     writeTimings();
-    // Caption-timing aligner (Python): start it if installed, otherwise offer to set it up. Never blocks the editor.
+    // Caption-timing aligner (Python): start it if installed. Installing it is up to the user, from the editor UI.
     // It loads a large model, so wait until the editor has had a few seconds of the CPU to itself.
     const aligner = createAligner({
-      userData: app.getPath('userData'), base: resBase(), getWindow: () => win, track: (c) => children.push(c), env: ffmpegEnv(),
+      userData: app.getPath('userData'), base: resBase(), port: alignPort, track: (c) => children.push(c), env: ffmpegEnv(),
+      onState: pushAlignerState,
     });
+    resolveAligner(aligner);
     setTimeout(() => {
-      aligner.start().then((running) => (running ? undefined : aligner.offerInstall())).catch((e) => console.warn('[aligner]', e));
+      aligner.start().then((ok) => { if (!ok) pushAlignerState(aligner.state()); }).catch((e) => console.warn('[aligner]', e));
     }, 4000);
   } catch (e) {
     writeTimings();
@@ -252,7 +334,7 @@ async function createWindow(booting) {
   }
 }
 
-// A second instance would fight the first over port 8787 and the data dir.
+// A second instance would fight the first over the ports and the data dir.
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
@@ -271,6 +353,7 @@ if (!app.requestSingleInstanceLock()) {
     const allowed = new Set(['clipboard-read', 'clipboard-sanitized-write', 'fullscreen', 'media', 'fileSystem', 'pointerLock']);
     session.defaultSession.setPermissionRequestHandler((_wc, perm, cb) => cb(allowed.has(perm)));
     Menu.setApplicationMenu(appMenu());
+    registerAlignerIpc();
     return createWindow(booting);
   });
 }

@@ -192,3 +192,8 @@
 /* Mac desktop app (hiddenInset title bar): headers drag the window and clear the traffic lights. */
 html[data-shell="mac"] header { -webkit-app-region: drag; padding-left: 80px; }
 html[data-shell="mac"] header :is(button, a, input, select, textarea, label, [role="button"], [role="tab"], [role="combobox"], [contenteditable]) { -webkit-app-region: no-drag; }
+/* Home: the sidebar sits under the traffic lights, so it starts below them (and that strip drags the window). The header
+   beside it is already clear of them. */
+html[data-shell="mac"] .app-sidebar { padding-top: 44px; -webkit-app-region: drag; }
+html[data-shell="mac"] .app-sidebar :is(button, a, input, [role="button"]) { -webkit-app-region: no-drag; }
+@media (width >= 48rem) { html[data-shell="mac"] .app-sidebar + main header { padding-left: 2rem; } }

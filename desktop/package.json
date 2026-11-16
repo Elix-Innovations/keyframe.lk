@@ -21,6 +21,7 @@
     "files": [
       "main.js",
       "aligner.js",
+      "preload.js",
       "splash.html",
       "icon.png",
       "package.json"
