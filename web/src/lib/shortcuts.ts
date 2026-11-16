@@ -1,3 +1,14 @@
+export const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/i.test(navigator.platform);
+/** Running inside the Keyframe desktop app (Electron) rather than a browser tab. */
+export const isElectron = typeof navigator !== 'undefined' && /Electron/i.test(navigator.userAgent);
+
+/** Shortcut glyphs are written Mac-style (⌘ ⌥ ⇧). Off a Mac show them as Ctrl+ / Alt+ / Shift+ instead. */
+export function kbd(label: string): string {
+  if (isMac) return label;
+  // Order on Windows is Ctrl+Alt+Shift+key, whatever order the Mac label used.
+  return label.replace(/[⌘⌥⇧]+/g, (m) => ['⌘', '⌥', '⇧'].filter((g) => m.includes(g)).map((g) => ({ '⌘': 'Ctrl+', '⌥': 'Alt+', '⇧': 'Shift+' })[g]).join(''));
+}
+
 /** Single source for keyboard shortcuts: used by tooltips and the shortcuts dialog. */
 export const SHORTCUTS = {
   playPause: { keys: ['Space'], label: 'Play / pause' },

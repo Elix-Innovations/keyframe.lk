@@ -227,7 +227,7 @@ export function MotionPanel() {
           </Section>
           <Section title={`Describe the ${ROLE_LABEL[role].toLowerCase()}`}>
             <Textarea className="min-h-20 text-sm" value={prompt} onChange={(e) => setPrompt(e.target.value)}
-              placeholder={role === 'transition' ? 'A fast whip transition with a teal swipe and a flash' : role === 'background' ? 'Slow drifting purple and blue light on dark' : 'A lower third for “Nisal, Host” with a sliding plate and an accent line'} />
+              placeholder={role === 'transition' ? 'A fast whip transition with a teal swipe and a flash' : role === 'background' ? 'Slow drifting purple and blue light on dark' : 'A lower third for “Alex, Host” with a sliding plate and an accent line'} />
             <Row label="Length" hint="0 lets Claude choose."><Slider value={duration} min={0} max={role === 'background' ? 12 : 6} step={0.5} format={(v) => (v ? `${v}s` : 'Auto')} onChange={setDuration} /></Row>
             <p className="text-[11px] text-muted-foreground">Uses your project colours{palette.length ? ` (${palette.join(', ')})` : ''} and fonts.</p>
             <div className="flex gap-1.5">

@@ -23,12 +23,33 @@ const nested = existsSync(path.join(standalone, 'server.js')) ? standalone : pat
 cpSync(realpathSync(nested), path.join(out, 'web'), { recursive: true, dereference: true });
 cpSync(path.join(root, 'web', '.next', 'static'), path.join(out, 'web', '.next', 'static'), { recursive: true });
 cpSync(path.join(root, 'web', 'public'), path.join(out, 'web', 'public'), { recursive: true });
+// FM fonts are fetched, not committed (see .gitignore): refuse to ship an installer without them.
+if (readdirSync(path.join(root, 'web', 'public', 'fonts', 'fm')).filter((f) => f !== 'manifest.json').length === 0) {
+  throw new Error('web/public/fonts/fm has no fonts. Run `npm run fonts:fetch` from the repo root first.');
+}
+// Don't ship source maps, and don't leak the build machine's absolute paths (Next writes them into server.js and
+// required-server-files.json; at runtime server.js resolves everything from __dirname).
+const scrub = (dir) => {
+  for (const e of readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, e.name);
+    if (e.isDirectory()) scrub(full);
+    else if (e.name.endsWith('.map')) rmSync(full);
+  }
+};
+scrub(path.join(out, 'web'));
+const webRoot = path.join(root, 'web');
+for (const f of ['server.js', path.join('.next', 'required-server-files.json')]) {
+  const file = path.join(out, 'web', f);
+  if (!existsSync(file)) continue;
+  writeFileSync(file, readFileSync(file, 'utf8').split(JSON.stringify(webRoot).slice(1, -1)).join('.').split(JSON.stringify(root).slice(1, -1)).join('.'));
+}
 
 console.log('> bundling API server');
 await build({
   entryPoints: [path.join(root, 'server', 'src', 'index.ts')],
   outfile: path.join(out, 'server', 'index.mjs'),
   bundle: true, platform: 'node', format: 'esm', target: 'node20',
+  minify: true, legalComments: 'none',
   banner: { js: "import{createRequire as __cr}from'node:module';const require=__cr(import.meta.url);" },
 });
 // ---------------------------------------------------------------------------
@@ -90,24 +111,27 @@ mkdirSync(path.join(pyroot, 'web', 'src', 'lib'), { recursive: true });
 cpSync(path.join(root, 'web', 'src', 'lib', 'fm-table.json'), path.join(pyroot, 'web', 'src', 'lib', 'fm-table.json'));
 await bundleUv(isWin ? 'win32' : 'darwin');
 
-if (process.argv.includes('--win')) {
-  // Windows installer ships its own ffmpeg + ffprobe (the server reads FFMPEG_PATH / FFPROBE_PATH).
-  console.log('> bundling Windows ffmpeg + ffprobe');
+// Both installers ship their own ffmpeg + ffprobe (main.js sets FFMPEG_PATH / FFPROBE_PATH and puts bin/ on PATH),
+// so a clean machine without Homebrew still transcribes and exports.
+{
+  const plat = isWin ? 'win32' : 'darwin', arch = isWin ? 'x64' : 'arm64', exe = isWin ? '.exe' : '';
+  console.log(`> bundling ffmpeg + ffprobe (${plat}-${arch})`);
   const require = createRequire(import.meta.url);
   const ffmpegDir = path.dirname(require.resolve('ffmpeg-static/package.json'));
   const ffprobeDir = path.dirname(require.resolve('ffprobe-static/package.json'));
   const sources = {
-    'ffmpeg.exe': path.join(ffmpegDir, 'ffmpeg.exe'),
-    'ffmpeg.exe.LICENSE': path.join(ffmpegDir, 'ffmpeg.exe.LICENSE'),
-    'ffmpeg.exe.README': path.join(ffmpegDir, 'ffmpeg.exe.README'),
-    'ffprobe.exe': path.join(ffprobeDir, 'bin', 'win32', 'x64', 'ffprobe.exe'),
+    [`ffmpeg${exe}`]: path.join(ffmpegDir, `ffmpeg${exe}`),
+    [`ffmpeg${exe}.LICENSE`]: path.join(ffmpegDir, `ffmpeg${exe}.LICENSE`),
+    [`ffmpeg${exe}.README`]: path.join(ffmpegDir, `ffmpeg${exe}.README`),
+    [`ffprobe${exe}`]: path.join(ffprobeDir, 'bin', plat, arch, `ffprobe${exe}`),
   };
   mkdirSync(path.join(out, 'bin'), { recursive: true });
   for (const [name, src] of Object.entries(sources)) {
     if (!existsSync(src)) {
-      throw new Error(`Missing ${src}. From desktop/ run: npm_config_platform=win32 npm_config_arch=x64 node node_modules/ffmpeg-static/install.js`);
+      throw new Error(`Missing ${src}. From desktop/ run: npm install && npm_config_platform=${plat} npm_config_arch=${arch} node node_modules/ffmpeg-static/install.js`);
     }
     cpSync(src, path.join(out, 'bin', name));
+    if (!isWin && !name.includes('.')) chmodSync(path.join(out, 'bin', name), 0o755);
   }
 }
 console.log('done');

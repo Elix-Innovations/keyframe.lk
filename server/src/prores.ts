@@ -91,6 +91,8 @@ export async function startProRes(c: Context) {
   const fpsDen = int(c, 'fpsDen', 1, 100_000);
   const sampleRate = int(c, 'sampleRate', 0, 192_000, 0);
   const channels = int(c, 'channels', 0, 2, 0);
+  // Each session holds a full-size frame buffer (up to 256 MB) and an ffmpeg process.
+  if (sessions.size >= 2) throw new HttpError(429, 'Two transparent exports are already running. Wait for one to finish.');
 
   const dir = await makeTempDir();
   try {

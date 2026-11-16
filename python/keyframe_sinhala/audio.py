@@ -69,6 +69,8 @@ def decode(path: str | os.PathLike[str], sr: int = LOUDNESS_SR) -> np.ndarray:
     os.close(fd)
     try:
         cmd = [_ffmpeg(), "-nostdin", "-hide_banner", "-loglevel", "error", "-y",
+               # Only plain files: an uploaded playlist (HLS / concat) must not make ffmpeg read other files or URLs.
+               "-protocol_whitelist", "file,pipe",
                "-i", str(path), "-map", "0:a:0", "-vn", "-sn", "-dn",
                "-t", str(MAX_SECONDS), "-ar", str(sr), "-c:a", "pcm_f32le", tmp]
         proc = subprocess.run(cmd, capture_output=True, timeout=600)

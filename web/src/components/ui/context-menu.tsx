@@ -1,5 +1,6 @@
 import * as React from "react"
 import { cn } from "cn"
+import { kbd } from "@/lib/shortcuts"
 import { ContextMenu as ContextMenuPrimitive } from "radix-ui"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { ArrowRight01Icon, Tick02Icon } from "@hugeicons/core-free-icons"
@@ -242,6 +243,7 @@ function ContextMenuShortcut({
         className
       )}
       {...props}
+      children={typeof props.children === 'string' ? kbd(props.children) : props.children}
     />
   )
 }

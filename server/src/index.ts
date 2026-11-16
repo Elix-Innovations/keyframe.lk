@@ -37,12 +37,8 @@
  * /api/transcribe is limited to MAX_UPLOAD_MB (default 2048 MB); JSON routes are limited to 20 MB.
  */
 import 'dotenv/config';
-import { existsSync } from 'node:fs';
-import { readFile } from 'node:fs/promises';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { serve } from '@hono/node-server';
-import { serveStatic } from '@hono/node-server/serve-static';
 import { Hono, type Context } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import { cors } from 'hono/cors';
@@ -108,6 +104,10 @@ const hostnameOf = (hostOrOrigin: string) => {
 };
 app.use('/api/*', async (c, next) => {
   if (!isLocalHostname(hostnameOf(c.req.header('host') ?? ''))) return c.json({ error: 'Forbidden host.' }, 403);
+  // The Next dev / start server proxies /api here and rewrites Host to localhost, but keeps the address the browser
+  // used in x-forwarded-host: check that too, so another device on the LAN can't reach the API through the proxy.
+  const fwd = c.req.header('x-forwarded-host');
+  if (fwd !== undefined && fwd !== '' && !isLocalHostname(hostnameOf(fwd.split(',')[0].trim()))) return c.json({ error: 'Forbidden host.' }, 403);
   const method = c.req.method;
   if (method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS') {
     const origin = c.req.header('origin');
@@ -137,6 +137,11 @@ app.use(
   }),
 );
 
+app.use(
+  '/api/keys',
+  bodyLimit({ maxSize: 16 * 1024, onError: (c) => c.json({ error: 'Request body is too large.' }, 413) }),
+);
+
 // Uploads are streamed to disk, but still capped so a hosted instance cannot be filled up. MAX_UPLOAD_MB overrides it.
 const maxUploadMb = Number(process.env.MAX_UPLOAD_MB) || 2048;
 app.use(
@@ -145,6 +150,11 @@ app.use(
     maxSize: maxUploadMb * 1024 * 1024,
     onError: (c) => c.json({ error: `File is too large (limit ${maxUploadMb} MB). Trim the video or raise MAX_UPLOAD_MB in server/.env.` }, 413),
   }),
+);
+// Transparent export: audio + frame uploads, large but finite.
+app.use(
+  '/api/export/*',
+  bodyLimit({ maxSize: maxUploadMb * 1024 * 1024, onError: (c) => c.json({ error: `Upload is too large (limit ${maxUploadMb} MB).` }, 413) }),
 );
 
 // Tag every API call with the feature that made it, for the usage log.
@@ -289,20 +299,6 @@ app.post('/api/export/prores/:id/finish', finishProRes);
 app.delete('/api/export/prores/:id', cancelProRes);
 
 app.all('/api/*', (c) => c.json({ error: `Not found: ${c.req.method} ${c.req.path}` }, 404));
-
-// ---------------------------------------------------------------------------
-// Production: serve the built web app (../web/dist) with SPA fallback
-// ---------------------------------------------------------------------------
-
-const webDist = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../web/dist');
-if (existsSync(webDist)) {
-  app.use('*', serveStatic({ root: webDist }));
-  app.get('*', async (c) => {
-    const html = await readFile(path.join(webDist, 'index.html'), 'utf8');
-    return c.html(html);
-  });
-  console.log(`Serving web app from ${webDist}`);
-}
 
 // ---------------------------------------------------------------------------
 // Start

@@ -2,8 +2,8 @@ import type { NextConfig } from 'next';
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
-  // Open the dev server from another device on the LAN (e.g. http://192.168.1.4:5180); Next blocks non-localhost origins otherwise.
-  allowedDevOrigins: ['192.168.1.4'],
+  // Open the dev server from another device on the LAN (set KEYFRAME_DEV_ORIGINS=192.168.x.x and run `npm run dev:lan`); Next blocks non-localhost origins otherwise.
+  allowedDevOrigins: (process.env.KEYFRAME_DEV_ORIGINS ?? '').split(',').map((h) => h.trim()).filter(Boolean),
   // Desktop (Electron) build: self-contained server in .next/standalone.
   // Images are not optimized in the desktop app, so the platform-specific sharp binary is never needed.
   ...(process.env.KEYFRAME_DESKTOP ? { output: 'standalone' as const, images: { unoptimized: true } } : {}),

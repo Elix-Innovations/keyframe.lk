@@ -1,8 +1,9 @@
-const { app, BrowserWindow, shell, dialog } = require('electron');
+const { app, BrowserWindow, Menu, shell, dialog, session } = require('electron');
 const { spawn, execFile } = require('node:child_process');
 const path = require('node:path');
 const fs = require('node:fs');
 const net = require('node:net');
+const os = require('node:os');
 const { createAligner } = require('./aligner');
 
 const API_PORT = 8787;
@@ -141,22 +142,21 @@ function startNode(name, script, env, cwd) {
 }
 
 /**
- * Where ffmpeg is, for every child that decodes audio (API server and the aligner). GUI apps don't inherit the
- * shell PATH, so on macOS Homebrew's folders are added; Windows builds ship ffmpeg/ffprobe next to the app
- * (see package.json extraResources and scripts/prepare.mjs).
+ * Where ffmpeg is, for every child that decodes audio (API server and the aligner). Both installers ship
+ * ffmpeg/ffprobe in bin/ (scripts/prepare.mjs), which goes first on PATH. GUI apps don't inherit the shell PATH, so on
+ * macOS Homebrew and the usual user bin folders are added too (the `claude` CLI lives in ~/.local/bin or the npm global bin).
  */
 function ffmpegEnv() {
   const env = {};
-  if (process.platform === 'darwin') {
-    env.PATH = ['/opt/homebrew/bin', '/usr/local/bin', process.env.PATH || ''].join(path.delimiter);
-  }
   const binDir = path.join(resBase(), 'bin');
-  const ffmpeg = path.join(binDir, 'ffmpeg.exe');
-  const ffprobe = path.join(binDir, 'ffprobe.exe');
-  if (process.platform === 'win32' && fs.existsSync(ffmpeg)) {
-    env.FFMPEG_PATH = ffmpeg;
-    if (fs.existsSync(ffprobe)) env.FFPROBE_PATH = ffprobe;
-  }
+  const exe = process.platform === 'win32' ? '.exe' : '';
+  const extra = [binDir];
+  if (process.platform === 'darwin') extra.push('/opt/homebrew/bin', '/usr/local/bin', path.join(os.homedir(), '.local', 'bin'), path.join(os.homedir(), '.npm-global', 'bin'));
+  env.PATH = [...extra, process.env.PATH || ''].join(path.delimiter);
+  const ffmpeg = path.join(binDir, `ffmpeg${exe}`);
+  const ffprobe = path.join(binDir, `ffprobe${exe}`);
+  if (fs.existsSync(ffmpeg)) env.FFMPEG_PATH = ffmpeg;
+  if (fs.existsSync(ffprobe)) env.FFPROBE_PATH = ffprobe;
   return env;
 }
 
@@ -192,6 +192,19 @@ function splashStatus(text) {
   win.webContents.executeJavaScript(`window.setStatus && window.setStatus(${JSON.stringify(text)})`).catch(() => {});
 }
 
+/** macOS: the usual app / Edit / View / Window menus (Edit makes ⌘C/⌘V work in text fields). Windows: no menu bar,
+ * so Alt is free for the editor's Alt shortcuts. Reload and DevTools only in development. */
+function appMenu() {
+  if (process.platform !== 'darwin') return null;
+  const dev = !app.isPackaged ? [{ role: 'reload' }, { role: 'toggleDevTools' }, { type: 'separator' }] : [];
+  return Menu.buildFromTemplate([
+    { role: 'appMenu' },
+    { role: 'editMenu' },
+    { label: 'View', submenu: [...dev, { role: 'togglefullscreen' }] },
+    { role: 'windowMenu' },
+  ]);
+}
+
 // `booting` is started before Electron is ready (see below), so the servers warm up while the window is being created.
 async function createWindow(booting) {
   win = new BrowserWindow({
@@ -204,13 +217,23 @@ async function createWindow(booting) {
   });
   win.once('ready-to-show', () => { win.show(); mark('splash shown'); });
   setTimeout(() => { if (win && !win.isDestroyed() && !win.isVisible()) win.show(); }, 3000); // never leave the app invisible
-  win.webContents.setWindowOpenHandler(({ url }) => { shell.openExternal(url); return { action: 'deny' }; });
+  // Only web links leave the app; file:, smb: and custom protocols are never handed to the OS.
+  const external = (url) => { try { if (/^https?:$/.test(new URL(url).protocol)) shell.openExternal(url); } catch {} };
+  win.webContents.setWindowOpenHandler(({ url }) => { external(url); return { action: 'deny' }; });
+  // The window only ever shows the local editor (loadURL/loadFile don't fire this; links and redirects do).
+  let editorOrigin = null;
+  win.webContents.on('will-navigate', (e, url) => {
+    if (editorOrigin && url.startsWith(`${editorOrigin}/`)) return;
+    e.preventDefault();
+    external(url);
+  });
   // Local splash right away (logo + progress) instead of a black window while the servers start.
   win.loadFile(path.join(__dirname, 'splash.html')).then(() => splashStatus('Starting local servers…')).catch(() => {});
   try {
     const port = await booting;
     if (win.isDestroyed()) return;
     splashStatus('Opening the editor…');
+    editorOrigin = `http://127.0.0.1:${port}`;
     await win.loadURL(`http://127.0.0.1:${port}/editor`);
     mark('editor loaded');
     writeTimings();
@@ -242,7 +265,14 @@ if (!app.requestSingleInstanceLock()) {
   if (process.platform === 'win32') app.setAppUserModelId('lk.keyframe.desktop'); // taskbar grouping + icon, matches the installer's shortcut
   const booting = boot();
   booting.catch(() => {}); // reported by createWindow
-  app.whenReady().then(() => { mark('electron ready'); return createWindow(booting); });
+  app.whenReady().then(() => {
+    mark('electron ready');
+    // The editor needs the clipboard, fullscreen, file pickers and (for voice-over) the mic; nothing else.
+    const allowed = new Set(['clipboard-read', 'clipboard-sanitized-write', 'fullscreen', 'media', 'fileSystem', 'pointerLock']);
+    session.defaultSession.setPermissionRequestHandler((_wc, perm, cb) => cb(allowed.has(perm)));
+    Menu.setApplicationMenu(appMenu());
+    return createWindow(booting);
+  });
 }
 app.on('window-all-closed', () => app.quit());
 app.on('before-quit', () => {

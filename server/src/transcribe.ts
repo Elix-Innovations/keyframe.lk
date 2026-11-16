@@ -87,7 +87,7 @@ async function probeDuration(file: string): Promise<number | null> {
 /** Fallback when ffprobe is unavailable: read "Duration: hh:mm:ss.xx" from `ffmpeg -i`'s banner. */
 async function ffmpegDuration(file: string): Promise<number | null> {
   try {
-    const r = await run(ffmpegPath(), ['-hide_banner', '-nostdin', '-i', file], 30_000);
+    const r = await run(ffmpegPath(), ['-hide_banner', '-nostdin', '-protocol_whitelist', 'file,pipe', '-i', file], 30_000);
     const m = /Duration: (\d+):(\d+):(\d+(?:\.\d+)?)/.exec(r.stderr);
     if (!m) return null;
     const d = Number(m[1]) * 3600 + Number(m[2]) * 60 + parseFloat(m[3]);
@@ -745,7 +745,7 @@ export async function transcribeFile(
   // Mono 16 kHz lossless FLAC: no encoder delay, so chunk and aligner timings stay exact. Whisper gets an MP3 made
   // from it (its 25 MB limit); the aligner then re-times Whisper's words against the FLAC.
   const audioPath = path.join(dir, 'audio.flac');
-  await ffmpeg(['-i', inputPath, '-vn', '-map', '0:a:0', '-ac', '1', '-ar', '16000', '-c:a', 'flac', audioPath]);
+  await ffmpeg(['-protocol_whitelist', 'file,pipe', '-i', inputPath, '-vn', '-map', '0:a:0', '-ac', '1', '-ar', '16000', '-c:a', 'flac', audioPath]);
 
   let result: { words: Word[]; language: string; alignment?: Alignment };
   if (chosen === 'gemini') result = await transcribeGemini(audioPath, language, dir);

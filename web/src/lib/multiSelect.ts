@@ -3,6 +3,7 @@ import type { MouseEvent as ReactMouse } from 'react';
 import { useEditor } from '../store';
 import type { Project } from '../types';
 import { currentTime } from './player';
+import { isMac } from './shortcuts';
 import { splitAdj } from './adj';
 import { shiftCaptions } from './segment';
 import { captionsFollowClips, clipEnd, closeMainGaps, deleteClips, splitClips, trackOf, withClips, withPartner } from './clips';
@@ -47,7 +48,7 @@ export interface Group { id: string; ids: string[]; x0: number; proj: Project; m
 
 /** A left-button press that should select / drag. On macOS Ctrl+click is a right-click, so it is left to the context menu. */
 export const isPrimaryPress = (e: { button: number; ctrlKey: boolean }) =>
-  e.button === 0 && !(e.ctrlKey && typeof navigator !== 'undefined' && /Mac/i.test(navigator.platform));
+  e.button === 0 && !(e.ctrlKey && isMac);
 
 /**
  * Pointer press on a block. Shift / ⌘ / Ctrl toggles it in the selection and starts no drag ('toggled').

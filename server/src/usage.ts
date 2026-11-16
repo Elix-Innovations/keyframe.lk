@@ -83,7 +83,7 @@ function save() {
     try {
       mkdirSync(path.dirname(FILE), { recursive: true });
       const tmp = `${FILE}.tmp`;
-      writeFileSync(tmp, JSON.stringify(records));
+      writeFileSync(tmp, JSON.stringify(records), { mode: 0o600 });
       renameSync(tmp, FILE); // atomic, so a crash mid-write can't leave a truncated usage.json
     } catch (e) {
       console.warn('usage: could not save', e);
