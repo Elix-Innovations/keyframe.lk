@@ -10,7 +10,7 @@ import { lastProjectId, newProject, rememberLastProject, useEditor } from './sto
 import * as db from './lib/db';
 import { fontFileLooksFM, loadBundledFMFonts, registerCustomFont } from './lib/fonts';
 
-/** `#/new` (from the landing page's Start button): make a blank project and go straight into the workspace. */
+/** `#/new` (e.g. a link from the separately hosted landing site): make a blank project and go straight into the workspace. */
 let creatingBlank: Promise<void> | null = null;
 function startBlankProject() {
   // Idempotent while in flight: the hash stays '#/new' until the write finishes, and StrictMode re-runs effects.

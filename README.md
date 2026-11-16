@@ -212,7 +212,7 @@ This starts three things together:
 
 | Service | Address | What it does |
 |---|---|---|
-| Web (Next.js) | **http://localhost:5180/editor** ← the editor (landing page at **/**) | The app |
+| Web (Next.js) | **http://localhost:5180** (opens the editor at **/editor**) | The app. The marketing landing page is a separate project, `keyframe.lk-landing`. |
 | API server (Node/Hono) | http://localhost:8787 | Transcription, AI, music, usage log |
 | Sinhala service (Python/FastAPI) | http://localhost:8788 | Unicode ⇄ FM conversion, audio analysis |
 
