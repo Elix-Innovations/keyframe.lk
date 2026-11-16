@@ -10,6 +10,8 @@ import { cssFamily, getFont } from '@/lib/fonts';
 import { englishFor } from '@/lib/english-words';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { useEditor } from '@/store';
+import { useAlignerSetup } from '@/lib/desktop';
+import { AlignerSetup } from '../AlignerSetup';
 import { ai, alignmentNote, health, transcribe } from '@/lib/api';
 import { segmentWords, retimeWordsWithBreaks, shiftCaptions, wordsToText } from '@/lib/segment';
 import { cuesToCaptions, formatClock, parseSubtitles } from '@/lib/srt';
@@ -47,6 +49,7 @@ function Generate() {
   useEffect(() => { health().then(setH); }, []);
   useEffect(() => () => abort.current?.abort(), []);
   const anyProvider = h && (h.transcription.elevenlabs || h.transcription.gemini || h.transcription.openai);
+  const alignSetup = useAlignerSetup();
 
   /** Shift every caption (and the transcript words) by `d` seconds, as one undo step. */
   function nudgeAll(d: number) {
@@ -125,10 +128,17 @@ function Generate() {
           </div>
         </Row>
       )}
-      {h && anyProvider && h.align && h.align !== 'ready' && (
+      {alignSetup ? (
+        alignSetup.phase !== 'ready' && alignSetup.phase !== 'unsupported' && anyProvider && (
+          <div className="space-y-2 rounded-md border p-2.5">
+            {alignSetup.phase === 'missing' && <p className="text-xs text-warn">Word timings come from the engine and may drift from the voice.</p>}
+            <AlignerSetup state={alignSetup} compact />
+          </div>
+        )
+      ) : h && anyProvider && h.align && h.align !== 'ready' && (
         <p className="text-xs text-warn">
           {h.align === 'downloading' ? 'The word-timing aligner is downloading its model; until it is ready, timings come from the engine and may drift.'
-            : 'The word-timing aligner is not running, so word timings come from the engine and may drift. Run npm run align:fetch, then npm run dev (desktop: accept “Set up accurate caption timing”).'}
+            : 'The word-timing aligner is not running, so word timings come from the engine and may drift. Run npm run align:fetch, then npm run dev.'}
         </p>
       )}
       {h === null && <p className="text-xs text-warn">The caption server is offline. Start it with <code>npm run dev</code>. You can still import subtitle files.</p>}
