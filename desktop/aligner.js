@@ -21,8 +21,11 @@ function portInUse(port) {
   });
 }
 
-/** `userData` is the per-user app folder; `base` is the folder holding the bundled `bin/` and `pyroot/`. */
-function createAligner({ userData, base, getWindow, track }) {
+/**
+ * `userData` is the per-user app folder; `base` is the folder holding the bundled `bin/` and `pyroot/`; `env` says
+ * where ffmpeg is (the service decodes every clip with it, so without it alignment would fail on every request).
+ */
+function createAligner({ userData, base, getWindow, track, env: extraEnv = {} }) {
   const root = path.join(userData, 'aligner');
   const p = {
     root,
@@ -79,7 +82,7 @@ function createAligner({ userData, base, getWindow, track }) {
     const child = spawn(p.py, ['-m', 'uvicorn', 'app:app', '--app-dir', p.pyDir, '--host', '127.0.0.1', '--port', String(PORT)], {
       cwd: p.pyDir,
       // Offline: the model is already in HF_HOME, so never go to the network at runtime.
-      env: { ...process.env, HF_HOME: p.hf, HF_HUB_OFFLINE: '1', PYTHONUNBUFFERED: '1' },
+      env: { ...process.env, ...extraEnv, HF_HOME: p.hf, HF_HUB_OFFLINE: '1', PYTHONUNBUFFERED: '1' },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     track(child);

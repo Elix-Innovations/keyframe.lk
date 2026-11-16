@@ -164,12 +164,50 @@ export function closeMainGaps(clips: Clip[]): Clip[] {
   return out.length ? replace(clips, out) : clips;
 }
 
-/** Captions that sit on a main-track clip travel with it when the clips are re-ordered; others stay put. Time is read from the old layout. */
+/** Timeline time at which source second `s` of clip `c` plays (inverse of sourceTimeAt), for a clip that plays forwards. */
+export const timelineAtSource = (c: Clip, s: number) =>
+  c.start + (c.curve ? curveDuration({ ...c, curve: c.curve }, c.in, s) : (s - c.in) / c.speed);
+
+/** A main-track clip whose playback speed (or curve) changed: the words over it now play at different times. */
+const retimed = (o: Clip, n: Clip) => !o.freeze && !n.freeze && !o.reverse && !n.reverse &&
+  (Math.abs(o.speed - n.speed) > 1e-6 || o.curve !== n.curve);
+
+/**
+ * Captions that sit on a main-track clip travel with it when the clips are re-ordered; others stay put. Time is read
+ * from the old layout. When a clip's speed or speed curve changes, its captions are re-timed word by word through the
+ * source (old timeline -> source second -> new timeline), so they stay on the words instead of drifting across the clip.
+ */
 export function captionsFollowClips(captions: Caption[], before: Clip[], after: Clip[]): Caption[] {
+  const changed = videoClips(before).filter((o) => trackOf(o) === 0).flatMap((o) => {
+    const n = after.find((x) => x.id === o.id);
+    return n && retimed(o, n) ? [{ o, n }] : [];
+  });
+  if (changed.length) {
+    const done = new Set<string>();
+    const mapped = captions.map((c) => {
+      const mid = (c.start + c.end) / 2;
+      const hit = changed.find(({ o }) => mid >= o.start && mid < clipEnd(o));
+      if (!hit) return c;
+      done.add(c.id);
+      const { o, n } = hit;
+      const lo = n.start, hi = clipEnd(n);
+      const map = (t: number) => round3(Math.min(hi, Math.max(lo, timelineAtSource(n, sourceTimeAt(o, Math.min(clipEnd(o), Math.max(o.start, t)))))));
+      return { ...c, start: map(c.start), end: map(c.end), words: c.words.map((w) => ({ ...w, start: map(w.start), end: map(w.end) })) };
+    });
+    // Captions over other clips still follow moves; the re-timed ones already sit where their clip now is.
+    return captionsFollowMoves(mapped, before, after, done);
+  }
+  return captionsFollowMoves(captions, before, after, new Set());
+}
+
+const round3 = (x: number) => Math.round(x * 1000) / 1000;
+
+function captionsFollowMoves(captions: Caption[], before: Clip[], after: Clip[], skip: Set<string>): Caption[] {
   let out = captions;
   const moves = videoClips(before).filter((o) => trackOf(o) === 0).map((o) => ({ o, d: (after.find((n) => n.id === o.id)?.start ?? o.start) - o.start })).filter((m) => Math.abs(m.d) > 1e-6);
   const claimed = new Map<string, number>();
   for (const c of captions) {
+    if (skip.has(c.id)) continue;
     const mid = (c.start + c.end) / 2;
     const m = moves.find((x) => mid >= x.o.start && mid < clipEnd(x.o));
     if (m) claimed.set(c.id, m.d);

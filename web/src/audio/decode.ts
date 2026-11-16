@@ -10,9 +10,13 @@ export async function decodeOriginal(file: Blob): Promise<AudioBuffer | null> {
   const out = new AudioBuffer({ length: Math.max(1, Math.ceil(duration * sr) + sr), numberOfChannels: ch, sampleRate: sr });
   const sink = new AudioBufferSink(track);
   for await (const { buffer, timestamp } of sink.buffers()) {
+    // Audio before 0 (AAC priming in MP4/M4A edit lists) is not part of the timeline: drop it rather than
+    // shifting the whole track later, or every sound would play (and be captioned) late by the priming.
     const at = Math.round(Math.max(0, timestamp) * sr);
+    const cut = timestamp < 0 ? Math.round(-timestamp * sr) : 0;
+    if (cut >= buffer.length) continue;
     for (let c = 0; c < ch; c++) {
-      const src = buffer.getChannelData(Math.min(c, buffer.numberOfChannels - 1));
+      const src = buffer.getChannelData(Math.min(c, buffer.numberOfChannels - 1)).subarray(cut);
       const room = out.length - at;
       if (room <= 0) break;
       out.copyToChannel(room >= src.length ? src : src.subarray(0, room), c, at);

@@ -11,11 +11,9 @@ import { englishFor } from '@/lib/english-words';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { useEditor } from '@/store';
 import { ai, alignmentNote, health, transcribe } from '@/lib/api';
-import { getBlob } from '@/lib/db';
-import { segmentWords, retimeWordsWithBreaks, wordsToText } from '@/lib/segment';
+import { segmentWords, retimeWordsWithBreaks, shiftCaptions, wordsToText } from '@/lib/segment';
 import { cuesToCaptions, formatClock, parseSubtitles } from '@/lib/srt';
 import { currentTime, playRange, seek } from '@/lib/player';
-import { isSimple } from '@/lib/clips';
 import { renderVoiceWav } from '@/audio/voice';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -49,6 +47,14 @@ function Generate() {
   useEffect(() => () => abort.current?.abort(), []);
   const anyProvider = h && (h.transcription.elevenlabs || h.transcription.gemini || h.transcription.openai);
 
+  /** Shift every caption (and the transcript words) by `d` seconds, as one undo step. */
+  function nudgeAll(d: number) {
+    update((p) => {
+      const move = <T extends { start: number; end: number }>(x: T) => ({ ...x, start: Math.max(0, Math.round((x.start + d) * 1000) / 1000), end: Math.max(0, Math.round((x.end + d) * 1000) / 1000) });
+      return { ...p, words: p.words.map(move), captions: shiftCaptions(p.captions, p.captions.map((c) => c.id), d) };
+    }, 'sync-nudge');
+  }
+
   async function run() {
     if (!project.videoAssetId || abort.current) return;
     // Claim the run before any await so a second click cannot start another transcription.
@@ -57,8 +63,9 @@ function Generate() {
     const pid = project.id;
     setStage({ label: 'Preparing audio' });
     try {
-      // An edited timeline, or one with sound tracks, is transcribed from its own audio so captions match what is heard and the cuts.
-      const blob = isSimple(project) && !project.audio.tracks.length ? await getBlob(project.videoAssetId) : await renderVoiceWav(project).catch(() => undefined);
+      // Always transcribe the timeline's own audio, decoded exactly as the preview and export play it: captions then share
+      // one time base with what is heard (and follow the cuts), whatever the source format's start offset or encoder delay.
+      const blob = await renderVoiceWav(project).catch(() => undefined);
       if (ctrl.signal.aborted) return;
       if (!blob) { notify('Could not read the timeline audio.', 'error'); return; }
       setStage({ label: 'Uploading', progress: 0 });
@@ -108,6 +115,20 @@ function Generate() {
         <Button size="sm" className="mt-1 h-8" disabled={!project.videoAssetId || h === null || (h !== undefined && !anyProvider)} onClick={run}>
           <AudioLines />{project.captions.length ? 'Regenerate captions' : 'Generate captions'}
         </Button>
+      )}
+      {!stage && project.captions.length > 0 && (
+        <Row label="Sync" hint="Moves every caption earlier or later, for a source whose sound is offset from its picture. Alt+← / → nudges one caption.">
+          <div className="flex items-center gap-1.5">
+            <Button variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={() => nudgeAll(-0.04)}>−40 ms</Button>
+            <Button variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={() => nudgeAll(0.04)}>+40 ms</Button>
+          </div>
+        </Row>
+      )}
+      {h && anyProvider && h.align && h.align !== 'ready' && (
+        <p className="text-xs text-warn">
+          {h.align === 'downloading' ? 'The word-timing aligner is downloading its model; until it is ready, timings come from the engine and may drift.'
+            : 'The word-timing aligner is not running, so word timings come from the engine and may drift. Run npm run align:fetch, then npm run dev (desktop: accept “Set up accurate caption timing”).'}
+        </p>
       )}
       {h === null && <p className="text-xs text-warn">The caption server is offline. Start it with <code>npm run dev</code>. You can still import subtitle files.</p>}
       {h && !anyProvider && <p className="text-xs text-warn">Add a Gemini, ElevenLabs or OpenAI key below to turn on auto-generate.</p>}

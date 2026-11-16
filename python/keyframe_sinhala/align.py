@@ -38,6 +38,9 @@ MIN_SCORE = -0.8
 # Word ends from CTC are early (characters are "peaky"), so a short gap before the
 # next word is treated as part of the word; longer gaps stay as real pauses.
 CLOSE_GAP_S = 0.25
+# The first winning frame of a word trails its acoustic onset (the 25 ms receptive field has to fill with the
+# sound first); measured +20 ms on clips with known onsets, so starts are moved back by that much.
+ONSET_LEAD_S = 0.02
 
 
 class ModelUnavailable(RuntimeError):
@@ -127,7 +130,11 @@ def _load() -> _Model:
 
 
 def _emissions(m: _Model, audio: np.ndarray) -> np.ndarray:
-    """Log-probabilities, shape (frames, vocab), in windows so memory stays flat."""
+    """Log-probabilities, shape (frames, vocab + 1), in windows so memory stays flat.
+
+    The extra last column is a <star> wildcard (logit 0, as in ctc-forced-aligner): it can stand for speech the
+    transcript leaves out (fillers, a word the transcriber skipped, numbers it wrote as digits) so that audio
+    is not forced onto the neighbouring words."""
     import torch
 
     step, ctx = WINDOW_S * SR, CONTEXT_S * SR
@@ -137,7 +144,9 @@ def _emissions(m: _Model, audio: np.ndarray) -> np.ndarray:
             a, b = max(0, s - ctx), min(len(audio), s + step + ctx)
             x = torch.from_numpy(np.ascontiguousarray(audio[a:b]))[None]
             x = (x - x.mean()) / (x.std() + 1e-7)
-            lp = torch.log_softmax(m.model(x).logits[0], -1).numpy()  # type: ignore[attr-defined]
+            logits = m.model(x).logits[0]  # type: ignore[attr-defined]
+            logits = torch.cat([logits, torch.zeros(logits.shape[0], 1)], -1)
+            lp = torch.log_softmax(logits, -1).numpy()
             fps = lp.shape[0] / ((b - a) / SR)
             lo = int(round((s - a) / SR * fps))
             hi = lo + int(round(min(step, len(audio) - s) / SR * fps))
@@ -145,32 +154,72 @@ def _emissions(m: _Model, audio: np.ndarray) -> np.ndarray:
     return np.concatenate(parts)
 
 
+_ONES = "zero one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen".split()
+_TENS = "_ _ twenty thirty forty fifty sixty seventy eighty ninety".split()
+
+
+def _spell(n: int) -> str:
+    """English words for 0..9999 (what an English speaker says for the digits)."""
+    if n < 20:
+        return _ONES[n]
+    if n < 100:
+        return _TENS[n // 10] + ("" if n % 10 == 0 else " " + _ONES[n % 10])
+    if n < 1000:
+        return _ONES[n // 100] + " hundred" + ("" if n % 100 == 0 else " " + _spell(n % 100))
+    return _spell(n // 1000) + " thousand" + ("" if n % 1000 == 0 else " " + _spell(n % 1000))
+
+
+def spoken_form(text: str, language: str) -> str:
+    """Digits as spoken words for alignment only (English); other text is unchanged. Sinhala numbers are left
+    to the <star> wildcard, since speakers say them in Sinhala or English."""
+    if language != "en":
+        return text
+    import re
+    return re.sub(r"\d{1,4}", lambda m: " " + _spell(int(m.group())) + " ", text)
+
+
 def _tokens(m: _Model, text: str, lcode: str | None) -> list[int]:
     roman = m.uroman.romanize_string(text, lcode=lcode).lower()  # type: ignore[attr-defined]
     return [m.vocab[c] for c in roman if m.vocab.get(c, 0) > 3]  # skip <blank>/<pad>/</s>/<unk>
 
 
-def _viterbi(em: np.ndarray, seq: list[int]) -> tuple[np.ndarray, float]:
-    """Best CTC path through the blank-interleaved `seq`. Returns (state per frame, score)."""
+def _viterbi(em: np.ndarray, seq: list[int], star: int | None = None) -> tuple[np.ndarray, float]:
+    """Best CTC path through the blank-interleaved `seq`. Returns (state per frame, score).
+
+    Tokens equal to `star` are optional: the path may take them (any number of frames) or jump straight past."""
     T = em.shape[0]
     S = 2 * len(seq) + 1
     lab = np.zeros(S, dtype=np.int64)
     lab[1::2] = seq
     seq_arr = np.asarray(seq)
+    is_star = seq_arr == star if star is not None else np.zeros(len(seq), dtype=bool)
     skip = np.zeros(S, dtype=bool)
     skip[3::2] = seq_arr[1:] != seq_arr[:-1]  # may jump over a blank between different letters
+    # Past an optional star: from the blank before it (3 back) or, between different letters, the letter before it (4 back).
+    skip3 = np.zeros(S, dtype=bool)
+    skip4 = np.zeros(S, dtype=bool)
+    for k in range(1, len(seq)):
+        if is_star[k - 1] and not is_star[k]:
+            skip3[2 * k + 1] = True
+            skip4[2 * k + 1] = k >= 2 and seq[k - 2] != seq[k] and not is_star[k - 2]
     neg = -1e30
     dp = np.full(S, neg)
     dp[0], dp[1] = em[0, 0], em[0, lab[1]]
+    if len(seq) > 1 and is_star[0]:  # a leading star may be skipped
+        dp[2], dp[3] = em[0, 0], em[0, lab[3]]
     back = np.zeros((T, S), dtype=np.int8)
     cols = np.arange(S)
+    pad = lambda n: np.concatenate(([neg] * n, dp[:-n]))  # noqa: E731
     for t in range(1, T):
-        cand = np.stack([dp, np.concatenate(([neg], dp[:-1])), np.where(skip, np.concatenate(([neg, neg], dp[:-2])), neg)])
+        cand = np.stack([
+            dp, pad(1), np.where(skip, pad(2), neg), np.where(skip3, pad(3), neg), np.where(skip4, pad(4), neg),
+        ])
         arg = cand.argmax(0)
         dp = cand[arg, cols] + em[t, lab]
         back[t] = arg
-    s = S - 1 if dp[-1] >= dp[-2] else S - 2
-    score = float(max(dp[-1], dp[-2]) - em.max(1).sum()) / T
+    ends = [S - 1, S - 2] + ([S - 3, S - 4] if len(seq) > 1 and is_star[-1] else [])  # a trailing star may be skipped
+    s = max(ends, key=lambda e: dp[e])
+    score = float(dp[s] - em.max(1).sum()) / T
     path = np.empty(T, dtype=np.int64)
     for t in range(T - 1, -1, -1):
         path[t] = s
@@ -190,29 +239,44 @@ def align(audio: np.ndarray, words: list[str], language: str = "si") -> tuple[li
     with _lock:  # one alignment at a time: the model is large and already multithreaded
         m = _load()
         lcode = "sin" if language != "en" else "eng"
-        per_word = [_tokens(m, w, lcode) for w in words]
-        seq = [t for toks in per_word for t in toks]
-        if not seq:
+        per_word = [_tokens(m, spoken_form(w, language), lcode) for w in words]
+        if not any(per_word):
             raise AlignmentRejected("no alignable letters in the transcript")
         em = _emissions(m, audio)
-    if em.shape[0] < len(seq):
+    star = em.shape[1] - 1
+    # An optional <star> before, between and after the words; owner -1 marks it.
+    seq: list[int] = [star]
+    owner_list: list[int] = [-1]
+    for i, toks in enumerate(per_word):
+        if not toks:
+            continue
+        seq += toks + [star]
+        owner_list += [i] * len(toks) + [-1]
+    letters = sum(len(t) for t in per_word)
+    if em.shape[0] < letters:
         raise AlignmentRejected("the transcript is longer than the audio can hold")
-    path, score = _viterbi(em, seq)
+    path, score = _viterbi(em, seq, star)
     if score < MIN_SCORE:
         raise AlignmentRejected(f"transcript does not match the audio (score {score:.2f})")
 
     frame = duration / em.shape[0]
-    owner = np.repeat(np.arange(len(words)), [len(t) for t in per_word])
+    owner = np.asarray(owner_list)
     first: dict[int, int] = {}
     last: dict[int, int] = {}
     for t, s in enumerate(path):
-        if s % 2:
+        if s % 2 and owner[s // 2] >= 0:
             i = int(owner[s // 2])
             first.setdefault(i, t)
             last[i] = t
     times: list[tuple[float, float] | None] = [
         (first[i] * frame, (last[i] + 1) * frame) if i in first else None for i in range(len(words))
     ]
+    prev_end = 0.0
+    for i, tm in enumerate(times):  # move starts to the onset, never into the previous word
+        if tm is None:
+            continue
+        times[i] = (max(prev_end, tm[0] - ONSET_LEAD_S, 0.0), tm[1])
+        prev_end = tm[1]
     return _finish(times, duration), score
 
 

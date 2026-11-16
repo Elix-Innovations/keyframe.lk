@@ -5,8 +5,9 @@ import { curveSpeedAt } from './speedCurve';
 import { allVideos, peekVideo } from './videoPool';
 
 /**
- * Timeline playback. The master clock is wall time while playing; the hidden video elements
- * (see videoPool) are slaved to it, so gaps, cuts and speed changes all play correctly.
+ * Timeline playback. The clock is wall time, steered every frame towards the time the speakers are actually playing
+ * (previewAudio.heardTime), so captions follow the voice as heard. The hidden video elements (see videoPool) are
+ * slaved to it, so gaps, cuts and speed changes all play correctly.
  */
 let playing = false;
 let anchorPerf = 0;
@@ -57,8 +58,13 @@ export function syncVideos(t = currentTime()) {
     const want = Math.max(0, Math.min(sourceTimeAt(clip, t), (el.duration || clip.sourceDuration) - 0.001));
     if (playing && !clip.freeze && !clip.reverse) { // a reversed clip cannot play forward: it seeks frame by frame below
       const rate = Math.min(16, Math.max(0.0625, clip.curve ? curveSpeedAt({ ...clip, curve: clip.curve }, t - clip.start) : clip.speed));
-      if (el.playbackRate !== rate) el.playbackRate = rate;
-      if (Math.abs(el.currentTime - want) > 0.25) el.currentTime = want;
+      // Keep lips on the voice: nudge the rate for small drift, seek only for large drift (a seek stalls decoding).
+      const off = el.currentTime - want;
+      if (Math.abs(off) > 0.25) el.currentTime = want;
+      else {
+        const nudged = Math.abs(off) > 0.04 ? rate * (off > 0 ? 0.95 : 1.05) : rate;
+        if (Math.abs(el.playbackRate - nudged) > 1e-6) el.playbackRate = Math.min(16, Math.max(0.0625, nudged));
+      }
       if (el.paused) void el.play().catch(() => {});
     } else {
       if (!el.paused) el.pause();
@@ -68,8 +74,17 @@ export function syncVideos(t = currentTime()) {
   for (const { el } of allVideos()) if (!used.has(el) && !el.paused) el.pause();
 }
 
+/** Steer the wall clock onto the audio clock: small differences are slewed out, large ones (a stall) jumped. */
+function followAudio() {
+  const heard = previewAudio.heardTime();
+  if (heard === null) return;
+  const drift = heard - (anchorT + (performance.now() - anchorPerf) / 1000);
+  anchorT += Math.abs(drift) > 0.3 ? drift : drift * 0.08;
+}
+
 function loop() {
   if (!playing) return;
+  followAudio();
   const t = currentTime();
   if (t >= dur() - 1e-3 || (stopAt !== null && t >= stopAt)) {
     const end = stopAt;

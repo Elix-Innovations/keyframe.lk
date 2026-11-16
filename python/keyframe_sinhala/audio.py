@@ -45,10 +45,22 @@ class DecodeError(RuntimeError):
 
 
 def _ffmpeg() -> str:
+    # FFMPEG_PATH first: the desktop apps ship or locate ffmpeg themselves, and GUI apps don't inherit the shell PATH.
+    env = os.environ.get("FFMPEG_PATH")
+    if env and os.path.isfile(env):
+        return env
     exe = shutil.which("ffmpeg")
     if not exe:
-        raise RuntimeError("ffmpeg not found on PATH")
+        raise DecodeError("ffmpeg not found (install it, or set FFMPEG_PATH)")
     return exe
+
+
+def ffmpeg_available() -> bool:
+    try:
+        _ffmpeg()
+        return True
+    except DecodeError:
+        return False
 
 
 def decode(path: str | os.PathLike[str], sr: int = LOUDNESS_SR) -> np.ndarray:
