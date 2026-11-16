@@ -1,13 +1,13 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
-@import "@fontsource-variable/geist";
+@import "@fontsource-variable/archivo";
 
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
   --font-heading: var(--font-sans);
-  --font-sans: 'Geist Variable', "Noto Sans Sinhala", sans-serif;
+  --font-sans: 'Archivo Variable', "Noto Sans Sinhala", sans-serif;
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -142,13 +142,12 @@
   --color-warn: var(--warn);
   --color-brand-1: var(--brand-1);
   --color-brand-2: var(--brand-2);
-  --font-sinhala: "Noto Sans Sinhala", 'Geist Variable', sans-serif;
+  --font-sinhala: "Noto Sans Sinhala", 'Archivo Variable', sans-serif;
 }
 
 @layer base {
   * { @apply border-border outline-ring/50; }
   html, body, #root { height: 100%; }
-  html:has(.landing) { scroll-behavior: smooth; }
   body {
     @apply bg-background text-foreground antialiased;
     font-size: 13px;
@@ -238,6 +237,15 @@ html:has(.landing), html:has(.landing) body { background: #f7f6f6; }
 @property --sec { syntax: "<integer>"; initial-value: 0; inherits: false; }
 @property --frm { syntax: "<integer>"; initial-value: 0; inherits: false; }
 @keyframes demo-sec { to { --sec: 6; } }
+/* Speech-to-text tile: one clock (--tp, seconds of audio) drives the playhead, the waveform fill, the word chips and the caption highlight, so they stay in sync. 2.5s of audio plays in real time, then holds. */
+@property --tp { syntax: "<number>"; initial-value: 0; inherits: true; }
+@keyframes stt-clock { 0% { --tp: 0; } 56% { --tp: 2.5; } 100% { --tp: 2.5; } }
+.stt { animation: stt-clock 4.5s linear infinite; }
+.stt-head { left: calc(var(--tp) / 2.5 * 100%); }
+.stt-fill { clip-path: inset(0 calc(100% - var(--tp) / 2.5 * 100%) 0 0); }
+/* --t: when the word starts, --e: when the next one starts */
+.stt-in { --on: clamp(0, (var(--tp) - var(--t)) * 8, 1); opacity: var(--on); transform: translateY(calc((1 - var(--on)) * 8px)) scale(calc(.92 + var(--on) * .08)); }
+.stt-now { opacity: calc(clamp(0, (var(--tp) - var(--t)) * 30, 1) * clamp(0, (var(--e) - var(--tp)) * 30, 1)); }
 @keyframes demo-frm { to { --frm: 30; } }
 @keyframes demo-word { 0%, 19% { background: var(--hot); color: #fff; transform: translateY(-3px) scale(1.06); } 20%, 100% { background: transparent; color: rgba(255,255,255,.95); transform: none; } }
 @keyframes demo-head { from { left: 0; } to { left: 100%; } }
@@ -267,9 +275,10 @@ html:has(.landing), html:has(.landing) body { background: #f7f6f6; }
 @supports (animation-timeline: view()) {
   .reveal { animation: reveal-up linear both; animation-timeline: view(); animation-range: entry 0% entry 35%; }
 }
-html:has(.landing) { scroll-padding-top: 5rem; scroll-behavior: smooth; }
+html:has(.landing) { scroll-padding-top: 5rem; }
 @media (prefers-reduced-motion: reduce) {
-  .demo-clock, .demo-word, .demo-head, .demo-bar, .demo-duck, .demo-rec, .demo-flow, .demo-swap-a, .demo-swap-b, .demo-float, .demo-pop, .cloud-drift, .marquee, .reveal { animation: none !important; }
+  .demo-clock, .demo-word, .demo-head, .demo-bar, .demo-duck, .demo-rec, .demo-flow, .demo-swap-a, .demo-swap-b, .demo-float, .demo-pop, .cloud-drift, .marquee, .reveal, .stt { animation: none !important; }
+  .stt { --tp: 2.5; }
   .demo-swap-b { opacity: 0; }
   html:has(.landing) { scroll-behavior: auto; }
 }

@@ -13,6 +13,8 @@ import { Magnet, Music, Volume } from '@/components/icons-audio';
 import { CopyButton } from './CopyButton';
 import { LoopVideo } from './LoopVideo';
 import { ReelFrame } from './ReelFrame';
+import { SmoothScroll } from './SmoothScroll';
+import { FmSample } from './FmSample';
 
 type Icon = typeof SubtitleIcon;
 
@@ -319,7 +321,7 @@ function EditorWindow() {
             ))}
           </div>
           <div className="flex flex-1 flex-col gap-3 p-3">
-            <Prop label="Font" value="FM Abhaya" />
+            <Prop label="Font" value="FM Ganganee" />
             <Prop label="Size">
               <div className="relative mt-2 h-1 rounded-full bg-[var(--line)]"><div className="h-1 w-3/5 rounded-full bg-[var(--rose)]" /><span className="absolute top-1/2 left-3/5 size-3 -translate-1/2 rounded-full border-2 border-[var(--rose)] bg-white" /></div>
             </Prop>
@@ -467,7 +469,23 @@ function WorksWith() {
 
 /* ---------- features: 2 × 2 cards ---------- */
 
-const WORDS = [['මම', '0.00'], ['software', '0.41'], ['engineering', '0.93'], ['කරනවා', '1.66']];
+// word, start, end (seconds): drives the speech-to-text tile
+const SPEECH: [string, number, number][] = [['මම', 0, 0.36], ['software', 0.41, 0.88], ['engineering', 0.93, 1.58], ['කරනවා', 1.66, 2.2]];
+// A recorded-looking waveform: loud inside each spoken word (shaped like a syllable envelope), near-silent in the gaps.
+const BARS = Array.from({ length: 64 }, (_, i) => {
+  const t = ((i + 0.5) / 64) * 2.5;
+  const w = SPEECH.find(([, s, e]) => t >= s && t <= e);
+  if (!w) return 6;
+  const k = (t - w[1]) / (w[2] - w[1]);
+  return Math.round(20 + 75 * Math.sin(Math.PI * k) * (0.55 + 0.45 * Math.abs(Math.sin(i * 1.7))));
+});
+function Wave({ bar, className = '' }: { bar: string; className?: string }) {
+  return (
+    <div className={`absolute inset-x-2 inset-y-0 flex items-center gap-[2px] ${className}`}>
+      {BARS.map((h, i) => <span key={i} className={`block flex-1 rounded-full ${bar}`} style={{ height: `${h}%` }} />)}
+    </div>
+  );
+}
 
 // Node graph: tags around a glowing hub. [label, x%, y%, tone]
 const NODES: [string, number, number, string][] = [
@@ -483,35 +501,56 @@ function Features() {
         Transcription is the first minute. The rest is typography, timing and export, and that is where Keyframe is built to be good.
       </Heading>
       <div className="mt-14 grid gap-5 md:grid-cols-2">
-        <ShowCard wash title="Word-level transcription" copy="Sinhala, English and code-mixed speech with ElevenLabs Scribe, Gemini or Whisper. Every word gets its own timestamp.">
-          <div className="absolute inset-x-8 top-8 rounded-2xl bg-white p-4 shadow-[0_20px_40px_-20px_rgba(120,20,40,.5)]">
-            <p className="flex items-center justify-between text-xs font-medium text-[var(--ink)]">Transcript<span className="mono rounded-md bg-[var(--canvas)] px-2 py-0.5 text-[10px] text-[var(--ink-2)]">si + en</span></p>
-            <div className="mt-3 space-y-1.5">
-              {WORDS.map(([w, t], i) => (
-                <div key={w} className={`flex items-center justify-between rounded-lg px-3 py-1.5 text-sm ${i === 1 ? 'bg-[var(--rose)]/8 ring-1 ring-[var(--rose)]/30' : 'bg-[var(--canvas)]'}`}>
-                  <span className="flex items-center gap-2">{i === 1 ? <Mark className="size-3.5 text-[var(--rose)]" /> : <Ico icon={SubtitleIcon} className="size-3.5 text-[var(--subtle)]" />}<span lang="si" className="font-sinhala font-medium text-[var(--ink)]">{w}</span></span>
-                  <span className="mono text-[11px] text-[var(--rose)]">{t}s</span>
+        <ShowCard wash panel="px-8 pt-8" title="It writes down what you say" copy="Talk in Sinhala, English or a mix of both. Keyframe types it out for you and knows the exact moment each word is spoken.">
+          {/* voice in, words out: one 2.5s clock (.stt) plays the clip; each word appears when the playhead reaches it */}
+          <div className="stt rounded-2xl bg-white p-4 shadow-[0_20px_40px_-20px_rgba(120,20,40,.5)]">
+            <p className="flex items-center justify-between text-xs font-medium text-[var(--ink)]">
+              <span className="flex items-center gap-2"><span className="demo-rec size-2 rounded-full bg-[var(--rose)]" />Listening</span>
+              <span className="rounded-md bg-[var(--canvas)] px-2 py-0.5 text-[10px] text-[var(--ink-2)]">Sinhala + English</span>
+            </p>
+            <div className="relative mt-3 h-[4.5rem]">
+              {SPEECH.map(([w, t], i) => (
+                <div key={w} className="stt-in absolute bottom-0 flex flex-col items-start" style={{ left: `${(t / 2.5) * 100}%`, ['--t' as string]: t }}>
+                  <span className={`flex items-baseline gap-1.5 rounded-lg px-2 py-1 text-sm whitespace-nowrap shadow-sm ${i === SPEECH.length - 1 ? '-translate-x-1/3' : ''} border border-[var(--line)] bg-white text-[var(--ink)]`}>
+                    <span lang="si" className="font-sinhala font-medium">{w}</span>
+                    <span className="mono text-[9px] text-[var(--rose)]">{t.toFixed(2)}s</span>
+                  </span>
+                  <span className="w-px border-l border-dashed border-[var(--rose)]/50" style={{ height: i % 2 ? '0.5rem' : '2.25rem' }} />
                 </div>
               ))}
             </div>
+            <div className="relative h-12 rounded-xl bg-[var(--canvas)] px-2">
+              <Wave bar="bg-[var(--ink)]/15" />
+              <Wave className="stt-fill" bar="bg-[var(--rose)]" />
+              <span className="absolute inset-x-2 inset-y-1"><span className="stt-head absolute inset-y-0 w-0.5 -translate-x-1/2 rounded-full bg-[var(--ink)]" /></span>
+            </div>
+            <div className="mt-1.5 flex justify-between px-1">{['0s', '0.5s', '1s', '1.5s', '2s', '2.5s'].map((t) => <span key={t} className="mono text-[9px] text-[var(--subtle)]">{t}</span>)}</div>
+            <p lang="si" className="font-sinhala mt-3 flex flex-wrap justify-center gap-x-1.5 rounded-xl bg-[var(--ink)] px-3 py-2.5 text-sm font-bold text-white">
+              {SPEECH.map(([w, t, e]) => (
+                <span key={w} className="stt-in relative" style={{ ['--t' as string]: t, ['--e' as string]: e }}>
+                  <span className="stt-now absolute -inset-x-1 -inset-y-0.5 rounded-md bg-[var(--hot)]" style={{ ['--t' as string]: t, ['--e' as string]: e }} />
+                  <span className="relative">{w}</span>
+                </span>
+              ))}
+            </p>
           </div>
         </ShowCard>
-        <ShowCard title="Edit Unicode, render FM" copy="Type Unicode and see it live in legacy FM fonts. 25 built-in fonts, plus your own .ttf, .otf or .woff2 files.">
+        <ShowCard title="Type normally, get FM fonts" copy="Type Sinhala the normal way on your keyboard and it shows up in the popular FM fonts. 25 fonts included, or add your own.">
           <div className="absolute inset-x-8 top-8 bottom-0 rounded-t-2xl bg-white p-5 shadow-sm">
             <div className="flex items-center justify-between text-xs">
-              <span className="font-medium text-[var(--ink)]">Caption text</span>
+              <span className="font-medium text-[var(--ink)]">Your caption</span>
               <span className="relative h-6 w-28">
-                <span className="mono demo-swap-a absolute inset-0 grid place-items-center rounded-full bg-[var(--canvas)] text-[10px] text-[var(--ink-2)]">UNICODE</span>
-                <span className="mono demo-swap-b btn-rose absolute inset-0 grid place-items-center rounded-full text-[10px]">FM · drawn</span>
+                <span className="mono demo-swap-a absolute inset-0 grid place-items-center rounded-full bg-[var(--canvas)] text-[10px] text-[var(--ink-2)]">You type</span>
+                <span className="mono demo-swap-b btn-rose absolute inset-0 grid place-items-center rounded-full text-[10px]">Shows in FM</span>
               </span>
             </div>
-            <p lang="si" className="font-sinhala mt-6 text-center text-5xl font-bold text-[var(--ink)]">සිංහල</p>
+            <FmSample text="සිංහල" className="mt-6 text-center text-6xl text-[var(--ink)]" />
             <div className="mt-6 flex justify-center gap-1.5">
-              {['FM Abhaya', 'FM Malithi', 'Noto Sans'].map((f, i) => <span key={f} className={`rounded-full px-3 py-1 text-[11px] ${i === 0 ? 'bg-[var(--ink)] text-white' : 'border border-[var(--line)] text-[var(--ink-2)]'}`}>{f}</span>)}
+              {['FM Ganganee', 'FM Malithi', 'Noto Sans'].map((f, i) => <span key={f} className={`rounded-full px-3 py-1 text-[11px] ${i === 0 ? 'bg-[var(--ink)] text-white' : 'border border-[var(--line)] text-[var(--ink-2)]'}`}>{f}</span>)}
             </div>
           </div>
         </ShowCard>
-        <ShowCard title="One project, every layer" copy="Captions, fonts, music, styles and AI tools all hang off one timeline, with 14 animations, keyframes and speed curves.">
+        <ShowCard title="Everything in one place" copy="Captions, fonts, music and styles all live in one editor. Add moving text and effects without switching apps.">
           <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="absolute inset-0 size-full" fill="none">
             {NODES.map(([l, x, y]) => <path key={l} d={`M50 50 C ${(50 + x) / 2} 50, ${(50 + x) / 2} ${y}, ${x} ${y}`} stroke="#e2dada" strokeWidth="0.5" vectorEffect="non-scaling-stroke" />)}
           </svg>
@@ -522,9 +561,9 @@ function Features() {
             <Ico icon={KeyframesDoubleIcon} className="size-7" />
           </span>
         </ShowCard>
-        <ShowCard title="Music that ducks under speech" copy="Jamendo library, beat detection and auto-ducking. Voice enhance, RNNoise denoise and LUFS mastering.">
+        <ShowCard title="Music that gets quiet when you talk" copy="Pick free background music. It lowers itself while you speak, cleans up noise in your voice and keeps the volume just right.">
           <div className="absolute inset-x-8 top-8 bottom-8 grid content-center gap-3 rounded-2xl bg-white p-5 shadow-sm">
-            <p className="flex items-center justify-between text-xs"><span className="flex items-center gap-1.5 font-medium text-[var(--ink)]"><Ico icon={MusicNote01Icon} className="size-3.5 text-[var(--coral)]" />Music</span><span className="mono text-[10px] text-[var(--rose)]">ducks under voice</span></p>
+            <p className="flex items-center justify-between text-xs"><span className="flex items-center gap-1.5 font-medium text-[var(--ink)]"><Ico icon={MusicNote01Icon} className="size-3.5 text-[var(--coral)]" />Music</span><span className="mono text-[10px] text-[var(--rose)]">quieter while you talk</span></p>
             <div className="flex h-10 items-end gap-[3px]">{Array.from({ length: 32 }, (_, i) => <span key={i} className="demo-duck block flex-1 rounded-sm bg-[var(--coral)]/70" style={{ height: `${40 + ((i * 37) % 55)}%` }} />)}</div>
             <p className="flex items-center gap-1.5 text-xs font-medium text-[var(--ink)]"><Ico icon={AudioWave01Icon} className="size-3.5 text-[var(--rose)]" />Voice</p>
             <div className="flex h-10 items-end gap-[3px]">{Array.from({ length: 32 }, (_, i) => <span key={i} className="block flex-1 rounded-sm bg-[var(--ink)]/70" style={{ height: `${25 + ((i * 53) % 70)}%`, opacity: i > 9 && i < 25 ? 1 : 0.15 }} />)}</div>
@@ -879,6 +918,7 @@ function Footer() {
 export function Landing() {
   return (
     <div className="landing min-h-screen bg-[var(--canvas)] text-[var(--ink)] antialiased">
+      <SmoothScroll />
       <main>
         <Hero />
         <WorksWith />
