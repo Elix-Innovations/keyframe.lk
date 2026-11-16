@@ -30,6 +30,16 @@ export async function health(): Promise<HealthResponse | null> {
 }
 
 /** Upload media as a raw body (streams on the server) and get word timings back. */
+/** Sentence for the "captions generated" toast saying whether word times were matched to the audio. */
+export function alignmentNote(res: TranscribeResponse): string {
+  const a = res.alignment;
+  if (!a) return '';
+  if (a.aligned >= a.total) return ' Word timings matched to the audio.';
+  const why = a.reason ? ` (${a.reason})` : '';
+  if (a.aligned === 0) return ` Word timings were NOT matched to the audio and may drift${why}.`;
+  return ` Word timings matched for ${a.aligned} of ${a.total} sections; the rest may drift${why}.`;
+}
+
 export function transcribe(
   file: Blob,
   opts: { language: 'si' | 'en' | 'auto'; provider: 'auto' | 'elevenlabs' | 'gemini' | 'openai'; onUpload?: (p: number) => void; signal?: AbortSignal },

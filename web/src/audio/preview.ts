@@ -49,7 +49,10 @@ class PreviewAudio {
     ]);
     if (my !== this.token || !useEditor.getState().playing) return;
     const at = ctx.currentTime + 0.03;
-    const from = currentTime() + 0.03;
+    // The picture follows the wall clock, but sound leaves the speakers `outputLatency` after it is scheduled (20 ms wired,
+    // 150 ms or more over Bluetooth). Start the audio that much further ahead so voice and captions line up in the preview.
+    const outputDelay = Math.min(0.5, Math.max(0, ctx.outputLatency || ctx.baseLatency || 0));
+    const from = currentTime() + 0.03 + outputDelay;
     const clipNodes = scheduleClipAudio(ctx, p, this.bus!, prepared, from, at);
     const mixNodes = await scheduleMix(ctx, plan, this.bus!, from, at);
     this.running = { stop: () => { clipNodes.stop(); mixNodes.stop(); } };

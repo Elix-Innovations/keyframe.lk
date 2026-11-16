@@ -705,6 +705,8 @@ export interface TranscribeResponse {
   language: string;
   duration: number;
   words: { text: string; start: number; end: number }[];
+  /** Gemini only: how many chunks had their word times re-measured from the audio by the forced aligner. */
+  alignment?: { aligned: number; total: number; reason?: string };
 }
 
 export interface HealthResponse {
@@ -714,6 +716,8 @@ export interface HealthResponse {
   aiProvider: 'claude' | 'gemini' | null;
   music: boolean; // JAMENDO_CLIENT_ID configured
   ffmpeg: boolean;
+  /** Forced aligner (Python service) state; Gemini word timings drift without it. */
+  align?: 'ready' | 'downloading' | 'missing' | 'unavailable';
 }
 
 export interface LibraryTrack {
