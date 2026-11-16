@@ -4,11 +4,11 @@
 
 # Keyframe.lk
 
-**Sinhala auto-captions for short-form video. Style, animate and export in your browser.**
+**Sinhala auto-captions for short-form video. Style, animate and export on your Mac or PC.**
 
 Reels · TikTok · Shorts &nbsp;|&nbsp; සිංහල · English · code-mixed &nbsp;|&nbsp; Unicode + legacy FM fonts
 
-[![CI](https://github.com/elixinnovations/keyframe-web/actions/workflows/ci.yml/badge.svg)](https://github.com/elixinnovations/keyframe-web/actions/workflows/ci.yml)
+[![CI](https://github.com/Elix-Innovations/keyframe.lk/actions/workflows/ci.yml/badge.svg)](https://github.com/Elix-Innovations/keyframe.lk/actions/workflows/ci.yml)
 ![Next.js](https://img.shields.io/badge/Next.js-16-000000?logo=nextdotjs&logoColor=white)
 ![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)
 ![TypeScript](https://img.shields.io/badge/TypeScript-7-3178C6?logo=typescript&logoColor=white)
@@ -19,9 +19,10 @@ Reels · TikTok · Shorts &nbsp;|&nbsp; සිංහල · English · code-mixed
 ![Electron](https://img.shields.io/badge/Electron-desktop-47848F?logo=electron&logoColor=white)
 [![License: PolyForm Noncommercial](https://img.shields.io/badge/License-PolyForm%20Noncommercial-blue)](LICENSE)
 
-[![Download for macOS](https://img.shields.io/badge/Download-macOS%20dmg-000000?logo=apple&logoColor=white)](https://github.com/elixinnovations/keyframe-web/releases/latest)
+[![Download for macOS](https://img.shields.io/badge/Download-macOS-000000?logo=apple&logoColor=white)](https://github.com/Elix-Innovations/keyframe.lk/releases/latest)
+[![Download for Windows](https://img.shields.io/badge/Download-Windows-eb104e)](https://github.com/Elix-Innovations/keyframe.lk/releases/latest)
 
-[Quick start](#-quick-start) · [Features](#-features) · [Guide](#5-your-first-video-step-by-step) · [Shortcuts](#13-keyboard-shortcuts) · [Troubleshooting](#17-troubleshooting) · [Roadmap](docs/ROADMAP.md)
+[Download](#19-desktop-app) · [Quick start](#-quick-start) · [Features](#-features) · [Guide](#5-your-first-video-step-by-step) · [Shortcuts](#13-keyboard-shortcuts) · [Troubleshooting](#17-troubleshooting) · [Roadmap](docs/ROADMAP.md)
 
 <br />
 
@@ -110,6 +111,7 @@ A Usage tab logs every paid API request with tokens and estimated cost in USD an
 | Layer | Built with |
 |---|---|
 | Editor (`web/`) | Next.js, React, Zustand, shadcn/ui + Radix, Tailwind CSS, Hugeicons, Mediabunny (WebCodecs) |
+| Landing page (`web/src/landing/`) | Archivo font, Lenis smooth scrolling, CSS intro and scroll animations |
 | API (`server/`) | Hono on Node, Anthropic SDK, Gemini / ElevenLabs / OpenAI, ffmpeg |
 | Sinhala service (`python/`) | FastAPI, uv, fontTools, Pillow |
 | Desktop (`desktop/`) | Electron + electron-builder (macOS dmg) |
@@ -117,11 +119,11 @@ A Usage tab logs every paid API request with tokens and estimated cost in USD an
 ## 🚀 Quick start
 
 ```bash
-git clone https://github.com/elixinnovations/keyframe-web.git keyframe
+git clone https://github.com/Elix-Innovations/keyframe.lk.git keyframe
 cd keyframe
 npm run setup      # web + server packages, Python deps, server/.env
 # add GEMINI_API_KEY to server/.env
-npm run dev        # open http://localhost:5180
+npm run dev        # open http://localhost:5180/editor
 ```
 
 The full guide follows.
@@ -168,7 +170,7 @@ Windows / Linux: install the same tools from their websites or your package mana
 ## 2. Install
 
 ```bash
-git clone https://github.com/elixinnovations/keyframe-web.git keyframe
+git clone https://github.com/Elix-Innovations/keyframe.lk.git keyframe
 cd keyframe
 
 npm run setup          # installs web + server packages, Python deps, and creates server/.env
@@ -211,7 +213,7 @@ This starts three things together:
 
 | Service | Address | What it does |
 |---|---|---|
-| Web (Next.js) | **http://localhost:5180** ← landing page, editor at **/editor** | The app |
+| Web (Next.js) | **http://localhost:5180/editor** ← the editor (landing page at **/**) | The app |
 | API server (Node/Hono) | http://localhost:8787 | Transcription, AI, music, usage log |
 | Sinhala service (Python/FastAPI) | http://localhost:8788 | Unicode ⇄ FM conversion, audio analysis |
 
@@ -224,9 +226,20 @@ npm run build
 npm start              # editor + API on http://localhost:8787
 ```
 
+### The landing page
+
+`http://localhost:5180/` is the public landing page (`web/src/landing/`). It is a download page for the desktop app and does not link into the web editor.
+
+- **Download buttons** for macOS and Windows point to the latest GitHub release.
+- **Hero**: the timeline and graph lines in the background draw themselves, then the headline and editor mockup come in.
+- **Sections** (features, benefits, steps, reels, install, FAQ) animate in as you scroll, with Lenis smooth scrolling.
+- **FM sample**: the FM fonts card draws in FM Ganganee after `npm run fonts:fetch`, and falls back to Unicode Sinhala without it.
+- **Branding**: one rose theme colour, `#eb104e`. The logo source is `web/public/logo.svg`; the PNG icons and favicon are rendered from it.
+- Visitors with "reduce motion" turned on get the page without animations.
+
 ## 5. Your first video, step by step
 
-1. **Open http://localhost:5180** and click **Import a video**. It's linked from your disk, not uploaded anywhere except to the transcription API.
+1. **Open http://localhost:5180/editor** (or the desktop app) and click **Import a video**. It's linked from your disk, not uploaded anywhere except to the transcription API.
 2. Go to the **Captions** tab (the first icon on the left).
 3. Under **Auto-generate**, choose the spoken language (**සිංහල / English / Auto**) and an engine, then click **Generate captions**. A 2-minute video takes about 30–60 seconds.
 4. Fix any wrong words by clicking into a caption's text and typing. Press **Enter** to save.
@@ -393,7 +406,8 @@ keyframe/
 │   ├── src/lib/              segmentation, FM converter, SRT/ASS, IndexedDB, exporter, API client,
 │   │                         english-words.ts (free Sinhala-script → English list)
 │   ├── src/audio/            mix graph, loudness, sound effects, audio render
-│   └── src/components/       UI on shadcn/ui + Hugeicons (panels, preview, timeline, converter)
+│   ├── src/components/       UI on shadcn/ui + Hugeicons (panels, preview, timeline, converter)
+│   └── src/landing/          landing page (hero, editor mockup, scroll animations, download buttons)
 ├── desktop/                  Electron wrapper (macOS app)
 ├── server/                   Hono API on Node
 │   ├── src/transcribe.ts     ffmpeg → Gemini / ElevenLabs / Whisper
@@ -446,11 +460,11 @@ Run from the repo root:
 
 ## 19. Desktop app
 
-`desktop/` wraps the built editor and API in an Electron app for macOS (Apple silicon).
+`desktop/` wraps the built editor and API in an Electron app. The macOS build (Apple silicon) is available now. A Windows installer is planned and will be published on the same releases page.
 
 ### Download
 
-Get **`Keyframe-<version>-arm64.dmg`** from the [latest release](https://github.com/elixinnovations/keyframe-web/releases/latest), open it and drag **Keyframe** into Applications.
+Get **`Keyframe-<version>-arm64.dmg`** from the [latest release](https://github.com/Elix-Innovations/keyframe.lk/releases/latest), open it and drag **Keyframe** into Applications.
 
 The app is not signed yet, so macOS blocks the first launch. Right-click **Keyframe** in Applications → **Open** → **Open**, or run:
 
