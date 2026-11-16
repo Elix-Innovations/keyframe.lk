@@ -1,13 +1,13 @@
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { nanoid } from 'nanoid';
 import { ClipboardPaste, PictureInPicture, WandSparkles, ChevronLeft, ChevronRight, Copy, Plus, Crosshair, Merge, Pencil, Play, Redo2, Scissors, Trash2, Undo2, ZoomIn, ZoomOut } from '@/components/icons';
-import { clipboardKind, copyEdits, hasEdits, pasteEdits, copySelection, hasClipboard, onClipboardChange, pasteAtPlayhead, pasteAttributes, copyCaptionStyle, pasteCaptionStyle } from '@/lib/clipboard';
+import { clipboardKind, copyEdits, hasEdits, pasteEdits, copySelection, cutSelection, hasClipboard, onClipboardChange, pasteAtPlayhead, pasteAttributes, copyCaptionStyle, pasteCaptionStyle } from '@/lib/clipboard';
 import { Eye, EyeOff, Layers, Link, Lock, Magnet, Ripple, Unlock, Volume, VolumeOff } from '@/components/icons-audio';
 import type { Caption, LaneGroup, MusicTrack, Project } from '@/types';
 import { WAVEFORM_RATE } from '@/types';
 import { nearestBeat, trackGainCurve, trackSegments } from '@/audio/mix';
 import { useEditor } from '@/store';
-import { beginGroup, deleteSelection, dragGroup, endGroup, groupSelection, pressBlock, selectedIds, selectionGrouped, splitSelection, withGroupMates, type Group } from '@/lib/multiSelect';
+import { beginGroup, deleteSelection, dragGroup, endGroup, groupSelection, isPrimaryPress, pressBlock, selectedIds, selectionGrouped, splitSelection, withGroupMates, type Group } from '@/lib/multiSelect';
 import { seek, currentTime, playRange } from '@/lib/player';
 import { mergeCaptions, normalizeCaptions, shiftCaptions, splitCaptionAt } from '@/lib/segment';
 import { cn } from '@/lib/utils';
@@ -75,7 +75,7 @@ function LaneHeader({ top, height, label, icon, laneKey, eye = true, lock = true
   const [drag, setDrag] = useState<{ y0: number; dy: number } | null>(null);
   const rz = useRef<{ y0: number; h0: number } | null>(null);
   const grab = (e: React.PointerEvent) => {
-    if (!order || e.button !== 0) return;
+    if (!order || !isPrimaryPress(e)) return;
     e.preventDefault();
     e.stopPropagation();
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
@@ -139,7 +139,7 @@ function LaneHeader({ top, height, label, icon, laneKey, eye = true, lock = true
         </DropdownMenu>
       </div>
       {resize && (
-        <div title="Drag to resize the track" aria-label="Resize track" onPointerDown={(e) => { if (e.button !== 0) return; e.preventDefault(); e.stopPropagation(); rz.current = { y0: e.clientY, h0: resize.rowH }; (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); }}
+        <div title="Drag to resize the track" aria-label="Resize track" onPointerDown={(e) => { if (!isPrimaryPress(e)) return; e.preventDefault(); e.stopPropagation(); rz.current = { y0: e.clientY, h0: resize.rowH }; (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); }}
           onPointerMove={(e) => { const r = rz.current; if (r) setLane(laneKey, { h: Math.round(Math.min(MAX_ROW, Math.max(MIN_ROW, r.h0 + (e.clientY - r.y0) / (resize.rows ?? 1)))), size: undefined }, `lane-h-${laneKey}`); }}
           onPointerUp={() => { rz.current = null; }} onPointerCancel={() => { rz.current = null; }}
           className="absolute inset-x-0 bottom-0 z-10 h-1.5 cursor-row-resize touch-none hover:bg-primary/40" />
@@ -161,7 +161,7 @@ const MusicBlock = memo(function MusicBlock({ t, pps, top, height }: { t: MusicT
   const videoEnd = useEditor((s) => s.project!.duration);
   const patch = (p: Partial<MusicTrack>) => update((pr) => ({ ...pr, audio: { ...pr.audio, tracks: pr.audio.tracks.map((x) => (x.id === t.id ? { ...x, ...p } : x)) } }), `music-${t.id}`);
   const onDown = (e: React.PointerEvent, kind: 'move' | 'l' | 'r') => {
-    if (e.button !== 0) return;
+    if (!isPrimaryPress(e)) return;
     e.stopPropagation();
     const press = kind === 'move' ? pressBlock(e, t.id) : 'single';
     if (press === 'toggled') return;
@@ -269,6 +269,9 @@ const MusicBlock = memo(function MusicBlock({ t, pps, top, height }: { t: MusicT
     <ContextMenuContent className="w-56">
       <ContextMenuItem disabled={!trackOps.canSplit(t.id)} onClick={() => trackOps.splitAtPlayhead(t.id)}><Scissors />Split at playhead<ContextMenuShortcut>S</ContextMenuShortcut></ContextMenuItem>
       <ContextMenuItem onClick={() => trackOps.duplicate(t.id)}><Copy />Duplicate</ContextMenuItem>
+      <ContextMenuItem onClick={() => copySelection()}><Copy />Copy<ContextMenuShortcut>⌘C</ContextMenuShortcut></ContextMenuItem>
+      <ContextMenuItem onClick={() => cutSelection()}>Cut<ContextMenuShortcut>⌘X</ContextMenuShortcut></ContextMenuItem>
+      <ContextMenuItem disabled={!hasClipboard()} onClick={() => pasteAtPlayhead(false)}><ClipboardPaste />Paste at playhead<ContextMenuShortcut>⌘V</ContextMenuShortcut></ContextMenuItem>
       <ContextMenuItem onClick={() => { generateCaptionsFromAudio(t.id).catch((e) => useEditor.getState().notify((e as Error).message || 'Could not generate captions.', 'error')); }}><AudioLines />Generate captions from audio</ContextMenuItem>
       <ContextMenuItem onClick={() => trackOps.toggleMute(t.id)}>{t.muted ? <Volume /> : <VolumeOff />}{t.muted ? 'Unmute' : 'Mute'}</ContextMenuItem>
       <ContextMenuItem onClick={() => { useEditor.getState().setPanel('audio'); }}><Pencil />Edit volume and fades…</ContextMenuItem>
@@ -387,7 +390,7 @@ export function Timeline() {
   // Dragging captions: move or resize edges.
   const drag = useRef<{ id: string; kind: 'move' | 'l' | 'r'; x0: number; orig: Caption; others: Caption[]; group?: Group } | null>(null);
   const onBlockDown = (e: React.PointerEvent, c: Caption, kind: 'move' | 'l' | 'r') => {
-    if (e.button !== 0) return;
+    if (!isPrimaryPress(e)) return;
     e.stopPropagation();
     const press = kind === 'move' ? pressBlock(e, c.id) : 'single';
     if (press === 'toggled') return;
@@ -507,7 +510,9 @@ export function Timeline() {
     const onWheel = (e: WheelEvent) => {
       if (!e.ctrlKey && !e.metaKey) return;
       e.preventDefault();
-      setZoom((z) => Math.min(40, Math.max(1, z * (e.deltaY < 0 ? 1.15 : 1 / 1.15))));
+      // Scale by the wheel distance: a trackpad pinch sends many tiny events, so a fixed step per event zoomed far too fast.
+      const d = Math.max(-60, Math.min(60, e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY));
+      setZoom((z) => Math.min(40, Math.max(1, z * Math.exp(-d * 0.0025))));
     };
     el.addEventListener('wheel', onWheel, { passive: false });
     return () => el.removeEventListener('wheel', onWheel);
@@ -652,7 +657,7 @@ export function Timeline() {
         onDrop={(e) => void onDrop(e)}
         onWheel={() => { manualScroll.current = true; }}
         onPointerDown={(e) => {
-          if (e.button !== 0) return;
+          if (!isPrimaryPress(e)) return;
           const el = e.currentTarget as HTMLElement, r = el.getBoundingClientRect();
           const x0 = e.clientX - r.left + el.scrollLeft, y0 = e.clientY - r.top + el.scrollTop;
           const additive = e.shiftKey || e.metaKey || e.ctrlKey;
