@@ -3,7 +3,8 @@ import type { NextConfig } from 'next';
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   // Desktop (Electron) build: self-contained server in .next/standalone.
-  ...(process.env.KEYFRAME_DESKTOP ? { output: 'standalone' as const } : {}),
+  // Images are not optimized in the desktop app, so the platform-specific sharp binary is never needed.
+  ...(process.env.KEYFRAME_DESKTOP ? { output: 'standalone' as const, images: { unoptimized: true } } : {}),
   // Uploads through the /api rewrite (ProRes caption frames, soundtracks) are far larger than the 10 MB default, and a render can run for minutes.
   experimental: { proxyClientMaxBodySize: '1gb', proxyTimeout: 30 * 60_000 },
   async rewrites() {
