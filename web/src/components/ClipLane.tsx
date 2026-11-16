@@ -5,7 +5,7 @@ import type { Clip, Project, SpeedPt } from '@/types';
 import { placeOnRow } from '@/lib/layers';
 import { WAVEFORM_RATE } from '@/types';
 import { useEditor } from '@/store';
-import { deleteSelection, beginGroup, dragGroup, endGroup, pressBlock, type Group } from '@/lib/multiSelect';
+import { deleteSelection, beginGroup, dragGroup, endGroup, isPrimaryPress, pressBlock, type Group } from '@/lib/multiSelect';
 import { currentTime } from '@/lib/player';
 import { toast } from 'sonner';
 import { extractCutout, extracting } from '@/lib/extractCutout';
@@ -203,7 +203,7 @@ export const ClipBlock = memo(function ClipBlock({ clip, pps, pad, top, height }
   }, [clip.assetId, clip.kind, clip.linkId]);
 
   const down = (e: React.PointerEvent, kind: 'move' | 'l' | 'r') => {
-    if (e.button !== 0) return;
+    if (!isPrimaryPress(e)) return;
     e.stopPropagation();
     const st = useEditor.getState();
     const press = kind === 'move' ? pressBlock(e, clip.id) : 'single';

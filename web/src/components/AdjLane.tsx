@@ -2,9 +2,10 @@ import { memo, useRef, useState } from 'react';
 import type { AdjClip } from '@/types';
 import { useEditor } from '@/store';
 import { currentTime } from '@/lib/player';
-import { deleteSelection, beginGroup, dragGroup, endGroup, pressBlock, type Group } from '@/lib/multiSelect';
+import { deleteSelection, beginGroup, dragGroup, endGroup, isPrimaryPress, pressBlock, type Group } from '@/lib/multiSelect';
 import { adjEnd, deleteAdj, duplicateAdj, makeAdj, moveAdj, splitAdj, trimAdjLeft, trimAdjRight } from '@/lib/adj';
 import { clipEnd } from '@/lib/clips';
+import { copySelection, cutSelection, hasClipboard, pasteAtPlayhead } from '@/lib/clipboard';
 import { FILTER_PRESETS, laneOf } from '@/lib/videoFx';
 import { effectLabel } from '@/render/effects';
 import { geo } from '@/lib/timelineGeo';
@@ -59,7 +60,7 @@ export const AdjBlock = memo(function AdjBlock({ adj, pps, pad, top, height }: {
   const drag = useRef<{ kind: 'move' | 'l' | 'r'; x0: number; orig: AdjClip[]; group?: Group } | null>(null);
 
   const down = (e: React.PointerEvent, kind: 'move' | 'l' | 'r') => {
-    if (e.button !== 0) return;
+    if (!isPrimaryPress(e)) return;
     e.stopPropagation();
     const st = useEditor.getState();
     const press = kind === 'move' ? pressBlock(e, adj.id) : 'single';
@@ -102,6 +103,9 @@ export const AdjBlock = memo(function AdjBlock({ adj, pps, pad, top, height }: {
       <ContextMenuContent className="w-52">
         <ContextMenuItem disabled={!canSplit} onClick={() => adjOps.splitAtPlayhead(adj.id)}><Scissors />Split at playhead<ContextMenuShortcut>S</ContextMenuShortcut></ContextMenuItem>
         <ContextMenuItem onClick={() => adjOps.duplicate(adj.id)}><Copy />Duplicate</ContextMenuItem>
+        <ContextMenuItem onClick={() => copySelection()}><Copy />Copy<ContextMenuShortcut>⌘C</ContextMenuShortcut></ContextMenuItem>
+        <ContextMenuItem onClick={() => cutSelection()}>Cut<ContextMenuShortcut>⌘X</ContextMenuShortcut></ContextMenuItem>
+        <ContextMenuItem disabled={!hasClipboard()} onClick={() => pasteAtPlayhead(false)}>Paste at playhead<ContextMenuShortcut>⌘V</ContextMenuShortcut></ContextMenuItem>
         <ContextMenuSeparator />
         <ContextMenuItem variant="destructive" onClick={() => { if (!deleteSelection()) adjOps.remove(adj.id); }}><Trash2 />Delete<ContextMenuShortcut>Del</ContextMenuShortcut></ContextMenuItem>
       </ContextMenuContent>
