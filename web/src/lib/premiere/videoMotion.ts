@@ -48,8 +48,8 @@ const thin = (keys: AnimKey[], max = 14): AnimKey[] => {
  */
 export async function analyzeVideo(file: Blob, onProgress?: (f: number) => void): Promise<VideoRun[]> {
   const url = URL.createObjectURL(file);
+  const video = document.createElement('video');
   try {
-    const video = document.createElement('video');
     video.muted = true; video.preload = 'auto'; video.src = url;
     await new Promise<void>((ok, bad) => { video.onloadedmetadata = () => ok(); video.onerror = () => bad(new Error('The video could not be read.')); });
     const H = Math.round((W * video.videoHeight) / video.videoWidth) || 180;
@@ -58,7 +58,12 @@ export async function analyzeVideo(file: Blob, onProgress?: (f: number) => void)
     const frames: Frame[] = [];
     const total = Math.min(video.duration, 120);
     for (let t = 0; t < total; t += 1 / FPS) {
-      await new Promise<void>((ok) => { video.onseeked = () => ok(); video.currentTime = t; });
+      await new Promise<void>((ok, bad) => {
+        const timer = setTimeout(() => bad(new Error('The video stalled while it was being analysed.')), 3000);
+        video.onseeked = () => { clearTimeout(timer); ok(); };
+        video.onerror = () => { clearTimeout(timer); bad(new Error('The video could not be decoded.')); };
+        video.currentTime = t;
+      });
       ctx.drawImage(video, 0, 0, W, H);
       frames.push(measure(ctx.getImageData(0, 0, W, H), t));
       if (frames.length % 8 === 0) onProgress?.(t / total);
@@ -95,5 +100,9 @@ export async function analyzeVideo(file: Blob, onProgress?: (f: number) => void)
       });
     }
     return out;
-  } finally { URL.revokeObjectURL(url); }
+  } finally {
+    video.onseeked = null; video.onerror = null;
+    video.removeAttribute('src'); video.load();
+    URL.revokeObjectURL(url);
+  }
 }

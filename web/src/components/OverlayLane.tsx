@@ -1,7 +1,7 @@
 import { useBlockThumb } from '@/lib/blockThumb';
 import { deleteSelection, beginGroup, dragGroup, endGroup, pressBlock, type Group } from '@/lib/multiSelect';
 import { copySelection, cutSelection, hasClipboard, pasteAtPlayhead, pasteAttributes } from '@/lib/clipboard';
-import { memo, useRef } from 'react';
+import { memo, useRef, useState } from 'react';
 import type { OverlayItem, Project } from '@/types';
 import { useEditor } from '@/store';
 import { currentTime, seek } from '@/lib/player';
@@ -91,9 +91,11 @@ export const OverlayBlock = memo(function OverlayBlock({ item, pps, pad, top, he
     drag.current = { kind, x0: e.clientX, orig: st.project?.overlays ?? [], proj: st.project!, group: press === 'group' ? beginGroup(item.id, e.clientX) : undefined };
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
   };
+  const endDrag = () => { endGroup(drag.current?.group); drag.current = null; };
   const move = (e: React.PointerEvent) => {
     const d = drag.current;
     if (!d) return;
+    if (e.buttons === 0) { endDrag(); return; } // the gesture ended without a pointerup
     if (d.group) { dragGroup(d.group, e.clientX, pps); return; }
     const raw = (e.clientX - d.x0) / pps;
     const a = d.orig.find((x) => x.id === item.id)!;
@@ -102,13 +104,20 @@ export const OverlayBlock = memo(function OverlayBlock({ item, pps, pad, top, he
     if (d.kind === 'move') upd(() => moveLayer(proj, item.id, snap(d.orig, a, raw, pps), geo.videoTrackAt(e.clientY)), `overlay-${item.id}`);
     else upd(() => trimLayer(proj, item.id, d.kind === 'l' ? 'l' : 'r', snap(d.orig, a, raw, pps, d.kind)), `overlay-${item.id}`);
   };
-  const canSplit = (() => { const t = currentTime(); return t > item.start && t < adjEnd(item); })();
+  // The block is memoised and doesn't re-render on playhead/clipboard changes, so read both when the menu opens.
+  const [menu, setMenu] = useState({ canSplit: false, canPaste: false });
+  const onMenuOpen = (o: boolean) => {
+    if (!o) return;
+    const t = currentTime();
+    setMenu({ canSplit: t > item.start && t < adjEnd(item), canPaste: hasClipboard() });
+    if (!useEditor.getState().multiIds.includes(item.id)) useEditor.getState().selectOverlay(item.id);
+  };
 
   return (
-    <ContextMenu onOpenChange={(o) => o && !useEditor.getState().multiIds.includes(item.id) && useEditor.getState().selectOverlay(item.id)}>
+    <ContextMenu onOpenChange={onMenuOpen}>
       <ContextMenuTrigger asChild>
         <div title={`${item.kind === 'text' ? 'Text' : item.kind === 'sticker' ? 'Sticker' : 'Image'}: ${overlayLabel(item)}`}
-          onPointerDown={(e) => down(e, 'move')} onPointerMove={move} onPointerUp={() => { endGroup(drag.current?.group); drag.current = null; }}
+          onPointerDown={(e) => down(e, 'move')} onPointerMove={move} onPointerUp={endDrag} onPointerCancel={endDrag} onLostPointerCapture={endDrag}
           className={cn('group absolute flex items-center gap-1.5 overflow-hidden rounded-lg border bg-black/40 text-xs font-medium text-white',
             item.kind === 'text' ? 'border-chart-1/70' : item.kind === 'sticker' ? 'border-chart-4/70' : 'border-chart-2/70',
             selected && 'ring-2 ring-primary', hidden && 'opacity-35', locked ? 'cursor-not-allowed' : 'cursor-grab active:cursor-grabbing')}
@@ -133,12 +142,12 @@ export const OverlayBlock = memo(function OverlayBlock({ item, pps, pad, top, he
         </div>
       </ContextMenuTrigger>
       <ContextMenuContent className="w-52">
-        <ContextMenuItem disabled={!canSplit} onClick={() => overlayOps.splitAtPlayhead(item.id)}><Scissors />Split at playhead<ContextMenuShortcut>S</ContextMenuShortcut></ContextMenuItem>
+        <ContextMenuItem disabled={!menu.canSplit} onClick={() => overlayOps.splitAtPlayhead(item.id)}><Scissors />Split at playhead<ContextMenuShortcut>S</ContextMenuShortcut></ContextMenuItem>
         <ContextMenuItem onClick={() => overlayOps.duplicate(item.id)}><Copy />Duplicate</ContextMenuItem>
         <ContextMenuItem onClick={() => copySelection()}><Copy />Copy<ContextMenuShortcut>⌘C</ContextMenuShortcut></ContextMenuItem>
         <ContextMenuItem onClick={() => cutSelection()}>Cut<ContextMenuShortcut>⌘X</ContextMenuShortcut></ContextMenuItem>
-        <ContextMenuItem disabled={!hasClipboard()} onClick={() => pasteAtPlayhead(false)}>Paste at playhead<ContextMenuShortcut>⌘V</ContextMenuShortcut></ContextMenuItem>
-        <ContextMenuItem disabled={!hasClipboard()} onClick={() => pasteAttributes()}>Paste look only<ContextMenuShortcut>⇧⌘V</ContextMenuShortcut></ContextMenuItem>
+        <ContextMenuItem disabled={!menu.canPaste} onClick={() => pasteAtPlayhead(false)}>Paste at playhead<ContextMenuShortcut>⌘V</ContextMenuShortcut></ContextMenuItem>
+        <ContextMenuItem disabled={!menu.canPaste} onClick={() => pasteAttributes()}>Paste look only<ContextMenuShortcut>⇧⌘V</ContextMenuShortcut></ContextMenuItem>
         <ContextMenuSeparator />
         <ContextMenuItem variant="destructive" onClick={() => { if (!deleteSelection()) overlayOps.remove(item.id); }}><Trash2 />Delete<ContextMenuShortcut>Del</ContextMenuShortcut></ContextMenuItem>
       </ContextMenuContent>

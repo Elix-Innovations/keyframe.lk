@@ -1,5 +1,5 @@
 import { nanoid } from 'nanoid';
-import type { Caption, Clip, Project, SpeedPt } from '../types';
+import type { Caption, Clip, Project, PropKf, SpeedPt } from '../types';
 import { shiftCaptions } from './segment';
 import { DEFAULT_MATTE, migrateVideo } from './videoFx';
 import { curveDuration, curveLead, curveSrcAt, spanDuration } from './speedCurve';
@@ -11,10 +11,17 @@ export const MIN_SPEED = 0.1;
 export const MAX_SPEED = 8;
 const EPS = 1e-6;
 
+/** Property keyframes with their times moved by dt (times are relative to the clip start). */
+const shiftKf = (kfs: PropKf[], dt: number, fresh = false): PropKf[] => kfs.map((k) => ({ ...k, ...(fresh ? { id: nanoid(8) } : {}), t: k.t + dt }));
+const shiftFkf = (fkf: Record<string, PropKf[]>, dt: number, fresh = false): Record<string, PropKf[]> => Object.fromEntries(Object.entries(fkf).map(([k, v]) => [k, shiftKf(v, dt, fresh)]));
+
 /** Copy of a clip's fx with keyframe times moved by dt (keyframes are relative to the clip start). */
 function shiftFx(fx: Clip['fx'], dt: number): Clip['fx'] {
   if (!fx) return fx;
-  return { ...fx, keyframes: fx.keyframes.map((k) => ({ ...k, id: nanoid(8), t: k.t + dt })), effects: fx.effects.map((e) => ({ ...e, id: nanoid(8) })) };
+  return {
+    ...fx, keyframes: fx.keyframes.map((k) => ({ ...k, id: nanoid(8), t: k.t + dt })), effects: fx.effects.map((e) => ({ ...e, id: nanoid(8) })),
+    ...(fx.fkf ? { fkf: shiftFkf(fx.fkf, dt, true) } : {}),
+  };
 }
 
 export const clipEnd = (c: Clip) => c.start + c.duration;
@@ -178,16 +185,25 @@ export function trimLeft(clips: Clip[], id: string, dt: number): Clip[] {
   const group = withPartner(clips, c);
   let d = Math.min(dt, c.duration - MIN_CLIP);
   for (const g of group) {
-    d = Math.max(d, -g.start, g.freeze ? -Infinity : g.curve ? -curveLead({ ...g, curve: g.curve }) : -g.in / g.speed);
+    // A reversed clip's left edge is the high end of its source span, so extending it is limited by the source after the span.
+    const room = g.freeze ? -Infinity : g.reverse
+      ? g.duration - (g.curve ? curveDuration({ ...g, curve: g.curve }, g.in, g.sourceDuration) : (g.sourceDuration - g.in) / g.speed)
+      : g.curve ? -curveLead({ ...g, curve: g.curve }) : -g.in / g.speed;
+    d = Math.max(d, -g.start, room);
     const prev = g.kind === 'video' ? videoClips(clips).filter((o) => o.id !== g.id && trackOf(o) === trackOf(g) && clipEnd(o) <= g.start + EPS).at(-1) : null;
     if (prev) d = Math.max(d, clipEnd(prev) - g.start);
   }
   return replace(clips, group.map((g) => {
     const dur = g.duration - d;
     // A curved clip keeps its curve: the new left edge is wherever the curve has reached after d seconds.
-    const nin = g.freeze ? g.in : g.curve ? curveSrcAt({ ...g, curve: g.curve }, d) : g.in + d * g.speed;
-    const speed = g.curve && !g.freeze ? (g.in + g.duration * g.speed - nin) / dur : g.speed;
-    return { ...g, start: g.start + d, in: nin, speed, duration: dur, fx: g.fx ? { ...g.fx, keyframes: g.fx.keyframes.map((k) => ({ ...k, t: k.t - d })) } : g.fx };
+    // A reversed clip loses its head from the high end of the source span: `in` stays and only the duration shrinks.
+    const rev = !!g.reverse && !g.freeze;
+    const nin = g.freeze || rev ? g.in : g.curve ? curveSrcAt({ ...g, curve: g.curve }, d) : g.in + d * g.speed;
+    const speed = g.curve && !g.freeze ? (rev ? curveSrcAt({ ...g, curve: g.curve }, dur) - g.in : g.in + g.duration * g.speed - nin) / dur : g.speed;
+    return {
+      ...g, start: g.start + d, in: nin, speed, duration: dur, fx: g.fx ? { ...g.fx, keyframes: g.fx.keyframes.map((k) => ({ ...k, t: k.t - d })), ...(g.fx.fkf ? { fkf: shiftFkf(g.fx.fkf, -d) } : {}) } : g.fx,
+      ...(g.volKf ? { volKf: shiftKf(g.volKf, -d) } : {}),
+    };
   }));
 }
 
@@ -198,7 +214,8 @@ export function trimRight(clips: Clip[], id: string, dt: number): Clip[] {
   const group = withPartner(clips, c);
   let d = Math.max(dt, MIN_CLIP - c.duration);
   for (const g of group) {
-    if (!g.freeze) d = Math.min(d, (g.curve ? curveDuration({ ...g, curve: g.curve }, g.in, g.sourceDuration) : (g.sourceDuration - g.in) / g.speed) - g.duration);
+    // A reversed clip's right edge is the low end of its source span, so extending it is limited by the source before `in`.
+    if (!g.freeze) d = Math.min(d, g.reverse ? (g.curve ? curveLead({ ...g, curve: g.curve }) : g.in / g.speed) : (g.curve ? curveDuration({ ...g, curve: g.curve }, g.in, g.sourceDuration) : (g.sourceDuration - g.in) / g.speed) - g.duration);
     // The main track is magnetic: lengthening pushes the clips after it, like CapCut. Overlay tracks stop at their neighbour.
     const next = g.kind === 'video' && trackOf(g) !== 0 ? videoClips(clips).find((o) => o.id !== g.id && trackOf(o) === trackOf(g) && o.start >= clipEnd(g) - EPS) : null;
     if (next) d = Math.min(d, next.start - clipEnd(g));
@@ -207,6 +224,10 @@ export function trimRight(clips: Clip[], id: string, dt: number): Clip[] {
   const ids = new Set(group.map((g) => g.id));
   const trimmed = replace(clips, group.map((g) => {
     const dur = g.duration + d;
+    if (g.reverse && !g.freeze) { // the tail shows the low end of the source span: lengthening reveals earlier source
+      const nin = Math.max(0, g.curve ? curveSrcAt({ ...g, curve: g.curve }, -d) : g.in - d * g.speed);
+      return { ...g, in: nin, duration: dur, ...(g.curve ? { speed: (g.in + g.duration * g.speed - nin) / dur } : {}) };
+    }
     return g.curve && !g.freeze ? { ...g, duration: dur, speed: (curveSrcAt({ ...g, curve: g.curve }, dur) - g.in) / dur } : { ...g, duration: dur };
   }));
   if (!group.some((g) => g.kind === 'video' && trackOf(g) === 0) || Math.abs(d) < EPS) return trimmed;
@@ -226,13 +247,24 @@ export function splitClips(clips: Clip[], ids: string[], t: number): { clips: Cl
     if (!expanded.includes(c)) { out.push(c); continue; }
     const cut = t - c.start;
     const curved = !!c.curve && !c.freeze;
-    const nin = c.freeze ? c.in : curved ? curveSrcAt({ ...c, curve: c.curve! }, cut) : c.in + cut * c.speed;
+    // A reversed clip plays its source span backwards, so the earlier piece takes the high end and the later piece the low end.
+    const rev = !!c.reverse && !c.freeze;
+    const srcEnd = c.in + c.duration * c.speed;
+    const at = rev ? c.duration - cut : cut; // timeline time, along the forward span, where the cut falls
+    const mid = c.freeze ? c.in : curved ? curveSrcAt({ ...c, curve: c.curve! }, at) : c.in + at * c.speed;
+    const shifted = shiftFx(c.fx, -cut);
     const right: Clip = {
-      ...c, id: nanoid(8), start: t, in: nin, duration: c.duration - cut,
-      linkId: c.linkId ? relink.get(c.linkId) : undefined, fadeIn: 0, fx: shiftFx(c.fx, -cut),
-      ...(curved ? { speed: (c.in + c.duration * c.speed - nin) / (c.duration - cut) } : {}),
+      ...c, id: nanoid(8), start: t, in: rev ? c.in : mid, duration: c.duration - cut,
+      linkId: c.linkId ? relink.get(c.linkId) : undefined, fadeIn: 0,
+      // The cut is not an edge of the clip: no transition or animation plays there.
+      fx: shifted && { ...shifted, transitionIn: { ...shifted.transitionIn, id: 'none' }, animIn: undefined },
+      ...(c.volKf ? { volKf: shiftKf(c.volKf, -cut, true) } : {}),
+      ...(curved ? { speed: (rev ? mid - c.in : srcEnd - mid) / (c.duration - cut) } : {}),
     };
-    out.push({ ...c, duration: cut, fadeOut: 0, ...(curved ? { speed: (nin - c.in) / cut } : {}) }, right);
+    out.push({
+      ...c, in: rev ? mid : c.in, duration: cut, fadeOut: 0, ...(curved ? { speed: (rev ? srcEnd - mid : mid - c.in) / cut } : {}),
+      fx: c.fx && { ...c.fx, transitionOut: { ...c.fx.transitionOut, id: 'none' }, animOut: undefined },
+    }, right);
     created.push(right.id);
   }
   return { clips: out, ids: created };
@@ -267,8 +299,8 @@ function rippled(clips: Clip[], x: Clip, track: number): boolean {
 export function freezeFrame(clips: Clip[], id: string, t: number, hold = 2): Clip[] {
   const c = clips.find((x) => x.id === id);
   if (!c || c.kind !== 'video' || t <= c.start || t >= clipEnd(c)) return clips;
-  const { clips: split } = splitClips(clips, [id], t);
-  const right = split.find((x) => x.kind === 'video' && Math.abs(x.start - t) < EPS && x.id !== id);
+  const { clips: split, ids } = splitClips(clips, [id], t);
+  const right = split.find((x) => ids.includes(x.id) && x.kind === 'video');
   if (!right) return clips;
   const still: Clip = { ...right, id: nanoid(8), in: sourceTimeAt(c, t), duration: hold, freeze: true, start: t, linkId: undefined };
   const shifted = split.map((x) => (x.start >= t - EPS && rippled(split, x, trackOf(c)) ? { ...x, start: x.start + hold } : x));
@@ -341,10 +373,10 @@ export function isSimple(p: Project): boolean {
   const cs = p.clips ?? [];
   const v = cs.filter((c) => c.kind === 'video'), a = cs.filter((c) => c.kind === 'audio');
   if (v.length !== 1 || a.length > 1 || trackOf(v[0]) !== 0 || (p.adj?.length ?? 0) > 0) return false;
-  const whole = (c: Clip) => c.start === 0 && c.in === 0 && c.speed === 1 && !c.curve && !c.freeze && Math.abs(c.duration - c.sourceDuration) < 0.05;
+  const whole = (c: Clip) => c.start === 0 && c.in === 0 && c.speed === 1 && !c.curve && !c.freeze && !c.reverse && Math.abs(c.duration - c.sourceDuration) < 0.05;
   if (!whole(v[0])) return false;
   if (a.length === 0) return true;
-  return a[0].assetId === v[0].assetId && whole(a[0]) && !a[0].muted && a[0].volume === 0 && a[0].fadeIn === 0 && a[0].fadeOut === 0 && !p.audio.original.denoise && !Object.keys(p.audio.original.denoiseBy ?? {}).length;
+  return a[0].assetId === v[0].assetId && whole(a[0]) && !a[0].muted && a[0].volume === 0 && !a[0].volKf?.length && a[0].fadeIn === 0 && a[0].fadeOut === 0 && !p.audio.original.denoise && !Object.keys(p.audio.original.denoiseBy ?? {}).length;
 }
 
 /** Change speed and keep the lane tight: later clips on the same lane shift by however much the clip grew or shrank. */
@@ -411,8 +443,10 @@ export function createCutoutLayer(
   const matte = { ...DEFAULT_MATTE, ...fx.matte, mode: 'ai' as const, engine: fx.matte?.engine ?? ('precise' as const), background: 'transparent' as const, invert: false, ...(opts.hands ? { hands: true, shift: 0 } : {}) };
   const layer: Clip = {
     ...JSON.parse(JSON.stringify(c)), id: nanoid(8), name: `${c.name} · ${opts.hands ? 'hands' : 'cut-out'}`, linkId: undefined, track, cutout: true,
-    start: a, in: c.in + shift * c.speed, duration: span,
-    fx: { ...JSON.parse(JSON.stringify(fx)), matte, transitionIn: { id: 'none', duration: 0.5 }, transitionOut: { id: 'none', duration: 0.5 }, keyframes: fx.keyframes.map((k) => ({ ...k, id: nanoid(8), t: k.t - shift })), effects: fx.effects.map((e) => ({ ...e, id: nanoid(8) })) },
+    start: a, in: c.in + (c.reverse ? c.duration - shift - span : shift) * c.speed, duration: span, // a reversed clip's later span is the lower source
+    ...(c.volKf ? { volKf: shiftKf(c.volKf, -shift, true) } : {}),
+    fx: { ...JSON.parse(JSON.stringify(fx)), matte, transitionIn: { id: 'none', duration: 0.5 }, transitionOut: { id: 'none', duration: 0.5 }, keyframes: fx.keyframes.map((k) => ({ ...k, id: nanoid(8), t: k.t - shift })), effects: fx.effects.map((e) => ({ ...e, id: nanoid(8) })),
+      ...(fx.fkf ? { fkf: shiftFkf(fx.fkf, -shift, true) } : {}) },
   };
   return { clips: [...clips.map((x) => (x.id === c.id ? { ...x, fx: { ...fx, matte: opts.hands ? fx.matte : undefined } } : x)), layer], id: layer.id };
 }

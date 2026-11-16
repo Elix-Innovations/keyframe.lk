@@ -43,6 +43,11 @@ class _Maps:
         self.vs = {u: f for u, f in t["vowelSigns"]}
         self.pre = {u: (p, s) for u, p, s in t["preBase"]}
         self.special = {u: f for u, f in t["specialSyllables"]}
+        # FM fonts draw many consonant + sign pairs (ම් රි වි ඩ් ...) as one glyph;
+        # the decoder already knows them, so write them the same way (as fm.ts does).
+        for f, u in t["decodeAliases"]:
+            if len(u) == 2 and u[0] in self.cons and u[1] in self.vs and u not in self.special:
+                self.special[u] = f
         self.conj = {u: f for u, f in t["conjuncts"]}
         self.punct = {u: f for u, f in t["punctuation"]}
         sg = t["signs"]
@@ -170,7 +175,9 @@ def unicode_to_fm(text: str) -> str:
             sign = at(j)
             if sign and sign in m.pre:
                 p, sfx = m.pre[sign]
-                out.append(p + cluster + sfx)
+                # ම් has a single glyph in FM fonts, so ේ on it is the kombuva plus that glyph (fï), not f + ම + a.
+                special = m.special.get(base + HAL) if not mods and not repaya and sfx == "a" else None
+                out.append(p + special if special is not None else p + cluster + sfx)
                 j += 1
             elif sign and sign in m.vs:
                 special = m.special.get(base + sign) if not mods and not repaya else None

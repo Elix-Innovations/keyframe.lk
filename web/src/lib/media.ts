@@ -1,5 +1,21 @@
+import { ALL_FORMATS, BlobSource, Input } from 'mediabunny';
+
+type VideoMeta = { duration: number; width: number; height: number; thumbnail: string | null };
+
 /** Read duration, display size and a thumbnail from a video file. */
-export function probeVideo(file: Blob, thumbWidth = 240): Promise<{ duration: number; width: number; height: number; thumbnail: string | null }> {
+export async function probeVideo(file: Blob, thumbWidth = 240): Promise<VideoMeta> {
+  const meta = await probeElement(file, thumbWidth);
+  if (meta.duration > 0) return meta;
+  // MediaRecorder / screen-recorded WebM has no duration header, so the element reports Infinity (or NaN): measure it from the packets.
+  const input = new Input({ source: new BlobSource(file), formats: ALL_FORMATS });
+  try {
+    const d = await input.computeDuration();
+    if (Number.isFinite(d) && d > 0) meta.duration = d;
+  } catch { /* keep 0 */ } finally { input.dispose(); }
+  return meta;
+}
+
+function probeElement(file: Blob, thumbWidth: number): Promise<VideoMeta> {
   return new Promise((resolve, reject) => {
     const url = URL.createObjectURL(file);
     const v = document.createElement('video');
@@ -7,13 +23,15 @@ export function probeVideo(file: Blob, thumbWidth = 240): Promise<{ duration: nu
     v.playsInline = true;
     v.preload = 'auto';
     v.src = url;
+    const timer = setTimeout(() => { URL.revokeObjectURL(url); reject(new Error('Timed out reading the video. Keep this tab in the foreground and try again.')); }, 20000);
     const done = (thumb: string | null) => {
-      resolve({ duration: v.duration || 0, width: v.videoWidth, height: v.videoHeight, thumbnail: thumb });
+      clearTimeout(timer);
+      resolve({ duration: Number.isFinite(v.duration) ? v.duration : 0, width: v.videoWidth, height: v.videoHeight, thumbnail: thumb });
       URL.revokeObjectURL(url);
     };
     v.onloadedmetadata = () => {
       if (!v.videoWidth) { done(null); return; }
-      v.currentTime = Math.min(1, (v.duration || 2) / 2);
+      v.currentTime = Math.min(1, (Number.isFinite(v.duration) && v.duration ? v.duration : 2) / 2);
     };
     v.onseeked = () => {
       const w = thumbWidth, h = Math.round((v.videoHeight / v.videoWidth) * w);
@@ -22,8 +40,7 @@ export function probeVideo(file: Blob, thumbWidth = 240): Promise<{ duration: nu
       c.getContext('2d')!.drawImage(v, 0, 0, w, h);
       done(c.toDataURL('image/jpeg', thumbWidth > 240 ? 0.85 : 0.7));
     };
-    v.onerror = () => { URL.revokeObjectURL(url); reject(new Error('This file could not be read as a video.')); };
-    setTimeout(() => { URL.revokeObjectURL(url); reject(new Error('Timed out reading the video. Keep this tab in the foreground and try again.')); }, 20000);
+    v.onerror = () => { clearTimeout(timer); URL.revokeObjectURL(url); reject(new Error('This file could not be read as a video.')); };
   });
 }
 

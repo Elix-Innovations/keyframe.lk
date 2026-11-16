@@ -44,13 +44,13 @@ export async function addSound(src: SoundSource, start = currentTime(), layer?: 
   const assetId = await db.putBlob(blob);
   const buf = await loadAudioAsset(assetId);
   const at = Math.max(0, start);
-  const tracks = st.project?.audio.tracks ?? [];
   const t: MusicTrack = {
-    id: nanoid(8), assetId, name: src.name, source: 'library', effect: true, layer: layer ?? freeLayer(tracks, at, buf.duration),
+    id: nanoid(8), assetId, name: src.name, source: 'library', effect: true, layer: layer ?? 0,
     analysis: { bpm: null, beats: [], lufs: null, peak: peakOf(buf), waveform: waveformOf(buf, WAVEFORM_RATE) }, fileDuration: buf.duration, start: at, offset: 0,
     duration: buf.duration, volume: 0, fadeIn: 0, fadeOut: Math.min(0.05, buf.duration / 4), loop: false, license: src.license, attribution: src.attribution,
   };
-  st.update((p) => ({ ...p, audio: { ...p.audio, tracks: [...p.audio.tracks, t] } }));
+  // Pick the free row from the tracks as they are now, not from before the awaits above.
+  st.update((p) => ({ ...p, audio: { ...p.audio, tracks: [...p.audio.tracks, { ...t, layer: layer ?? freeLayer(p.audio.tracks, at, buf.duration) }] } }));
   st.notify(`Added “${src.name}” at ${t.start.toFixed(1)}s.`, 'success');
 }
 

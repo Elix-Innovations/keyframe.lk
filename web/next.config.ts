@@ -2,6 +2,8 @@ import type { NextConfig } from 'next';
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+  // Open the dev server from another device on the LAN (e.g. http://192.168.1.4:5180); Next blocks non-localhost origins otherwise.
+  allowedDevOrigins: ['192.168.1.4'],
   // Desktop (Electron) build: self-contained server in .next/standalone.
   ...(process.env.KEYFRAME_DESKTOP ? { output: 'standalone' as const } : {}),
   // Uploads through the /api rewrite (ProRes caption frames, soundtracks) are far larger than the 10 MB default, and a render can run for minutes.

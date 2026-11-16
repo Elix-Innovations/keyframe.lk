@@ -145,11 +145,17 @@ def main() -> int:
         except Exception as e:  # noqa: BLE001
             print(f"FAIL   {label:30s} download: {e}", file=sys.stderr)
             failures += 1
+            if prev:  # keep the tracked manifest entry instead of dropping the font
+                entries.append(prev)
+                seen_sha.add(prev["sha256"])
             continue
         ok, reason, family = check_fm_font(data)
         if not ok:
             print(f"REJECT {label:30s} {reason}", file=sys.stderr)
             failures += 1
+            if prev:
+                entries.append(prev)
+                seen_sha.add(prev["sha256"])
             continue
         sha = hashlib.sha256(data).hexdigest()
         if sha in seen_sha:

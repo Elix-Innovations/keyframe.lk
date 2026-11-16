@@ -37,7 +37,12 @@ export const SPEEDS = [0.25, 0.5, 0.75, 1, 1.5, 2, 3, 4];
 const peaks = new Map<string, Promise<number[] | null>>();
 function peaksOf(assetId: string) {
   let p = peaks.get(assetId);
-  if (!p) { p = loadSourceAudio(assetId).then((b) => (b ? waveformOf(b, WAVEFORM_RATE) : null)).catch(() => null); peaks.set(assetId, p); }
+  if (!p) {
+    const load = loadSourceAudio(assetId).then((b) => (b ? waveformOf(b, WAVEFORM_RATE) : null));
+    load.catch(() => peaks.delete(assetId)); // a failed load is not cached, so a later mount retries
+    p = load.catch(() => null);
+    peaks.set(assetId, p);
+  }
   return p;
 }
 
@@ -75,9 +80,12 @@ export const clipOps = {
       .finally(() => extracting.delete(src.id))
       .then((x) => {
         const cur = useEditor.getState().project?.clips?.find((c) => c.id === src.id);
-        if (!cur || cur.assetId !== src.assetId) { toast.dismiss(tid); return; } // deleted or changed meanwhile
+        // Deleted, re-sourced or re-timed meanwhile: the baked video no longer lines up with the clip, so keep the live matte.
+        if (!cur || cur.assetId !== src.assetId || cur.in !== src.in || cur.duration !== src.duration || cur.speed !== src.speed
+          || !!cur.reverse !== !!src.reverse || JSON.stringify(cur.curve) !== JSON.stringify(src.curve) || !!cur.freeze !== !!src.freeze) { toast.dismiss(tid); return; }
         useEditor.getState().setClips((cs) => cs.map((c) => (c.id === src.id ? {
-          ...c, assetId: x.assetId, in: 0, speed: 1, freeze: false, sourceDuration: c.duration, width: x.width, height: x.height,
+          // The baked frames are already in timeline order (reverse and speed curve applied), so those must not apply again.
+          ...c, assetId: x.assetId, in: 0, speed: 1, freeze: false, reverse: false, curve: undefined, sourceDuration: c.duration, width: x.width, height: x.height,
           fx: { ...migrateVideo(c.fx), matte: undefined, regionBlurs: [] },
         } : c)));
         toast.success('Cut-out extracted as its own video layer. Set text or images to Depth "Behind cut-out" to place them between it and the clip below.', { id: tid });
@@ -126,10 +134,12 @@ function snapDt(clips: Clip[], group: Clip[], dt: number, pps: number, edge: 'mo
 
 function Menu({ clip, children }: { clip: Clip; children: React.ReactNode }) {
   const linked = !!clip.linkId;
+  // The enabled flags below read the playhead and clipboard at render time; re-render when the menu opens so they are current.
+  const [, refresh] = useState(0);
   const t = currentTime();
   const canSplit = t > clip.start && t < clipEnd(clip);
   return (
-    <ContextMenu onOpenChange={(o) => o && !useEditor.getState().multiIds.includes(clip.id) && useEditor.getState().selectClip(clip.id)}>
+    <ContextMenu onOpenChange={(o) => { if (!o) return; refresh((n) => n + 1); if (!useEditor.getState().multiIds.includes(clip.id)) useEditor.getState().selectClip(clip.id); }}>
       <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
       <ContextMenuContent className="w-60">
         <ContextMenuItem disabled={!canSplit} onClick={() => clipOps.splitAtPlayhead([clip.id])}><Scissors />Split at playhead<ContextMenuShortcut>S</ContextMenuShortcut></ContextMenuItem>
@@ -186,7 +196,7 @@ export const ClipBlock = memo(function ClipBlock({ clip, pps, pad, top, height }
   const [lift, setLift] = useState<{ x: number } | null>(null);
   const TILE = 64;
   useEffect(() => {
-    if (clip.kind !== 'audio' && !clip.linkId) return;
+    if (clip.kind !== 'audio' && !clip.linkId) { setWf(null); return; }
     let live = true;
     void peaksOf(clip.assetId).then((p) => { if (live) setWf(p); });
     return () => { live = false; };
@@ -258,7 +268,7 @@ export const ClipBlock = memo(function ClipBlock({ clip, pps, pad, top, height }
       bot.push(`${lx},${(0.5 + Math.min(0.5, v * 0.6 * waveK * gain)).toFixed(3)}`);
     }
     return `M${topPts.join('L')}L${bot.reverse().join('L')}Z`;
-  }, [wf, clip.in, clip.duration, clip.speed, clip.curve, pps, waveK, gain]);
+  }, [wf, clip.in, clip.duration, clip.speed, clip.curve, clip.reverse, clip.freeze, pps, waveK, gain]);
 
   const isVideo = clip.kind === 'video';
   const volDrag = (e: React.PointerEvent) => {

@@ -90,10 +90,11 @@ export function ClipActions() {
 /** Speed: slider, presets and an exact duration. Linked audio follows. */
 export function SpeedPanel() {
   const clip = useEditor((s) => s.project!.clips?.find((c) => c.id === s.selectedClipId) ?? null);
+  // Hooks must run before the early returns below, or the hook count changes with the selection.
+  const [tab, setTab] = useState<'normal' | 'curve'>(clip?.curve ? 'curve' : 'normal');
   if (!clip) return <Section title="Speed"><Empty icon={<Scissors />} title="No clip selected">Click a clip on the timeline to change its speed.</Empty></Section>;
   if (clip.freeze) return <Section title="Speed"><p className="text-xs text-muted-foreground">A freeze frame has no speed.</p></Section>;
   const source = clip.duration * clip.speed; // length of the source span this clip plays
-  const [tab, setTab] = useState<'normal' | 'curve'>(clip.curve ? 'curve' : 'normal');
   const mode = clip.curve ? 'curve' : tab;
   return (
     <Section title="Speed" right={!clip.curve && clip.speed !== 1 ? <Button size="xs" variant="ghost" onClick={() => clipOps.speed(clip.id, 1)}>Reset</Button> : null}>

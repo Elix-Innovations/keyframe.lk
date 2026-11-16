@@ -612,10 +612,23 @@ const cornerArcs = (name: string, base: string, light: string, line: string): Li
 const orbitDots = (name: string, base: string, dot: string, hi = '#ffffff'): LibraryEntry['build'] => (f) => {
   const D = 8, cx = f.w * 0.04, cy = f.h * 0.88;
   const dotAt = (R: number, off: number, size: number): SceneNode[] => {
-    const pt = (u: number) => { const a = (-100 + 95 * (u % 1)) * (Math.PI / 180); return [cx + Math.cos(a) * R, cy + Math.sin(a) * R]; };
-    const xs = Array.from({ length: 17 }, (_, i) => k((i / 16) * D, pt(i / 16 + off)[0], 'linear'));
-    const ys = Array.from({ length: 17 }, (_, i) => k((i / 16) * D, pt(i / 16 + off)[1], 'linear'));
-    return [{ type: 'ellipse', name: `halo ${R}`, w: size * 2.4, h: size * 2.4, fill: dot, blur: 16, opacity: 0.35, x: keys(...xs), y: keys(...ys) }, { type: 'ellipse', name: `dot ${R}`, w: size, h: size, fill: dot, x: keys(...xs), y: keys(...ys) }];
+    const pt = (u: number) => { const a = (-100 + 95 * u) * (Math.PI / 180); return [cx + Math.cos(a) * R, cy + Math.sin(a) * R]; };
+    // The dot teleports from the arc end back to its start once per loop. Break the keys there (hold pair) and fade the dot out and in so it never streaks backwards.
+    const tw = off > 0 ? (1 - off) * D : null, FADE = 0.3;
+    const pts: [number, number][] = [];
+    for (let i = 0; i <= 16; i++) {
+      const t = (i / 16) * D, u = i / 16 + off;
+      if (tw !== null && Math.abs(t - tw) < 0.002) continue;
+      pts.push([t, tw !== null && t > tw ? u - 1 : u]);
+    }
+    if (tw !== null) pts.push([tw, 1], [tw + 0.001, 0]);
+    pts.sort((p, q) => p[0] - q[0]);
+    const xs = pts.map(([t, u]) => k(t, pt(u)[0], 'linear'));
+    const ys = pts.map(([t, u]) => k(t, pt(u)[1], 'linear'));
+    const fade = (o: number) => keys(...(tw !== null
+      ? [k(0, o), k(tw - FADE, o), k(tw, 0), k(tw + 0.001, 0), k(tw + FADE, o), k(D, o)]
+      : [k(0, 0), k(FADE, o), k(D - FADE, o), k(D, 0)]));
+    return [{ type: 'ellipse', name: `halo ${R}`, w: size * 2.4, h: size * 2.4, fill: dot, blur: 16, opacity: fade(0.35), x: keys(...xs), y: keys(...ys) }, { type: 'ellipse', name: `dot ${R}`, w: size, h: size, fill: dot, opacity: fade(1), x: keys(...xs), y: keys(...ys) }];
   };
   return scene(name, D, 'background', f, [
     { type: 'ellipse', name: 'light', x: f.w / 2, y: f.h * 0.42, w: f.w * 1.5, h: f.h * 0.85, fill: hi, blur: 130 },

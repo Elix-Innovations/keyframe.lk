@@ -28,6 +28,7 @@ export function SoundsPanel() {
   const [playing, setPlaying] = useState<string | null>(null);
   const audio = useRef<HTMLAudioElement | null>(null);
   const last = useRef('');
+  const req = useRef(0); // id of the newest search; older responses are ignored
 
   useEffect(() => () => { audio.current?.pause(); }, []);
 
@@ -35,13 +36,15 @@ export function SoundsPanel() {
     const term = query.trim();
     if (!term) return;
     setQ(term); last.current = term; setBusy(true);
+    const id = ++req.current;
     try {
       const r = await sfxSearch(term, n);
+      if (id !== req.current) return;
       setResults((prev) => (n > 1 && prev ? [...prev, ...r.results] : r.results));
       setPage({ n: r.page, of: r.pageCount });
     } catch (e) {
-      notify((e as Error).message, 'error');
-    } finally { setBusy(false); }
+      if (id === req.current) notify((e as Error).message, 'error');
+    } finally { if (id === req.current) setBusy(false); }
   };
 
   const toggle = (r: SfxResult) => {
@@ -49,10 +52,10 @@ export function SoundsPanel() {
     audio.current?.pause();
     const a = new Audio(r.previewUrl);
     a.onended = () => setPlaying((p) => (p === r.id ? null : p));
-    a.onerror = () => { setPlaying(null); notify('Could not play that sound.', 'error'); };
+    a.onerror = () => { if (audio.current !== a) return; setPlaying(null); notify('Could not play that sound.', 'error'); };
     audio.current = a;
     setPlaying(r.id);
-    void a.play().catch(() => setPlaying(null));
+    void a.play().catch(() => { if (audio.current === a) setPlaying(null); });
   };
 
   const add = async (key: string, src: SoundSource) => {

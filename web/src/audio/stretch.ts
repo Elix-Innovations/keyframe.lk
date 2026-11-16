@@ -4,7 +4,7 @@
  */
 const tick = () => new Promise<void>((r) => setTimeout(r, 0));
 
-function stretchChannel(x: Float32Array, rate: number, sr: number): Float32Array {
+async function stretchChannel(x: Float32Array, rate: number, sr: number): Promise<Float32Array> {
   const N = Math.max(512, 2 * Math.round((sr * 0.04) / 2)); // ≈ 40 ms
   const Hs = N / 2;
   const Ha = Hs * rate;
@@ -17,6 +17,7 @@ function stretchChannel(x: Float32Array, rate: number, sr: number): Float32Array
   for (let k = 0; ; k++) {
     const o = k * Hs;
     if (o >= outLen) break;
+    if (k % 64 === 63) await tick(); // keep the UI responsive on long media
     const nominal = Math.round(k * Ha);
     let pos = nominal;
     if (k > 0) {
@@ -47,8 +48,7 @@ export async function timeStretch(buf: AudioBuffer, rate: number): Promise<Audio
   if (Math.abs(rate - 1) < 0.005) return buf;
   const chans: Float32Array[] = [];
   for (let c = 0; c < buf.numberOfChannels; c++) {
-    chans.push(stretchChannel(buf.getChannelData(c), rate, buf.sampleRate));
-    await tick();
+    chans.push(await stretchChannel(buf.getChannelData(c), rate, buf.sampleRate));
   }
   const out = new AudioBuffer({ length: chans[0].length, numberOfChannels: chans.length, sampleRate: buf.sampleRate });
   chans.forEach((d, c) => out.copyToChannel(d as Float32Array<ArrayBuffer>, c));

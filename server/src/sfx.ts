@@ -31,6 +31,13 @@ interface OvResponse { results?: OvAudio[]; page?: number; page_count?: number; 
 const urlCache = new Map<string, { url: string; expires: number }>();
 const searchCache = new Map<string, { value: SfxSearchResponse; expires: number }>();
 
+/** Cache a resolved file URL, evicting the oldest entries so the map stays bounded. */
+function cacheUrl(id: string, entry: { url: string; expires: number }) {
+  urlCache.delete(id);
+  urlCache.set(id, entry);
+  if (urlCache.size > 5000) urlCache.delete(urlCache.keys().next().value!);
+}
+
 function allowed(u: string): URL {
   let url: URL;
   try { url = new URL(u); } catch { throw new HttpError(502, 'Openverse returned an invalid audio URL.'); }
@@ -57,7 +64,7 @@ const licenseOf = (a: OvAudio) => `${(a.license ?? 'cc').toUpperCase()}${a.licen
 function toResult(a: OvAudio): SfxResult | null {
   if (!a.id || !a.url) return null;
   try { allowed(a.url); } catch { return null; }
-  urlCache.set(a.id, { url: a.url, expires: Date.now() + 60 * 60 * 1000 });
+  cacheUrl(a.id, { url: a.url, expires: Date.now() + 60 * 60 * 1000 });
   const name = (a.title ?? '').trim() || 'Untitled';
   const creator = (a.creator ?? '').trim() || 'Unknown';
   const license = licenseOf(a);
@@ -103,7 +110,7 @@ export async function sfxFile(c: Context) {
     const a = (await openverse(`${id}/`, {})) as unknown as OvAudio;
     if (!a?.url) throw new HttpError(404, 'That sound was not found.');
     url = { url: a.url, expires: Date.now() + 60 * 60 * 1000 };
-    urlCache.set(id, url);
+    cacheUrl(id, url);
   }
   const target = allowed(url.url);
   let upstream: Response;

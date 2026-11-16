@@ -1,4 +1,4 @@
-import { memo, useRef } from 'react';
+import { memo, useRef, useState } from 'react';
 import type { AdjClip } from '@/types';
 import { useEditor } from '@/store';
 import { currentTime } from '@/lib/player';
@@ -80,10 +80,12 @@ export const AdjBlock = memo(function AdjBlock({ adj, pps, pad, top, height }: {
     else if (d.kind === 'l') set(() => trimAdjLeft(d.orig, adj.id, snap(d.orig, a, raw, pps, 'l')), `adj-${adj.id}`);
     else set(() => trimAdjRight(d.orig, adj.id, snap(d.orig, a, raw, pps, 'r')), `adj-${adj.id}`);
   };
+  // Re-render when the menu opens so canSplit reflects the playhead at that moment.
+  const [, refresh] = useState(0);
   const canSplit = (() => { const t = currentTime(); return t > adj.start && t < adjEnd(adj); })();
 
   return (
-    <ContextMenu onOpenChange={(o) => o && !useEditor.getState().multiIds.includes(adj.id) && useEditor.getState().selectAdj(adj.id)}>
+    <ContextMenu onOpenChange={(o) => { if (!o) return; refresh((n) => n + 1); if (!useEditor.getState().multiIds.includes(adj.id)) useEditor.getState().selectAdj(adj.id); }}>
       <ContextMenuTrigger asChild>
         <div title={`${adj.kind === 'filter' ? 'Filter' : 'Effect'}: ${adjLabel(adj)}`}
           onPointerDown={(e) => down(e, 'move')} onPointerMove={move} onPointerUp={() => { endGroup(drag.current?.group); drag.current = null; }}

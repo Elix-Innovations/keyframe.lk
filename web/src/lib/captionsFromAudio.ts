@@ -5,18 +5,31 @@ import { transcribe } from './api';
 import { getBlob } from './db';
 import { normalizeCaptions, segmentWords } from './segment';
 import { useEditor } from '../store';
+import { curveDuration } from './speedCurve';
 
 /** The stretch of a stored file that sits on the timeline: file seconds [from, to) land at `at` onwards, `rate` file seconds per timeline second. */
-export interface AudioSpan { assetId: string; name: string; from: number; to: number; at: number; rate: number }
+export interface AudioSpan { assetId: string; name: string; from: number; to: number; at: number; rate: number;
+  /** File second -> timeline second. Differs from the linear `rate` mapping when the clip has a speed curve. */
+  toTimeline: (srcSec: number) => number }
 
 /** The span a timeline audio clip or music track covers, or null when the id is not one. */
 export function audioSpanOf(id: string): AudioSpan | null {
   const p = useEditor.getState().project;
   if (!p) return null;
   const c = p.clips?.find((x) => x.id === id);
-  if (c) return { assetId: c.assetId, name: c.name, from: c.in, to: c.in + c.duration * c.speed, at: c.start, rate: c.speed };
+  if (c) {
+    const from = c.in, to = c.in + c.duration * c.speed;
+    const curve = c.curve;
+    return {
+      assetId: c.assetId, name: c.name, from, to, at: c.start, rate: c.speed,
+      // With a speed curve `speed` is only the average: timeline time is the integral of 1 / speed.
+      toTimeline: curve
+        ? (s) => c.start + curveDuration({ curve, in: c.in, sourceDuration: c.sourceDuration }, from, Math.min(to, Math.max(from, s)))
+        : (s) => c.start + (s - from) / c.speed,
+    };
+  }
   const t = p.audio.tracks.find((x) => x.id === id);
-  if (t) return { assetId: t.assetId, name: t.name, from: t.offset, to: t.offset + Math.min(t.duration, t.fileDuration - t.offset), at: t.start, rate: 1 };
+  if (t) return { assetId: t.assetId, name: t.name, from: t.offset, to: t.offset + Math.min(t.duration, t.fileDuration - t.offset), at: t.start, rate: 1, toTimeline: (s) => t.start + (s - t.offset) };
   return null;
 }
 
@@ -25,26 +38,36 @@ export async function generateCaptionsFromAudio(id: string): Promise<void> {
   const span = audioSpanOf(id);
   const st = useEditor.getState();
   if (!span || !st.project) return;
-  const blob = await getBlob(span.assetId);
+  const pid = st.project.id;
+  let blob: Blob | undefined;
+  try { blob = await getBlob(span.assetId); } catch (e) { st.notify((e as Error).message || 'Could not read that audio.', 'error'); return; }
   if (!blob) { st.notify('Could not read that audio.', 'error'); return; }
   const lang = st.project.language === 'en' ? 'en' : 'si';
   const toastId = toast.loading(`Transcribing “${span.name}”…`);
   try {
     const res = await transcribe(blob, { language: lang, provider: 'auto', onUpload: () => undefined });
-    const end = span.at + (span.to - span.from) / span.rate;
+    toast.dismiss(toastId);
+    // The upload takes seconds: the clip may have moved or another project been opened since.
+    const now = useEditor.getState().project;
+    const fresh = audioSpanOf(id);
+    if (!now || now.id !== pid || !fresh || fresh.assetId !== span.assetId || fresh.at !== span.at || fresh.from !== span.from || fresh.to !== span.to) {
+      st.notify('The clip changed while transcribing, so no captions were added. Try again.', 'error');
+      return;
+    }
+    const at = span.at;
+    const end = span.toTimeline(span.to);
     const words: Word[] = res.words
       .filter((w) => w.end > span.from && w.start < span.to)
       .map((w) => ({
         id: nanoid(8), text: w.text,
-        start: span.at + (Math.max(w.start, span.from) - span.from) / span.rate,
-        end: span.at + (Math.min(w.end, span.to) - span.from) / span.rate,
+        start: span.toTimeline(Math.max(w.start, span.from)),
+        end: span.toTimeline(Math.min(w.end, span.to)),
       }));
-    toast.dismiss(toastId);
     if (!words.length) { st.notify('No speech was detected in that audio.', 'error'); return; }
     st.update((p) => ({
       ...p,
-      words: [...p.words.filter((w) => w.end <= span.at || w.start >= end), ...words].sort((a, b) => a.start - b.start),
-      captions: normalizeCaptions([...p.captions.filter((c) => c.end <= span.at || c.start >= end), ...segmentWords(words, p.segmentation)]),
+      words: [...p.words.filter((w) => w.end <= at || w.start >= end), ...words].sort((a, b) => a.start - b.start),
+      captions: normalizeCaptions([...p.captions.filter((c) => c.end <= at || c.start >= end), ...segmentWords(words, p.segmentation)]),
     }));
     st.notify(`Added captions for ${words.length} words.`, 'success');
   } catch (e) {

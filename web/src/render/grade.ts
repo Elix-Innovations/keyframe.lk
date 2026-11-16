@@ -182,7 +182,8 @@ function init(): GL | null {
 
 /** Re-draw `src` through the grade onto `out`, replacing what `out` holds. Returns false when WebGL is unavailable. */
 export function drawGraded(out: OffscreenCanvasRenderingContext2D | CanvasRenderingContext2D, src: CanvasImageSource & { width: number; height: number }, f: VideoFilters, seed = 0): boolean {
-  const g = init();
+  let g = init();
+  if (g?.gl.isContextLost()) { ctxGl = undefined; g = init(); } // GPU reset: rebuild on a fresh context instead of drawing blank
   if (!g) return false;
   const { gl, c, tex, loc } = g;
   const W = src.width, H = src.height;

@@ -25,7 +25,7 @@ function load(): Promise<RnnoiseModule> {
     const wasm = m.createRNNWasmModuleSync() as RnnoiseModule & { ready?: Promise<unknown> };
     await wasm.ready;
     return wasm;
-  });
+  }).catch((e) => { mod = null; throw e; }); // don't cache a failed load: let the next call retry
   return mod;
 }
 

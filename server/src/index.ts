@@ -89,6 +89,34 @@ const app = new Hono();
 // Middleware
 // ---------------------------------------------------------------------------
 
+// The API has no auth, so it must only answer to the local machine. CORS alone does not help: it only hides the
+// response, the handler still runs (cross-site "simple" POSTs, DNS rebinding). Extra hostnames (e.g. a LAN address
+// for dev) can be allowed with KEYFRAME_ALLOWED_HOSTS=host1,host2.
+const extraHosts = (process.env.KEYFRAME_ALLOWED_HOSTS ?? '').split(',').map((h) => h.trim().toLowerCase()).filter(Boolean);
+const isLocalHostname = (hostname: string) => {
+  const h = hostname.toLowerCase();
+  return h === 'localhost' || h === '127.0.0.1' || h === '[::1]' || extraHosts.includes(h);
+};
+/** Hostname of a Host header value or an Origin URL ('' when unparseable, e.g. Origin "null"). */
+const hostnameOf = (hostOrOrigin: string) => {
+  try {
+    return new URL(hostOrOrigin.includes('://') ? hostOrOrigin : `http://${hostOrOrigin}`).hostname;
+  } catch {
+    return '';
+  }
+};
+app.use('/api/*', async (c, next) => {
+  if (!isLocalHostname(hostnameOf(c.req.header('host') ?? ''))) return c.json({ error: 'Forbidden host.' }, 403);
+  const method = c.req.method;
+  if (method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS') {
+    const origin = c.req.header('origin');
+    if (origin !== undefined && !isLocalHostname(hostnameOf(origin))) {
+      return c.json({ error: 'Forbidden origin.' }, 403);
+    }
+  }
+  return next();
+});
+
 app.use(
   '/api/*',
   cors({
@@ -136,6 +164,10 @@ app.onError((err, c) => {
 // ---------------------------------------------------------------------------
 
 async function readJson<S extends z.ZodType>(c: Context, schema: S): Promise<z.infer<S>> {
+  // Browsers send application/json only after a CORS preflight; text/plain would be a preflight-free simple request.
+  if (!/^application\/json\b/i.test(c.req.header('content-type') ?? '')) {
+    throw new HttpError(415, 'Content-Type must be application/json.');
+  }
   let body: unknown;
   try {
     body = await c.req.json();
@@ -275,7 +307,7 @@ if (existsSync(webDist)) {
 // ---------------------------------------------------------------------------
 
 const port = Number(process.env.PORT) || 8787;
-const server = serve({ fetch: app.fetch, port }, (info) => {
+const server = serve({ fetch: app.fetch, port, hostname: process.env.HOST || '127.0.0.1' }, (info) => {
   console.log(`Keyframe.lk server listening on http://localhost:${info.port}`);
 });
 // Long uploads + transcription can exceed Node's default 5 minute request timeout.

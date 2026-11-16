@@ -32,6 +32,7 @@ export function ExportPanel() {
   const abort = useRef<AbortController | null>(null);
   const [prefs, setPrefs] = useState<SavePrefs>(DEFAULT_SAVE_PREFS);
   useEffect(() => { loadSavePrefs().then(setPrefs); }, []);
+  useEffect(() => () => abort.current?.abort(), []); // don't leave an uncancellable export running after unmount
   const changePrefs = (patch: Partial<SavePrefs>) => setPrefs((p) => { const n = { ...p, ...patch }; void storeSavePrefs(n); return n; });
   const chooseFolder = async () => {
     try { const folder = await pickFolder(); if (folder) changePrefs({ folder, mode: 'folder' }); }
@@ -73,7 +74,8 @@ export function ExportPanel() {
     } catch (e) { notify((e as Error).message, 'error'); }
   };
 
-  const RenderBar = () => (
+  // A render function (not a nested component) so the Cancel button isn't remounted on every progress tick.
+  const renderBar = () => (
     <div className="flex flex-col gap-2 rounded-xl border bg-muted/40 p-3">
       <div className="flex justify-between text-xs"><span>Rendering {Math.round((progress ?? 0) * 100)}%</span><span className="text-muted-foreground">{eta !== null ? `~${Math.ceil(eta)}s left` : ''}</span></div>
       <Progress value={progress ?? 0} />
@@ -124,7 +126,7 @@ export function ExportPanel() {
         </div>
         {progress === null || mode !== 'video' ? (
           <Button size="sm" className="h-8" disabled={!canEncode || !project.videoAssetId || progress !== null} onClick={() => run(false)}><Clapperboard />Export MP4</Button>
-        ) : <RenderBar />}
+        ) : renderBar()}
         <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
           <span>Audio:</span>
           {!needsMix(project) && <Badge variant="secondary">Original (untouched)</Badge>}
@@ -139,7 +141,7 @@ export function ExportPanel() {
           <div className="flex flex-col gap-1.5 rounded-xl border bg-muted/30 p-3">
             <div className="text-xs font-medium">Music credits (paste into your post description)</div>
             <p className="whitespace-pre-line text-[11px] text-muted-foreground">{project.audio.tracks.filter((t) => t.attribution).map((t) => t.attribution).join('\n')}</p>
-            <Button variant="outline" size="xs" className="self-start" onClick={() => navigator.clipboard.writeText(project.audio.tracks.filter((t) => t.attribution).map((t) => t.attribution).join('\n')).then(() => notify('Credits copied.', 'success'))}>Copy credits</Button>
+            <Button variant="outline" size="xs" className="self-start" onClick={() => navigator.clipboard.writeText(project.audio.tracks.filter((t) => t.attribution).map((t) => t.attribution).join('\n')).then(() => notify('Credits copied.', 'success'), () => notify('Could not copy. Select the text and copy it manually.', 'error'))}>Copy credits</Button>
           </div>
         )}
         <p className="text-xs text-muted-foreground">Rendered on your device with the same engine as the preview — what you see is exactly what you get. No upload, no credits.</p>
@@ -166,7 +168,7 @@ export function ExportPanel() {
         </div>
         {progress === null || mode !== 'captions' ? (
           <Button size="sm" className="h-8" disabled={!canEncode || !project.videoAssetId || progress !== null || !project.captions.length} onClick={() => run(true)}><Clapperboard />Export captions only {{ mov: 'MOV', webm: 'WebM', mp4: 'MP4' }[capExt]}</Button>
-        ) : <RenderBar />}
+        ) : renderBar()}
         {!project.captions.length && <p className="text-xs text-muted-foreground">Add captions first.</p>}
         <p className="text-xs text-muted-foreground">{prores
           ? 'Frames are rendered here with the same engine as the preview, then encoded to ProRes by ffmpeg in your local Keyframe.lk server. Nothing leaves your computer.'

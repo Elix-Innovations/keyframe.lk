@@ -53,7 +53,7 @@ export function FxPreview({ spec, hover, className }: { spec: FxSpec; hover: boo
       }),
     };
     const fake: Project = {
-      ...project, clips: [clip], lanes: {}, captions: [], broll: [], overlays: [], hook: { ...project.hook, enabled: false },
+      ...project, clips: [clip], adj: [], lanes: {}, captions: [], broll: [], overlays: [], hook: { ...project.hook, enabled: false },
       // Transition tiles show the project's own backdrop (blur, colour or black) where the shot moves off the frame.
       fit: spec.transition ? project.fit : 'cover',
       duration: dur, video: undefined, videoWidth: bmp.width, videoHeight: bmp.height,

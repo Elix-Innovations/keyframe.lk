@@ -19,7 +19,10 @@ export function SpeedCurve({ clip }: { clip: Clip }) {
   const span = clip.duration * clip.speed; // source seconds this clip plays
   const from = clip.in, to = clip.in + span;
   const pts = clip.curve;
-  const [sel, setSel] = useState<string>(pts ? 'custom' : 'none');
+  // The highlight follows the clip's actual curve: no curve is always 'none'; a curve that was not picked from a preset (or belongs to another clip) is 'custom'.
+  const [picked, setPicked] = useState<{ id: string; v: string } | null>(null);
+  const setSel = (v: string) => setPicked({ id: clip.id, v });
+  const sel = !pts ? 'none' : picked && picked.id === clip.id && picked.v !== 'none' ? picked.v : 'custom';
   const time = useEditor((st) => st.time);
   const base = span; // length at 1×
   const head = time >= clip.start && time < clip.start + clip.duration ? sourceTimeAt(clip, time) : null;
@@ -72,6 +75,7 @@ export function SpeedCurve({ clip }: { clip: Clip }) {
           if (e.target !== svg.current && (e.target as Element).tagName !== 'rect') return;
           const { px, py } = local(e);
           const x = r2(srcOfX(px));
+          if (!pts) setSel('custom');
           write([...(pts ?? [{ x: from, s: clip.speed }, { x: to, s: clip.speed }]), { x, s: r2(sOf(py)) }], `curve-add-${clip.id}`);
         }}>
         <rect width={W} height={H} fill="transparent" />

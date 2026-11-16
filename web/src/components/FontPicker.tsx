@@ -21,11 +21,12 @@ function sampleFor(def: FontDef, script: 'sinhala' | 'english') {
 /** Loads the font the first time its row scrolls into view. */
 function FontSample({ def, script, className }: { def: FontDef; script: 'sinhala' | 'english'; className?: string }) {
   const ref = useRef<HTMLSpanElement>(null);
+  const [loadedTick, setLoadedTick] = useState(0); // ensureFont does not notify listeners for a single bundled face, so re-check when it settles
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
     const io = new IntersectionObserver((entries) => {
-      if (entries.some((e) => e.isIntersecting)) { ensureFont(def.id); io.disconnect(); }
+      if (entries.some((e) => e.isIntersecting)) { void ensureFont(def.id).then(() => setLoadedTick((n) => n + 1)); io.disconnect(); }
     });
     io.observe(el);
     return () => io.disconnect();
@@ -34,11 +35,13 @@ function FontSample({ def, script, className }: { def: FontDef; script: 'sinhala
   const [ready, setReady] = useState(false);
   useEffect(() => {
     let alive = true;
-    const check = () => { if (alive) setReady(def.source === 'system' || document.fonts.check(`${previewWeight(def)} 17px ${cssFamily(def)}`, sampleFor(def, script))); };
+    // `check()` is true for families that were never registered, so FM fonts (whose text is ASCII gibberish in a fallback) need a loaded face by name.
+    const faceLoaded = () => { for (const face of document.fonts) if (face.family.replace(/"/g, '') === def.family && face.status === 'loaded') return true; return false; };
+    const check = () => { if (alive) setReady(def.source === 'system' || (def.legacy ? faceLoaded() : document.fonts.check(`${previewWeight(def)} 17px ${cssFamily(def)}`, sampleFor(def, script)))); };
     check();
     const off = onFontsChanged(check);
     return () => { alive = false; off(); };
-  }, [def, script]);
+  }, [def, script, loadedTick]);
   return (
     <span ref={ref} className={cn('truncate text-[17px] leading-tight', className, !ready && 'opacity-30')} style={{ fontFamily: cssFamily(def), fontWeight: previewWeight(def) }}>
       {ready || !def.legacy ? sampleFor(def, script) : '…'}

@@ -159,7 +159,7 @@ export function UsagePanel() {
               </AlertDialogHeader>
               <AlertDialogFooter>
                 <AlertDialogCancel>Cancel</AlertDialogCancel>
-                <AlertDialogAction variant="destructive" onClick={async () => { await resetUsage(); await load(); notify('Usage log reset.', 'success'); }}>Reset</AlertDialogAction>
+                <AlertDialogAction variant="destructive" onClick={async () => { try { await resetUsage(); } catch (e) { notify((e as Error).message || 'Could not reset the usage log.', 'error'); return; } await load(); notify('Usage log reset.', 'success'); }}>Reset</AlertDialogAction>
               </AlertDialogFooter>
             </AlertDialogContent>
           </AlertDialog>

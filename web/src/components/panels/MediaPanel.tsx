@@ -5,6 +5,7 @@ import { useEditor } from '@/store';
 import { getBlob } from '@/lib/db';
 import { addLibraryItem, imageThumb, importToLibrary, kindOf, type MediaKind } from '@/lib/importMedia';
 import { probeVideo } from '@/lib/media';
+import { foldedIntoVideo } from '@/lib/clips';
 import { seek } from '@/lib/player';
 import { clipOps } from '../ClipLane';
 import { overlayOps } from '../OverlayLane';
@@ -22,12 +23,19 @@ function MediaViewer({ item, onClose }: { item: Item | null; onClose: () => void
   const update = useEditor((s) => s.update);
   const lib = useEditor((s) => (item?.source === 'library' ? s.project?.library?.find((l) => l.id === item.id) : undefined));
   const [now, setNow] = useState(0);
+  const [error, setError] = useState<string | null>(null);
   useEffect(() => {
     if (!item) return;
     let live = true;
     let made: string | null = null;
-    getBlob(item.assetId).then((b) => { if (live && b) { made = URL.createObjectURL(b); setUrl(made); } }).catch(() => {});
-    return () => { live = false; setUrl(null); if (made) URL.revokeObjectURL(made); };
+    getBlob(item.assetId)
+      .then((b) => {
+        if (!live) return;
+        if (!b) { setError('This file is no longer stored. Re-import it to preview it.'); return; }
+        made = URL.createObjectURL(b); setUrl(made);
+      })
+      .catch((e) => { if (live) setError((e as Error).message || 'Could not open this file.'); });
+    return () => { live = false; setUrl(null); setError(null); setNow(0); if (made) URL.revokeObjectURL(made); };
   }, [item?.assetId]); // eslint-disable-line react-hooks/exhaustive-deps
   const timed = !!lib && lib.kind !== 'image';
   const setRange = (range: { in: number; out: number } | undefined) =>
@@ -45,9 +53,9 @@ function MediaViewer({ item, onClose }: { item: Item | null; onClose: () => void
   // Premiere-style: playing from In stops at Out.
   useEffect(() => {
     const el = media.current;
-    if (!el || !lib?.range) return;
-    const r = lib.range;
-    const tick = () => { setNow(el.currentTime); if (!el.paused && el.currentTime >= r.out) { el.pause(); el.currentTime = r.out; } };
+    if (!el) return;
+    const r = lib?.range;
+    const tick = () => { setNow(el.currentTime); if (r && !el.paused && el.currentTime >= r.out) { el.pause(); el.currentTime = r.out; } };
     el.addEventListener('timeupdate', tick);
     return () => el.removeEventListener('timeupdate', tick);
   }, [lib?.range?.in, lib?.range?.out, url]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -64,7 +72,7 @@ function MediaViewer({ item, onClose }: { item: Item | null; onClose: () => void
     <Dialog open={!!item} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="sm:max-w-2xl" onKeyDown={onKey}>
         <DialogHeader><DialogTitle className="truncate">{item?.name}</DialogTitle></DialogHeader>
-        {item && !url && <div className="grid h-40 place-items-center text-xs text-muted-foreground">Loading…</div>}
+        {item && !url && <div className="grid h-40 place-items-center px-4 text-center text-xs text-muted-foreground">{error ?? 'Loading…'}</div>}
         {item && url && item.kind === 'video' && <video ref={media} src={url} controls autoPlay className="max-h-[60vh] w-full rounded-lg bg-black" />}
         {item && url && item.kind === 'audio' && <audio ref={media} src={url} controls autoPlay className="w-full" />}
         {item && url && item.kind === 'image' && <img src={url} alt="" className="max-h-[60vh] w-full rounded-lg bg-black object-contain" />}
@@ -138,6 +146,7 @@ export function MediaPanel() {
     const inLibrary = new Set((project.library ?? []).map((l) => l.assetId));
     for (const c of project.clips ?? []) {
       if (inLibrary.has(c.assetId)) continue;
+      if (foldedIntoVideo(c, project.clips ?? [])) continue; // a video's own sound is not a separate media item
       out.push({ id: c.id, kind: c.kind, name: c.name, duration: c.duration, thumb: c.kind === 'video' ? thumbs[c.assetId] ?? project.thumbnail ?? undefined : undefined, at: c.start, assetId: c.assetId, source: 'clip' });
     }
     for (const t of project.audio.tracks) if (!inLibrary.has(t.assetId)) out.push({ id: t.id, kind: 'audio', name: t.name, duration: t.duration, at: t.start, assetId: t.assetId, source: 'track' });
@@ -154,10 +163,9 @@ export function MediaPanel() {
     try {
       for (const f of Array.from(files)) {
         if (!kindOf(f)) { notify(`“${f.name}” is not a video, audio or image file.`, 'error'); continue; }
-        await importToLibrary(f);
+        try { await importToLibrary(f); }
+        catch (e) { notify(`${f.name}: ${(e as Error).message || 'Could not import that file.'}`, 'error'); }
       }
-    } catch (e) {
-      notify((e as Error).message || 'Could not import that file.', 'error');
     } finally { setBusy(false); }
   };
 

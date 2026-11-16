@@ -25,6 +25,17 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 type Scope = 'all' | 'caption' | 'range';
 type Cat = 'all' | 'mine' | 'captions' | 'creative' | 'motion' | 'presets' | 'scenes' | 'apple' | 'premiere';
 
+const isPlain = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
+
+/** A template from an imported file, or null when it would break the panel (missing name, a non-object style part, creative lines that are not a list). */
+function sanitizeImported(raw: unknown): Template | null {
+  if (!isPlain(raw) || typeof raw.name !== 'string' || !isPlain(raw.style)) return null;
+  const style = makeStyle(raw.style as Parameters<typeof makeStyle>[0]);
+  if (!isPlain(style.text) || !isPlain(style.layout) || !isPlain(style.highlight) || !isPlain(style.emphasis)) return null;
+  if (style.creative != null && (!isPlain(style.creative) || !Array.isArray(style.creative.lines))) return null;
+  return { ...(raw as unknown as Template), id: nanoid(10), builtIn: false, style, createdAt: typeof raw.createdAt === 'number' ? raw.createdAt : Date.now() };
+}
+
 /** "Tharu Digital Sinhala Cooper" → "Cooper", "FM Abhaya Bold" → "Abhaya Bold": the card has little room. */
 const shortFontName = (label: string) => label.replace(/^(FM|CC|Tharu( Digital| DC)?)\s+/, '').replace(/^Sinhala\s+/, '');
 
@@ -72,7 +83,7 @@ export function TemplatesPanel() {
   const save = async () => {
     const t: Template = { id: nanoid(10), name: name.trim() || `My style ${custom.length + 1}`, builtIn: false, style: project.style, createdAt: Date.now() };
     await db.putTemplate(t);
-    setCustom([t, ...custom]);
+    setCustom([t, ...useEditor.getState().customTemplates]);
     update((p) => ({ ...p, templateId: t.id }));
     setName('');
     notify(`Saved "${t.name}".`, 'success');
@@ -83,14 +94,15 @@ export function TemplatesPanel() {
     if (!editing) return;
     const t: Template = asNew || editing.builtIn ? { ...editing, id: nanoid(10), builtIn: false, createdAt: Date.now(), name: editing.builtIn ? `${editing.name} custom` : `${editing.name} copy` } : editing;
     await db.putTemplate(t);
-    setCustom(custom.some((x) => x.id === t.id) ? custom.map((x) => (x.id === t.id ? t : x)) : [t, ...custom]);
+    const cur = useEditor.getState().customTemplates; // read after the await: the list may have changed meanwhile
+    setCustom(cur.some((x) => x.id === t.id) ? cur.map((x) => (x.id === t.id ? t : x)) : [t, ...cur]);
     setEditing(t);
     notify(`Saved “${t.name}” to My templates.`, 'success');
   };
 
   const remove = async (t: Template) => {
     await db.deleteTemplate(t.id);
-    setCustom(custom.filter((x) => x.id !== t.id));
+    setCustom(useEditor.getState().customTemplates.filter((x) => x.id !== t.id));
   };
 
   const importPack = async (files: File[]) => {
@@ -99,7 +111,7 @@ export function TemplatesPanel() {
     try {
       const { templates, warnings } = await importPremierePack(files, setPackStatus);
       for (const t of templates) await db.putTemplate(t);
-      if (templates.length) setCustom([...templates, ...custom]);
+      if (templates.length) setCustom([...templates, ...useEditor.getState().customTemplates]);
       setPackWarnings(warnings);
       notify(templates.length ? `Imported ${templates.length} text animation${templates.length > 1 ? 's' : ''} into My templates.` : 'No text animations could be imported.', templates.length ? 'success' : 'info');
     } finally { setPackStatus(null); }
@@ -113,9 +125,10 @@ export function TemplatesPanel() {
   const importFile = async (f: File) => {
     try {
       const data = JSON.parse(await f.text());
-      const list: Template[] = (data.templates ?? []).map((t: Template) => ({ ...t, id: nanoid(10), builtIn: false, style: makeStyle(t.style) }));
+      if (!isPlain(data) || data.kind !== 'sincap-templates' || !Array.isArray(data.templates)) throw new Error('not a template export');
+      const list = (data.templates as unknown[]).map(sanitizeImported).filter((t): t is Template => !!t);
       for (const t of list) await db.putTemplate(t);
-      setCustom([...list, ...custom]);
+      setCustom([...list, ...useEditor.getState().customTemplates]);
       notify(`Imported ${list.length} templates.`, 'success');
     } catch {
       notify('That file is not a Keyframe.lk template export.', 'error');
@@ -191,7 +204,7 @@ export function TemplatesPanel() {
   ];
   const q = query.trim().toLowerCase();
   const visible = groups.filter((g) => g.list.length && (cat === 'all' || g.id === cat));
-  const found = q ? groups.flatMap((g) => g.list).filter((t) => t.name.toLowerCase().includes(q)) : null;
+  const found = q ? groups.flatMap((g) => g.list).filter((t) => (t.name ?? '').toLowerCase().includes(q)) : null;
   const PEEK = 4;
   const scopeLabel = scope === 'all' ? 'Whole video' : scope === 'caption' ? 'Selected caption' : 'Time range';
   const soundLabel = sound === 'template' ? 'Template sound' : sound === 'none' ? 'Silent' : SFX.find((x) => x.id === sound)?.label;
