@@ -1,7 +1,7 @@
 # Security
 
 ## Reporting
-Email the maintainer (see the git log for the address) with steps to reproduce. Do not open a public issue for a vulnerability. Expect a reply within a week.
+Report vulnerabilities privately through [GitHub private vulnerability reporting](https://github.com/elixinnovations/keyframe-web/security/advisories/new) (Security tab → **Report a vulnerability**). Include steps to reproduce. Do not open a public issue for a vulnerability. Expect a reply within a week.
 
 ## What stays local
 Videos, audio and projects are stored in your browser (IndexedDB). Audio is sent to a transcription provider only when you add that provider's key to `server/.env` and press Generate. API keys live in `server/.env`, which is git-ignored. Never commit it.

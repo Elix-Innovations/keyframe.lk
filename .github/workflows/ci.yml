@@ -12,6 +12,7 @@ jobs:
       - run: npm --prefix server ci
       - run: npm --prefix web ci
       - run: npm run typecheck
+      - run: npm run build
   python:
     runs-on: ubuntu-latest
     steps:

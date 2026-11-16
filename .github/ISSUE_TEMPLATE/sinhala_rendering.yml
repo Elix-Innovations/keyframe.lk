@@ -1,0 +1,30 @@
+name: Sinhala rendering / font bug
+description: Wrong letters, broken conjuncts, or wrong Unicode ⇄ FM conversion.
+labels: [sinhala, bug]
+body:
+  - type: input
+    id: font
+    attributes:
+      label: Font
+      description: The font name as shown in the font picker.
+      placeholder: FM Abhaya / Noto Sans Sinhala / my own .ttf
+    validations: { required: true }
+  - type: dropdown
+    id: area
+    attributes:
+      label: Where does it go wrong?
+      options: [Caption on the video, Exported MP4, Legacy FM SRT export, Unicode ⇄ FM converter (⌘K), Wijesekara keyboard]
+    validations: { required: true }
+  - type: textarea
+    id: input
+    attributes:
+      label: Input text
+      description: Paste the exact Unicode text.
+      render: text
+    validations: { required: true }
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected vs. actual
+      description: What it should look like and what you see. A screenshot helps a lot.
+    validations: { required: true }

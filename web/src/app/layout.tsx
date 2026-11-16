@@ -36,7 +36,7 @@ const themeScript = `(function () {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="si" suppressHydrationWarning>
+    <html lang="en" suppressHydrationWarning>
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />
         <link rel="preconnect" href="https://fonts.googleapis.com" />

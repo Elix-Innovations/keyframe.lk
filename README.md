@@ -475,6 +475,8 @@ Keyframe.lk is released under the [PolyForm Noncommercial License 1.0.0](LICENSE
 
 Contributions are welcome and are covered by the Contributor License Agreement in [CONTRIBUTING.md](CONTRIBUTING.md#contributor-license-agreement).
 
+The project license does not cover third-party code, fonts or models. Legacy FM / Tharu fonts (`npm run fonts:fetch`) and the forced-aligner model (`npm run align:fetch`) are downloaded separately under their own terms. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) (regenerate with `npm run notices`).
+
 ## 20. Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md). By opening a pull request you agree to its [Contributor License Agreement](CONTRIBUTING.md#contributor-license-agreement). Run `npm run typecheck` and `npm run test:py` before opening a PR; CI runs the same. Please also read the [Code of Conduct](CODE_OF_CONDUCT.md) and report vulnerabilities as described in [SECURITY.md](SECURITY.md).
