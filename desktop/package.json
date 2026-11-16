@@ -2,6 +2,7 @@
   "name": "keyframe-desktop",
   "productName": "Keyframe",
   "version": "1.0.0",
+  "license": "MIT",
   "description": "Keyframe.lk video editor",
   "main": "main.js",
   "author": "Keyframe",

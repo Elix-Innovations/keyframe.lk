@@ -1,6 +1,8 @@
 {
   "name": "keyframe",
   "private": true,
+  "license": "MIT",
+  "engines": { "node": ">=20" },
   "scripts": {
     "setup": "npm --prefix server install && npm --prefix web install && uv sync --project python && node -e \"const f=require('fs');f.existsSync('server/.env')||f.copyFileSync('server/.env.example','server/.env')\"",
     "dev": "node scripts/run-all.mjs dev",
