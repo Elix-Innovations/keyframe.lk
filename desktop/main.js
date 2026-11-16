@@ -1,5 +1,5 @@
 const { app, BrowserWindow, shell, dialog } = require('electron');
-const { spawn } = require('node:child_process');
+const { spawn, execFile } = require('node:child_process');
 const path = require('node:path');
 const fs = require('node:fs');
 const net = require('node:net');
@@ -70,6 +70,60 @@ function portInUse(port) {
   });
 }
 
+const run = (cmd, args) => new Promise((resolve) => {
+  execFile(cmd, args, { windowsHide: true, timeout: 5000 }, (err, stdout) => resolve(err ? '' : String(stdout)));
+});
+
+/** PIDs of processes listening on 127.0.0.1:`port` (netstat on Windows, lsof elsewhere). */
+async function listenersOn(port) {
+  if (process.platform === 'win32') {
+    const out = await run('netstat', ['-ano', '-p', 'tcp']);
+    const pids = new Set();
+    for (const line of out.split(/\r?\n/)) {
+      const m = line.trim().split(/\s+/);
+      // Proto  Local Address  Foreign Address  State  PID
+      if (m.length >= 5 && /LISTENING/i.test(m[3]) && m[1].endsWith(`:${port}`)) pids.add(Number(m[4]));
+    }
+    return [...pids].filter((p) => p > 0);
+  }
+  const out = await run('lsof', ['-nP', `-iTCP:${port}`, '-sTCP:LISTEN', '-t']);
+  return out.split(/\s+/).map(Number).filter((p) => p > 0);
+}
+
+/** Is `pid` one of our own server processes (they run the Keyframe executable itself, as Node)? */
+async function isKeyframeProcess(pid) {
+  if (pid === process.pid) return false;
+  const exe = path.basename(process.execPath).toLowerCase();
+  if (process.platform === 'win32') {
+    const out = await run('tasklist', ['/FI', `PID eq ${pid}`, '/FO', 'CSV', '/NH']);
+    return out.toLowerCase().includes(`"${exe}"`);
+  }
+  const out = await run('ps', ['-p', String(pid), '-o', 'comm=']);
+  return path.basename(out.trim()).toLowerCase() === exe;
+}
+
+/**
+ * A server left over from an earlier run (the app was force-closed, crashed, or was updated while running) still holds
+ * the port. Only Keyframe's own processes are stopped: a dev server or another program is reported instead.
+ */
+async function freePort(port) {
+  if (!(await portInUse(port))) return;
+  const ours = [];
+  for (const pid of await listenersOn(port)) if (await isKeyframeProcess(pid)) ours.push(pid);
+  for (const pid of ours) {
+    try { process.kill(pid); } catch {}
+    if (process.platform === 'win32') await run('taskkill', ['/PID', String(pid), '/T', '/F']);
+  }
+  const end = Date.now() + 5000;
+  while (Date.now() < end) {
+    if (!(await portInUse(port))) { mark(`stopped a leftover Keyframe server on ${port}`); return; }
+    await new Promise((r) => setTimeout(r, 150));
+  }
+  throw new Error(ours.length
+    ? `An earlier Keyframe is still holding port ${port} and could not be stopped. Restart the computer and try again.`
+    : `Port ${port} is used by another program (a dev server?). Close it and try again.`);
+}
+
 function startNode(name, script, env, cwd) {
   const child = spawn(process.execPath, [script], {
     cwd,
@@ -112,9 +166,7 @@ async function boot() {
   const base = resBase();
   const env = { PORT: String(API_PORT), KEYFRAME_DATA_DIR: dataDir, ...ffmpegEnv() };
 
-  if (await portInUse(API_PORT)) {
-    throw new Error(`Port ${API_PORT} is already in use (another Keyframe or a dev server?). Close it and try again.`);
-  }
+  await freePort(API_PORT);
   // HOST keeps the API (and its saved API keys) off the LAN.
   const apiDead = startNode('API server', path.join(base, 'server', 'index.mjs'), { ...env, HOST: '127.0.0.1' }, dataDir);
   const webPort = await pickWebPort();
@@ -193,4 +245,11 @@ if (!app.requestSingleInstanceLock()) {
   app.whenReady().then(() => { mark('electron ready'); return createWindow(booting); });
 }
 app.on('window-all-closed', () => app.quit());
-app.on('before-quit', () => { quitting = true; for (const c of children) try { c.kill(); } catch {} });
+app.on('before-quit', () => {
+  quitting = true;
+  for (const c of children) {
+    try { c.kill(); } catch {}
+    // On Windows kill() ends only the process itself; /T also ends anything it started (e.g. ffmpeg, uvicorn workers).
+    if (process.platform === 'win32' && c.pid) try { require('node:child_process').spawnSync('taskkill', ['/PID', String(c.pid), '/T', '/F'], { windowsHide: true }); } catch {}
+  }
+});
