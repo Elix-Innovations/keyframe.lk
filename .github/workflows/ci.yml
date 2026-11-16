@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main, dev]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    # macOS: on Linux the locked torch pulls several GB of CUDA wheels. (Free for public repositories.)
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: |
+            web/package-lock.json
+            server/package-lock.json
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: python/uv.lock
+      - name: ffmpeg (audio tests)
+        run: command -v ffmpeg || brew install ffmpeg
+      - name: Install
+        run: |
+          npm --prefix web ci
+          npm --prefix server ci
+          uv sync --project python
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Python tests
+        run: npm run test:py

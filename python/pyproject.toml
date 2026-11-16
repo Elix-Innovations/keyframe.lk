@@ -3,6 +3,7 @@ name = "keyframe-sinhala"
 version = "0.1.0"
 description = "Keyframe.lk Sinhala/FM font service: canonical FM table, converters, font verification and API"
 readme = "README.md"
+license = "MIT"
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.115",

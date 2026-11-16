@@ -1,8 +1,8 @@
 blank_issues_enabled: false
 contact_links:
   - name: Question or idea to discuss
-    url: https://github.com/elixinnovations/keyframe-web/discussions
+    url: https://github.com/Elix-Innovations/keyframe.lk/discussions
     about: Ask questions and share ideas in Discussions. Issues are for actionable work.
   - name: Security vulnerability
-    url: https://github.com/elixinnovations/keyframe-web/security/advisories/new
+    url: https://github.com/Elix-Innovations/keyframe.lk/security/advisories/new
     about: Report vulnerabilities privately. Do not open a public issue.
