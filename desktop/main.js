@@ -1,19 +1,54 @@
 const { app, BrowserWindow, Menu, shell, dialog, session } = require('electron');
-const os = require('node:os');
-const { spawn } = require('node:child_process');
+const { spawn, execFile } = require('node:child_process');
 const path = require('node:path');
 const fs = require('node:fs');
 const net = require('node:net');
+const os = require('node:os');
 const { createAligner } = require('./aligner');
 
 const API_PORT = 8787;
-// Fixed, not random: projects live in IndexedDB / OPFS, which belong to the page origin (host + port).
-const WEB_PORT = 5181;
 let children = [];
 let win;
 let quitting = false;
 
 const resBase = () => (app.isPackaged ? process.resourcesPath : path.join(__dirname, 'build'));
+
+// Startup timings, appended to <userData>/startup.log so a slow launch can be diagnosed on the machine it happens on.
+const t0 = Date.now();
+const timings = [];
+function mark(label) {
+  const line = `${String(Date.now() - t0).padStart(6)} ms  ${label}`;
+  timings.push(line);
+  console.log('[startup]', line);
+}
+function writeTimings() {
+  try {
+    const file = path.join(app.getPath('userData'), 'startup.log');
+    let prev = '';
+    try { prev = fs.readFileSync(file, 'utf8').slice(-20000); } catch {}
+    fs.writeFileSync(file, `${prev}\n# ${new Date().toISOString()}  v${app.getVersion()}  ${process.platform}/${process.arch}\n${timings.join('\n')}\n`);
+  } catch {}
+}
+
+// Port for the local web server. The editor keeps projects and settings in IndexedDB / localStorage, which belong to an
+// origin (host + port), so a random port on every launch would orphan them. Use a fixed one; only if every fixed port is
+// taken fall back to a random one (the editor still works, it just starts with a fresh browser profile).
+const WEB_PORTS = [8790, 8791, 8792, 8793, 8794];
+function canListen(port) {
+  return new Promise((resolve) => {
+    const s = net.createServer();
+    s.once('error', () => resolve(false));
+    s.listen(port, '127.0.0.1', () => s.close(() => resolve(true)));
+  });
+}
+async function pickWebPort() {
+  for (const p of WEB_PORTS) if (await canListen(p)) return p;
+  return new Promise((resolve, reject) => {
+    const s = net.createServer();
+    s.listen(0, '127.0.0.1', () => { const p = s.address().port; s.close(() => resolve(p)); });
+    s.on('error', reject);
+  });
+}
 
 function waitFor(port, timeoutMs = 30000) {
   const end = Date.now() + timeoutMs;
@@ -21,7 +56,7 @@ function waitFor(port, timeoutMs = 30000) {
     const tick = () => {
       const c = net.connect(port, '127.0.0.1');
       c.on('connect', () => { c.destroy(); resolve(); });
-      c.on('error', () => { c.destroy(); Date.now() > end ? reject(new Error('Timed out starting local servers')) : setTimeout(tick, 250); });
+      c.on('error', () => { c.destroy(); Date.now() > end ? reject(new Error('Timed out starting local servers')) : setTimeout(tick, 100); });
     };
     tick();
   });
@@ -34,6 +69,60 @@ function portInUse(port) {
     c.once('connect', () => { c.destroy(); resolve(true); });
     c.once('error', () => { c.destroy(); resolve(false); });
   });
+}
+
+const run = (cmd, args) => new Promise((resolve) => {
+  execFile(cmd, args, { windowsHide: true, timeout: 5000 }, (err, stdout) => resolve(err ? '' : String(stdout)));
+});
+
+/** PIDs of processes listening on 127.0.0.1:`port` (netstat on Windows, lsof elsewhere). */
+async function listenersOn(port) {
+  if (process.platform === 'win32') {
+    const out = await run('netstat', ['-ano', '-p', 'tcp']);
+    const pids = new Set();
+    for (const line of out.split(/\r?\n/)) {
+      const m = line.trim().split(/\s+/);
+      // Proto  Local Address  Foreign Address  State  PID
+      if (m.length >= 5 && /LISTENING/i.test(m[3]) && m[1].endsWith(`:${port}`)) pids.add(Number(m[4]));
+    }
+    return [...pids].filter((p) => p > 0);
+  }
+  const out = await run('lsof', ['-nP', `-iTCP:${port}`, '-sTCP:LISTEN', '-t']);
+  return out.split(/\s+/).map(Number).filter((p) => p > 0);
+}
+
+/** Is `pid` one of our own server processes (they run the Keyframe executable itself, as Node)? */
+async function isKeyframeProcess(pid) {
+  if (pid === process.pid) return false;
+  const exe = path.basename(process.execPath).toLowerCase();
+  if (process.platform === 'win32') {
+    const out = await run('tasklist', ['/FI', `PID eq ${pid}`, '/FO', 'CSV', '/NH']);
+    return out.toLowerCase().includes(`"${exe}"`);
+  }
+  const out = await run('ps', ['-p', String(pid), '-o', 'comm=']);
+  return path.basename(out.trim()).toLowerCase() === exe;
+}
+
+/**
+ * A server left over from an earlier run (the app was force-closed, crashed, or was updated while running) still holds
+ * the port. Only Keyframe's own processes are stopped: a dev server or another program is reported instead.
+ */
+async function freePort(port) {
+  if (!(await portInUse(port))) return;
+  const ours = [];
+  for (const pid of await listenersOn(port)) if (await isKeyframeProcess(pid)) ours.push(pid);
+  for (const pid of ours) {
+    try { process.kill(pid); } catch {}
+    if (process.platform === 'win32') await run('taskkill', ['/PID', String(pid), '/T', '/F']);
+  }
+  const end = Date.now() + 5000;
+  while (Date.now() < end) {
+    if (!(await portInUse(port))) { mark(`stopped a leftover Keyframe server on ${port}`); return; }
+    await new Promise((r) => setTimeout(r, 150));
+  }
+  throw new Error(ours.length
+    ? `An earlier Keyframe is still holding port ${port} and could not be stopped. Restart the computer and try again.`
+    : `Port ${port} is used by another program (a dev server?). Close it and try again.`);
 }
 
 function startNode(name, script, env, cwd) {
@@ -52,35 +141,42 @@ function startNode(name, script, env, cwd) {
   return dead;
 }
 
+/**
+ * Where ffmpeg is, for every child that decodes audio (API server and the aligner). Both installers ship
+ * ffmpeg/ffprobe in bin/ (scripts/prepare.mjs), which goes first on PATH. GUI apps don't inherit the shell PATH, so on
+ * macOS Homebrew and the usual user bin folders are added too (the `claude` CLI lives in ~/.local/bin or the npm global bin).
+ */
+function ffmpegEnv() {
+  const env = {};
+  const binDir = path.join(resBase(), 'bin');
+  const exe = process.platform === 'win32' ? '.exe' : '';
+  const extra = [binDir];
+  if (process.platform === 'darwin') extra.push('/opt/homebrew/bin', '/usr/local/bin', path.join(os.homedir(), '.local', 'bin'), path.join(os.homedir(), '.npm-global', 'bin'));
+  env.PATH = [...extra, process.env.PATH || ''].join(path.delimiter);
+  const ffmpeg = path.join(binDir, `ffmpeg${exe}`);
+  const ffprobe = path.join(binDir, `ffprobe${exe}`);
+  if (fs.existsSync(ffmpeg)) env.FFMPEG_PATH = ffmpeg;
+  if (fs.existsSync(ffprobe)) env.FFPROBE_PATH = ffprobe;
+  return env;
+}
+
 async function boot() {
   const dataDir = path.join(app.getPath('userData'), 'data');
   fs.mkdirSync(dataDir, { recursive: true });
   const base = resBase();
-  const env = { PORT: String(API_PORT), KEYFRAME_DATA_DIR: dataDir };
-  // Both installers ship ffmpeg/ffprobe in bin/ (scripts/prepare.mjs). Set it on this process's env so every child
-  // (API server, Python aligner) finds the same binaries. GUI apps don't inherit the shell PATH, so on macOS also add
-  // Homebrew and the usual user bin folders (the `claude` CLI lives in ~/.local/bin or the npm global bin).
-  const binDir = path.join(base, 'bin');
-  const exe = process.platform === 'win32' ? '.exe' : '';
-  const extra = [binDir];
-  if (process.platform === 'darwin') extra.push('/opt/homebrew/bin', '/usr/local/bin', path.join(os.homedir(), '.local', 'bin'), path.join(os.homedir(), '.npm-global', 'bin'));
-  process.env.PATH = [...extra, process.env.PATH || ''].join(path.delimiter);
-  const ffmpeg = path.join(binDir, `ffmpeg${exe}`), ffprobe = path.join(binDir, `ffprobe${exe}`);
-  if (fs.existsSync(ffmpeg)) process.env.FFMPEG_PATH = ffmpeg;
-  if (fs.existsSync(ffprobe)) process.env.FFPROBE_PATH = ffprobe;
+  const env = { PORT: String(API_PORT), KEYFRAME_DATA_DIR: dataDir, ...ffmpegEnv() };
 
-  if (await portInUse(API_PORT)) {
-    throw new Error(`Port ${API_PORT} is already in use (another Keyframe or a dev server?). Close it and try again.`);
-  }
+  await freePort(API_PORT);
   // HOST keeps the API (and its saved API keys) off the LAN.
   const apiDead = startNode('API server', path.join(base, 'server', 'index.mjs'), { ...env, HOST: '127.0.0.1' }, dataDir);
-  if (await portInUse(WEB_PORT)) {
-    throw new Error(`Port ${WEB_PORT} is already in use (another Keyframe?). Close it and try again.`);
-  }
-  const webPort = WEB_PORT;
+  const webPort = await pickWebPort();
   const webDead = startNode('Web server', path.join(base, 'web', 'server.js'), { PORT: String(webPort), HOSTNAME: '127.0.0.1' }, path.join(base, 'web'));
+  mark(`servers spawned (web on ${webPort})`);
   const dead = Promise.race([apiDead, webDead]);
-  await Promise.race([Promise.all([waitFor(API_PORT), waitFor(webPort)]), dead]);
+  const apiUp = waitFor(API_PORT).then(() => mark('API listening'));
+  const webUp = waitFor(webPort).then(() => mark('web listening'));
+  apiUp.catch(() => {}); webUp.catch(() => {}); // when a child dies first, `dead` reports it
+  await Promise.race([Promise.all([apiUp, webUp]), dead]);
   // A child dying after boot would otherwise leave the editor talking to nothing.
   dead.catch((e) => {
     if (quitting) return;
@@ -88,6 +184,12 @@ async function boot() {
     app.quit();
   });
   return webPort;
+}
+
+/** Tell the splash screen what is happening (no-op once the editor has replaced it). */
+function splashStatus(text) {
+  if (!win || win.isDestroyed()) return;
+  win.webContents.executeJavaScript(`window.setStatus && window.setStatus(${JSON.stringify(text)})`).catch(() => {});
 }
 
 /** macOS: the usual app / Edit / View / Window menus (Edit makes ⌘C/⌘V work in text fields). Windows: no menu bar,
@@ -103,30 +205,48 @@ function appMenu() {
   ]);
 }
 
-async function createWindow() {
+// `booting` is started before Electron is ready (see below), so the servers warm up while the window is being created.
+async function createWindow(booting) {
   win = new BrowserWindow({
     width: 1440, height: 900, minWidth: 1000, minHeight: 640,
     title: 'Keyframe', backgroundColor: '#0b0b0c',
+    icon: path.join(__dirname, 'icon.png'),
+    show: false, // shown on ready-to-show so there is never a blank frame
     ...(process.platform === 'darwin' ? { titleBarStyle: 'hiddenInset' } : { autoHideMenuBar: true }),
     webPreferences: { contextIsolation: true, sandbox: true },
   });
+  win.once('ready-to-show', () => { win.show(); mark('splash shown'); });
+  setTimeout(() => { if (win && !win.isDestroyed() && !win.isVisible()) win.show(); }, 3000); // never leave the app invisible
   // Only web links leave the app; file:, smb: and custom protocols are never handed to the OS.
   const external = (url) => { try { if (/^https?:$/.test(new URL(url).protocol)) shell.openExternal(url); } catch {} };
   win.webContents.setWindowOpenHandler(({ url }) => { external(url); return { action: 'deny' }; });
+  // The window only ever shows the local editor (loadURL/loadFile don't fire this; links and redirects do).
+  let editorOrigin = null;
   win.webContents.on('will-navigate', (e, url) => {
-    if (url.startsWith(`http://127.0.0.1:${WEB_PORT}/`)) return;
+    if (editorOrigin && url.startsWith(`${editorOrigin}/`)) return;
     e.preventDefault();
     external(url);
   });
+  // Local splash right away (logo + progress) instead of a black window while the servers start.
+  win.loadFile(path.join(__dirname, 'splash.html')).then(() => splashStatus('Starting local servers…')).catch(() => {});
   try {
-    const port = await boot();
+    const port = await booting;
+    if (win.isDestroyed()) return;
+    splashStatus('Opening the editor…');
+    editorOrigin = `http://127.0.0.1:${port}`;
     await win.loadURL(`http://127.0.0.1:${port}/editor`);
+    mark('editor loaded');
+    writeTimings();
     // Caption-timing aligner (Python): start it if installed, otherwise offer to set it up. Never blocks the editor.
+    // It loads a large model, so wait until the editor has had a few seconds of the CPU to itself.
     const aligner = createAligner({
-      userData: app.getPath('userData'), base: resBase(), getWindow: () => win, track: (c) => children.push(c),
+      userData: app.getPath('userData'), base: resBase(), getWindow: () => win, track: (c) => children.push(c), env: ffmpegEnv(),
     });
-    aligner.start().then((running) => (running ? undefined : aligner.offerInstall())).catch((e) => console.warn('[aligner]', e));
+    setTimeout(() => {
+      aligner.start().then((running) => (running ? undefined : aligner.offerInstall())).catch((e) => console.warn('[aligner]', e));
+    }, 4000);
   } catch (e) {
+    writeTimings();
     dialog.showErrorBox('Keyframe failed to start', String(e && e.message || e));
     app.quit();
   }
@@ -141,13 +261,25 @@ if (!app.requestSingleInstanceLock()) {
     if (win.isMinimized()) win.restore();
     win.focus();
   });
+  // The servers do not need Electron to be ready, so start them now and overlap their startup with the window's.
+  if (process.platform === 'win32') app.setAppUserModelId('lk.keyframe.desktop'); // taskbar grouping + icon, matches the installer's shortcut
+  const booting = boot();
+  booting.catch(() => {}); // reported by createWindow
   app.whenReady().then(() => {
+    mark('electron ready');
     // The editor needs the clipboard, fullscreen, file pickers and (for voice-over) the mic; nothing else.
     const allowed = new Set(['clipboard-read', 'clipboard-sanitized-write', 'fullscreen', 'media', 'fileSystem', 'pointerLock']);
     session.defaultSession.setPermissionRequestHandler((_wc, perm, cb) => cb(allowed.has(perm)));
     Menu.setApplicationMenu(appMenu());
-    return createWindow();
+    return createWindow(booting);
   });
 }
 app.on('window-all-closed', () => app.quit());
-app.on('before-quit', () => { quitting = true; for (const c of children) try { c.kill(); } catch {} });
+app.on('before-quit', () => {
+  quitting = true;
+  for (const c of children) {
+    try { c.kill(); } catch {}
+    // On Windows kill() ends only the process itself; /T also ends anything it started (e.g. ffmpeg, uvicorn workers).
+    if (process.platform === 'win32' && c.pid) try { require('node:child_process').spawnSync('taskkill', ['/PID', String(c.pid), '/T', '/F'], { windowsHide: true }); } catch {}
+  }
+});

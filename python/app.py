@@ -23,7 +23,7 @@ from starlette.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 
 from keyframe_sinhala import __version__, align as aligner
-from keyframe_sinhala.audio import DecodeError, analyze as analyze_audio, decode as decode_audio
+from keyframe_sinhala.audio import DecodeError, analyze as analyze_audio, decode as decode_audio, ffmpeg_available
 from keyframe_sinhala.fm import fm_to_unicode, load_table, unicode_to_fm
 from keyframe_sinhala.fontutil import MANIFEST_PATH
 from keyframe_sinhala.wijesekara import type_keys
@@ -175,8 +175,10 @@ def convert_srt(srt: str, direction: Direction) -> tuple[str, int]:
 @app.get("/api/sinhala/health")
 def health() -> dict:
     t = load_table()
+    # Alignment decodes with ffmpeg: without it every request would fail, so don't report it as ready.
+    align = aligner.status() if ffmpeg_available() else "unavailable"
     return {"ok": True, "service": "keyframe-sinhala", "version": __version__, "table": t["version"],
-            "verifiedFonts": len(t.get("verified", {})), "align": aligner.status()}
+            "verifiedFonts": len(t.get("verified", {})), "align": align}
 
 
 @app.post("/api/sinhala/convert", response_model=ConvertOut)

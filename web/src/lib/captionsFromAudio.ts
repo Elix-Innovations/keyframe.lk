@@ -2,13 +2,17 @@ import { nanoid } from 'nanoid';
 import { toast } from 'sonner';
 import type { Word } from '../types';
 import { alignmentNote, transcribe } from './api';
-import { getBlob } from './db';
+import { loadSourceAudio } from '../audio/clips';
+import { loadAudioAsset } from '../audio/graph';
+import { bufferSpanWav } from '../audio/voice';
 import { normalizeCaptions, segmentWords } from './segment';
 import { useEditor } from '../store';
 import { curveDuration } from './speedCurve';
 
 /** The stretch of a stored file that sits on the timeline: file seconds [from, to) land at `at` onwards, `rate` file seconds per timeline second. */
 export interface AudioSpan { assetId: string; name: string; from: number; to: number; at: number; rate: number;
+  /** 'clip' audio is decoded like the clip lane plays it, 'track' like the music/sound track mix. */
+  kind: 'clip' | 'track';
   /** File second -> timeline second. Differs from the linear `rate` mapping when the clip has a speed curve. */
   toTimeline: (srcSec: number) => number }
 
@@ -21,7 +25,7 @@ export function audioSpanOf(id: string): AudioSpan | null {
     const from = c.in, to = c.in + c.duration * c.speed;
     const curve = c.curve;
     return {
-      assetId: c.assetId, name: c.name, from, to, at: c.start, rate: c.speed,
+      assetId: c.assetId, name: c.name, from, to, at: c.start, rate: c.speed, kind: 'clip',
       // With a speed curve `speed` is only the average: timeline time is the integral of 1 / speed.
       toTimeline: curve
         ? (s) => c.start + curveDuration({ curve, in: c.in, sourceDuration: c.sourceDuration }, from, Math.min(to, Math.max(from, s)))
@@ -29,7 +33,7 @@ export function audioSpanOf(id: string): AudioSpan | null {
     };
   }
   const t = p.audio.tracks.find((x) => x.id === id);
-  if (t) return { assetId: t.assetId, name: t.name, from: t.offset, to: t.offset + Math.min(t.duration, t.fileDuration - t.offset), at: t.start, rate: 1, toTimeline: (s) => t.start + (s - t.offset) };
+  if (t) return { assetId: t.assetId, name: t.name, kind: 'track', from: t.offset, to: t.offset + Math.min(t.duration, t.fileDuration - t.offset), at: t.start, rate: 1, toTimeline: (s) => t.start + (s - t.offset) };
   return null;
 }
 
@@ -39,8 +43,12 @@ export async function generateCaptionsFromAudio(id: string): Promise<void> {
   const st = useEditor.getState();
   if (!span || !st.project) return;
   const pid = st.project.id;
+  // Transcribe the span exactly as it is decoded for playback, so word times share the preview's time base.
   let blob: Blob | undefined;
-  try { blob = await getBlob(span.assetId); } catch (e) { st.notify((e as Error).message || 'Could not read that audio.', 'error'); return; }
+  try {
+    const buf = span.kind === 'clip' ? await loadSourceAudio(span.assetId) : await loadAudioAsset(span.assetId);
+    if (buf) blob = await bufferSpanWav(buf, span.from, span.to);
+  } catch (e) { st.notify((e as Error).message || 'Could not read that audio.', 'error'); return; }
   if (!blob) { st.notify('Could not read that audio.', 'error'); return; }
   const lang = st.project.language === 'en' ? 'en' : 'si';
   const toastId = toast.loading(`Transcribing “${span.name}”…`);
@@ -56,7 +64,9 @@ export async function generateCaptionsFromAudio(id: string): Promise<void> {
     }
     const at = span.at;
     const end = span.toTimeline(span.to);
+    // The upload was only [from, to) of the file, so its times are relative to `from`.
     const words: Word[] = res.words
+      .map((w) => ({ ...w, start: w.start + span.from, end: w.end + span.from }))
       .filter((w) => w.end > span.from && w.start < span.to)
       .map((w) => ({
         id: nanoid(8), text: w.text,

@@ -30,6 +30,38 @@ def test_finish_trailing_unaligned_words_run_to_the_end() -> None:
     assert align._finish([(0.0, 1.0), None, None], duration=2.0) == [(0.0, 1.0), (1.0, 1.5), (1.5, 2.0)]
 
 
+def test_spoken_form_spells_digits_for_english_only() -> None:
+    assert align.spoken_form("25", "en").split() == ["twenty", "five"]
+    assert align.spoken_form("2026", "en").split() == ["two", "thousand", "twenty", "six"]
+    assert align.spoken_form("25", "si") == "25"
+
+
+def _emissions(frames: list[int], vocab: int = 4) -> np.ndarray:
+    """Log-probs where frame t is confidently token frames[t] (0 = blank, vocab-1 = star)."""
+    em = np.full((len(frames), vocab), -10.0)
+    em[np.arange(len(frames)), frames] = -0.01
+    return em
+
+
+def test_viterbi_skips_unused_star() -> None:
+    # Letters 1, 2 back to back with no extra sound: the optional stars between them are never taken.
+    star = 3
+    em = _emissions([0, 1, 1, 2, 2, 0])
+    seq = [star, 1, star, 2, star]
+    path, _ = align._viterbi(em, seq, star)
+    assert star not in [seq[s // 2] for s in path if s % 2]
+
+
+def test_viterbi_star_absorbs_untranscribed_speech() -> None:
+    # Speech the transcript doesn't have (frames that look like nothing known) goes to the star, not the words.
+    star = 3
+    em = _emissions([1, 1, 3, 3, 3, 3, 2, 2])
+    seq = [star, 1, star, 2, star]
+    path, _ = align._viterbi(em, seq, star)
+    labels = [seq[s // 2] if s % 2 else 0 for s in path]
+    assert labels == [1, 1, star, star, star, star, 2, 2]
+
+
 def _wav(seconds: float) -> bytes:
     buf = io.BytesIO()
     with wave.open(buf, "wb") as w:

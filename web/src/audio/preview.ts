@@ -18,6 +18,8 @@ class PreviewAudio {
   analyser: AnalyserNode | null = null;
   private running: ScheduledNodes | null = null;
   private token = 0;
+  /** Timeline time `from` is rendered at context time `at` (set once the current schedule is running). */
+  private sched: { from: number; at: number } | null = null;
 
   private ensure() {
     if (this.ctx) return this.ctx;
@@ -49,20 +51,43 @@ class PreviewAudio {
     ]);
     if (my !== this.token || !useEditor.getState().playing) return;
     const at = ctx.currentTime + 0.03;
-    // The picture follows the wall clock, but sound leaves the speakers `outputLatency` after it is scheduled (20 ms wired,
-    // 150 ms or more over Bluetooth). Start the audio that much further ahead so voice and captions line up in the preview.
-    const outputDelay = Math.min(0.5, Math.max(0, ctx.outputLatency || ctx.baseLatency || 0));
-    const from = currentTime() + 0.03 + outputDelay;
+    // Sound leaves the speakers some time after it is rendered (about 20 ms wired, 150 ms or more over Bluetooth).
+    // Start the audio that much further ahead so there is no jump when the player switches to heardTime() below.
+    const from = currentTime() + 0.03 + this.latency(ctx);
     const clipNodes = scheduleClipAudio(ctx, p, this.bus!, prepared, from, at);
     const mixNodes = await scheduleMix(ctx, plan, this.bus!, from, at);
     this.running = { stop: () => { clipNodes.stop(); mixNodes.stop(); } };
-    if (my !== this.token) { this.running.stop(); this.running = null; }
+    if (my !== this.token) { this.running.stop(); this.running = null; return; }
+    this.sched = { from, at };
   }
 
   stop() {
     this.token++;
     this.running?.stop();
     this.running = null;
+    this.sched = null;
+  }
+
+  /** Output delay of the audio device: base (processing) plus output (hardware/Bluetooth) latency. */
+  private latency(ctx: AudioContext) {
+    return Math.min(0.5, Math.max(0, (ctx.baseLatency || 0) + (ctx.outputLatency || 0)));
+  }
+
+  /**
+   * The timeline time that is coming out of the speakers right now, from the audio hardware clock, or null when no
+   * soundtrack is playing. The player follows this while playing, so captions and picture match what is heard,
+   * whatever the device latency and however the audio clock drifts against the system clock.
+   */
+  heardTime(): number | null {
+    const ctx = this.ctx, s = this.sched;
+    if (!ctx || !s || ctx.state !== 'running') return null;
+    const ts = ctx.getOutputTimestamp?.();
+    const ctxNow = ts && ts.contextTime !== undefined && ts.performanceTime
+      // contextTime is being heard at performanceTime; carry it forward to now.
+      ? ts.contextTime + (performance.now() - ts.performanceTime) / 1000
+      : ctx.currentTime - this.latency(ctx);
+    if (ctxNow < s.at) return null; // not audible yet
+    return s.from + (ctxNow - s.at);
   }
 
   /** Current output level in dBFS (for the meter). */

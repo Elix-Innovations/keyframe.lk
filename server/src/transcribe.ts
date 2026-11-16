@@ -403,47 +403,85 @@ const GEMINI_SCHEMA = {
   required: ['words'],
 };
 
-/** Choose cut points near every GEMINI_TARGET_CHUNK seconds, preferring the middle of a silence. */
-async function geminiCutPoints(audioPath: string, duration: number): Promise<number[]> {
+/**
+ * Choose cut points near every GEMINI_TARGET_CHUNK seconds, preferring the middle of a silence. With `words`
+ * (a transcript that already has rough timings) a cut never lands inside a word, and gaps between words also count.
+ */
+async function chunkCutPoints(audioPath: string, duration: number, words?: RawWord[]): Promise<number[]> {
   if (duration <= GEMINI_MAX_CHUNK) return [];
   // The whole log is needed: truncating it would drop the early silences of a long file.
   const r = await run(ffmpegPath(), ['-hide_banner', '-nostdin', '-nostats', '-i', audioPath, '-af', 'silencedetect=noise=-32dB:d=0.25', '-f', 'null', '-'], 0, true);
-  const silences: number[] = [];
+  let candidates: number[] = [];
   const re = /silence_start: ([\d.]+)[\s\S]*?silence_end: ([\d.]+)/g;
-  for (let m; (m = re.exec(r.stderr));) silences.push((parseFloat(m[1]) + parseFloat(m[2])) / 2);
+  for (let m; (m = re.exec(r.stderr));) candidates.push((parseFloat(m[1]) + parseFloat(m[2])) / 2);
+  const insideWord = (t: number) => !!words?.some((w) => t > w.start && t < w.end);
+  if (words?.length) {
+    candidates = candidates.filter((t) => !insideWord(t));
+    for (let i = 1; i < words.length; i++) if (words[i].start - words[i - 1].end >= 0.15) candidates.push((words[i - 1].end + words[i].start) / 2);
+  }
   const cuts: number[] = [];
   let last = 0;
   while (duration - last > GEMINI_MAX_CHUNK) {
     const target = last + GEMINI_TARGET_CHUNK;
-    const near = silences.filter((t) => t > last + 15 && t < last + GEMINI_MAX_CHUNK);
-    const cut = near.length ? near.reduce((a, b) => (Math.abs(b - target) < Math.abs(a - target) ? b : a)) : target;
+    const near = candidates.filter((t) => t > last + 15 && t < last + GEMINI_MAX_CHUNK);
+    let cut = near.length ? near.reduce((a, b) => (Math.abs(b - target) < Math.abs(a - target) ? b : a)) : target;
+    // No pause at all: cut at the nearest word boundary rather than through a word.
+    const w = words?.find((x) => cut > x.start && cut < x.end);
+    if (w) cut = cut - w.start < w.end - cut ? w.start : w.end;
+    if (cut <= last + 1) cut = target;
     cuts.push(cut);
     last = cut;
   }
   return cuts;
 }
 
-async function geminiRequest(audio: Buffer, language: Language, attempt = 0): Promise<RawWord[]> {
+type Piece = { start: number; end: number; file: string };
+
+/** Cut [bounds[i], bounds[i+1]) out of `audioPath` as lossless FLAC (no encoder delay to shift timings). */
+async function cutPieces(audioPath: string, bounds: number[], dir: string, prefix: string): Promise<Piece[]> {
+  const pieces: Piece[] = new Array(bounds.length - 1);
+  // A few at a time; one ffmpeg process per chunk at once can exhaust CPU or file handles.
+  let nextCut = 0;
+  await Promise.all(Array.from({ length: Math.min(4, pieces.length) }, async () => {
+    while (nextCut < pieces.length) {
+      const i = nextCut++;
+      const start = bounds[i];
+      const end = bounds[i + 1];
+      if (bounds.length === 2) { pieces[i] = { start, end, file: audioPath }; continue; }
+      const file = path.join(dir, `${prefix}_${String(i).padStart(4, '0')}.flac`);
+      try {
+        await ffmpeg(['-ss', start.toFixed(3), '-to', end.toFixed(3), '-i', audioPath, '-c:a', 'flac', file]);
+      } catch (err) {
+        nextCut = pieces.length; // stop the other workers from starting more cuts
+        throw err;
+      }
+      pieces[i] = { start, end, file };
+    }
+  }));
+  return pieces;
+}
+
+async function geminiRequest(audio: Buffer, language: Language, attempt = 0, mimeType = 'audio/flac'): Promise<RawWord[]> {
   let res: Response;
   try {
     res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${geminiModel()}:generateContent`, {
       method: 'POST',
       headers: { 'x-goog-api-key': process.env.GEMINI_API_KEY!, 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        contents: [{ parts: [{ inlineData: { mimeType: 'audio/mp3', data: audio.toString('base64') } }, { text: GEMINI_PROMPT(language) }] }],
+        contents: [{ parts: [{ inlineData: { mimeType, data: audio.toString('base64') } }, { text: GEMINI_PROMPT(language) }] }],
         generationConfig: { responseMimeType: 'application/json', responseSchema: GEMINI_SCHEMA, temperature: 0 },
       }),
       signal: AbortSignal.timeout(120_000),
     });
   } catch (err) {
     // Network drop or timeout: retry, then report as a provider problem rather than a bare 500.
-    if (attempt < 2) return geminiRequest(audio, language, attempt + 1);
+    if (attempt < 2) return geminiRequest(audio, language, attempt + 1, mimeType);
     throw new HttpError(504, `Gemini did not respond (${(err as Error).message}). Try again, or use a shorter clip.`);
   }
   if ((res.status === 429 || res.status >= 500) && attempt < 2) {
     recordFailure('gemini', geminiModel());
     await new Promise((r) => setTimeout(r, 1500 * (attempt + 1)));
-    return geminiRequest(audio, language, attempt + 1);
+    return geminiRequest(audio, language, attempt + 1, mimeType);
   }
   if (!res.ok) { recordFailure('gemini', geminiModel()); throw await providerError('Gemini', res); }
   const data = (await res.json()) as {
@@ -457,7 +495,7 @@ async function geminiRequest(audio: Buffer, language: Language, attempt = 0): Pr
   try {
     return (JSON.parse(text) as { words?: { text: string; start: number; end: number }[] }).words ?? [];
   } catch {
-    if (attempt < 2) return geminiRequest(audio, language, attempt + 1);
+    if (attempt < 2) return geminiRequest(audio, language, attempt + 1, mimeType);
     throw new HttpError(502, `Gemini returned an unreadable transcript (finish reason: ${data.candidates?.[0]?.finishReason ?? 'unknown'}).`);
   }
 }
@@ -565,11 +603,11 @@ type AlignResult = { words: RawWord[]; reason?: undefined } | { words: null; rea
 async function alignWords(file: string, raw: RawWord[], language: Language): Promise<AlignResult> {
   if (raw.length === 0) return { words: raw };
   const form = new FormData();
-  form.append('file', await openAsBlob(file, { type: 'audio/mpeg' }), path.basename(file));
+  form.append('file', await openAsBlob(file, { type: file.endsWith('.flac') ? 'audio/flac' : 'audio/mpeg' }), path.basename(file));
   form.append('words', JSON.stringify(raw.map((w) => w.text)));
   form.append('language', language);
   const fail = (reason: string): AlignResult => {
-    if (reason !== alignerNotice) console.warn(`[align] ${reason}; keeping Gemini timings`);
+    if (reason !== alignerNotice) console.warn(`[align] ${reason}; keeping the transcriber's timings`);
     alignerNotice = reason;
     return { words: null, reason };
   };
@@ -590,31 +628,56 @@ async function alignWords(file: string, raw: RawWord[], language: Language): Pro
   }
 }
 
+/** The aligner cannot run at all right now: no point asking again for every chunk. */
+const alignerDown = (reason: string) => reason.startsWith('aligner service unreachable') || reason.startsWith('aligner model not ready');
+
+/**
+ * Re-time any transcript (ElevenLabs, Whisper) from the audio with the forced aligner, chunk by chunk at pauses.
+ * Chunks the aligner rejects keep the transcriber's own timings; `alignment` says how many were re-timed.
+ */
+export async function alignTranscript(audioPath: string, words: Word[], language: Language, dir: string): Promise<{ words: Word[]; alignment: Alignment }> {
+  if (!words.length) return { words, alignment: { aligned: 0, total: 0 } };
+  const duration = (await probeDuration(audioPath)) ?? (await ffmpegDuration(audioPath)) ?? words[words.length - 1].end;
+  const cuts = await chunkCutPoints(audioPath, duration, words);
+  const bounds = [0, ...cuts, duration];
+  const groups: Word[][] = bounds.slice(1).map(() => []);
+  for (const w of words) {
+    const mid = (w.start + w.end) / 2;
+    let i = bounds.findIndex((b, k) => k > 0 && mid < b) - 1;
+    if (i < 0) i = groups.length - 1;
+    groups[i].push(w);
+  }
+  const pieces = await cutPieces(audioPath, bounds, dir, 'aln');
+  const out: Word[][] = groups.map((g) => g);
+  const alignment: Alignment = { aligned: 0, total: groups.filter((g) => g.length).length };
+  let next = 0;
+  let down = false;
+  await Promise.all(Array.from({ length: Math.min(2, pieces.length) }, async () => {
+    while (next < pieces.length) {
+      const i = next++;
+      const p = pieces[i];
+      if (!groups[i].length) continue;
+      if (down) continue;
+      const rel = groups[i].map((w) => ({ text: w.text, start: w.start - p.start, end: w.end - p.start }));
+      const aligned = await alignWords(p.file, rel, language);
+      if (aligned.words) {
+        alignment.aligned++;
+        out[i] = normalizeWords(sanitizeTimings(aligned.words, p.end - p.start), p.start);
+      } else {
+        alignment.reason ??= aligned.reason;
+        if (alignerDown(aligned.reason)) down = true;
+      }
+    }
+  }));
+  return { words: out.flat(), alignment };
+}
+
 async function transcribeGemini(audioPath: string, language: Language, dir: string): Promise<{ words: Word[]; language: string; alignment: Alignment }> {
   // A duration of 0 would clamp every word timing to 0, so never default to it.
   const duration = (await probeDuration(audioPath)) ?? (await ffmpegDuration(audioPath));
   if (duration === null) throw new HttpError(500, 'Could not read the audio duration (is ffprobe installed?).');
-  const cuts = await geminiCutPoints(audioPath, duration);
-  const bounds = [0, ...cuts, duration];
-  const pieces: { start: number; end: number; file: string }[] = new Array(bounds.length - 1);
-  // Cut a few chunks at a time; one libmp3lame process per chunk at once can exhaust CPU or file handles.
-  let nextCut = 0;
-  await Promise.all(Array.from({ length: Math.min(4, pieces.length) }, async () => {
-    while (nextCut < pieces.length) {
-      const i = nextCut++;
-      const start = bounds[i];
-      const end = bounds[i + 1];
-      if (bounds.length === 2) { pieces[i] = { start, end, file: audioPath }; continue; }
-      const file = path.join(dir, `gem_${String(i).padStart(4, '0')}.mp3`);
-      try {
-        await ffmpeg(['-ss', start.toFixed(3), '-to', end.toFixed(3), '-i', audioPath, '-c:a', 'libmp3lame', '-b:a', '64k', file]);
-      } catch (err) {
-        nextCut = pieces.length; // stop the other workers from starting more cuts
-        throw err;
-      }
-      pieces[i] = { start, end, file };
-    }
-  }));
+  const cuts = await chunkCutPoints(audioPath, duration);
+  const pieces = await cutPieces(audioPath, [0, ...cuts, duration], dir, 'gem');
 
   const results: Word[][] = new Array(pieces.length);
   const alignment: Alignment = { aligned: 0, total: pieces.length };
@@ -679,22 +742,28 @@ export async function transcribeFile(
 ): Promise<TranscribeResponse> {
   const chosen = resolveProvider(provider);
 
-  // Mono 16 kHz audio: lossless FLAC for ElevenLabs, 64 kbps MP3 for OpenAI (25 MB limit) and Gemini (inline requests).
-  const mp3 = chosen !== 'elevenlabs';
-  const audioPath = path.join(dir, mp3 ? 'audio.mp3' : 'audio.flac');
-  const codecArgs = mp3 ? ['-c:a', 'libmp3lame', '-b:a', '64k'] : ['-c:a', 'flac'];
-  await ffmpeg(['-protocol_whitelist', 'file,pipe', '-i', inputPath, '-vn', '-map', '0:a:0', '-ac', '1', '-ar', '16000', ...codecArgs, audioPath]);
+  // Mono 16 kHz lossless FLAC: no encoder delay, so chunk and aligner timings stay exact. Whisper gets an MP3 made
+  // from it (its 25 MB limit); the aligner then re-times Whisper's words against the FLAC.
+  const audioPath = path.join(dir, 'audio.flac');
+  await ffmpeg(['-protocol_whitelist', 'file,pipe', '-i', inputPath, '-vn', '-map', '0:a:0', '-ac', '1', '-ar', '16000', '-c:a', 'flac', audioPath]);
 
-  const result: { words: Word[]; language: string; alignment?: Alignment } = chosen === 'elevenlabs'
-    ? await transcribeElevenLabs(audioPath, language)
-    : chosen === 'gemini'
-      ? await transcribeGemini(audioPath, language, dir)
-      : await transcribeOpenAI(audioPath, language, dir);
+  let result: { words: Word[]; language: string; alignment?: Alignment };
+  if (chosen === 'gemini') result = await transcribeGemini(audioPath, language, dir);
+  else {
+    let raw: { words: Word[]; language: string };
+    if (chosen === 'elevenlabs') raw = await transcribeElevenLabs(audioPath, language);
+    else {
+      const mp3Path = path.join(dir, 'audio.mp3');
+      await ffmpeg(['-i', audioPath, '-c:a', 'libmp3lame', '-b:a', '64k', mp3Path]);
+      raw = await transcribeOpenAI(mp3Path, language, dir);
+    }
+    // Every engine's words are re-timed from the audio; transcriber timings are only the fallback.
+    result = { ...raw, ...(await alignTranscript(audioPath, raw.words, language, dir)) };
+  }
 
   const duration = (await probeDuration(inputPath))
     ?? (await probeDuration(audioPath))
     ?? (result.words.length ? result.words[result.words.length - 1].end : 0);
 
-  // Only Gemini's timings go through the forced aligner; ElevenLabs and Whisper times are used as returned.
   return { provider: chosen, language: result.language, duration, words: result.words, ...(result.alignment ? { alignment: result.alignment } : {}) };
 }

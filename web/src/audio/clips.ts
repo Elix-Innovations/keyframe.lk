@@ -25,12 +25,19 @@ export function loadSourceAudio(assetId: string): Promise<AudioBuffer | null> {
 }
 
 const stretched = new WeakMap<AudioBuffer, Map<number, Promise<AudioBuffer>>>();
+/** Source seconds per buffer second of a stretched buffer (1 for an unstretched one). */
+const bufferSpeed = new WeakMap<AudioBuffer, number>();
 function stretchedFor(buf: AudioBuffer, speed: number): Promise<AudioBuffer> {
   let m = stretched.get(buf);
   if (!m) { m = new Map(); stretched.set(buf, m); }
+  // Cached per 0.001 of speed (a dragged slider would otherwise stretch hundreds of copies). The small rest is made up
+  // with playbackRate when scheduling, using the buffer's exact speed, so audio never drifts from the picture/captions.
   const key = Math.round(speed * 1000) / 1000;
   let p = m.get(key);
-  if (!p) { p = timeStretch(buf, key); m.set(key, p); }
+  if (!p) {
+    p = timeStretch(buf, key).then((out) => { if (out !== buf) bufferSpeed.set(out, buf.duration / out.duration); return out; });
+    m.set(key, p);
+  }
   return p;
 }
 
@@ -48,6 +55,8 @@ async function clipBuffer(project: Project, c: Clip): Promise<AudioBuffer | null
 }
 
 const reversedCache = new WeakMap<AudioBuffer, AudioBuffer>();
+/** Reversed copy -> the buffer it was made from (to look up its stretch speed). */
+const reversedSource = new WeakMap<AudioBuffer, AudioBuffer>();
 /** A copy of the buffer played back to front. */
 function reversedOf(b: AudioBuffer): AudioBuffer {
   let r = reversedCache.get(b);
@@ -55,6 +64,7 @@ function reversedOf(b: AudioBuffer): AudioBuffer {
   r = new AudioBuffer({ length: b.length, numberOfChannels: b.numberOfChannels, sampleRate: b.sampleRate });
   for (let ch = 0; ch < b.numberOfChannels; ch++) r.copyToChannel(b.getChannelData(ch).slice().reverse(), ch);
   reversedCache.set(b, r);
+  reversedSource.set(r, b);
   return r;
 }
 
@@ -109,9 +119,13 @@ export function scheduleClipAudio(
       g.connect(k); k.connect(dest);
       nodes.push(k);
     } else g.connect(dest);
-    // The stretched buffer is already at clip speed, so source offset scales by 1/speed.
-    let offset = c.in / c.speed + skip;
-    if (c.reverse && !c.curve) offset = buf.duration - (c.in / c.speed + c.duration) + skip; // buffer is reversed
+    // The stretched buffer runs at `eff` source seconds per buffer second (about the clip speed); playing it at
+    // `rate` = speed / eff makes up the difference exactly, so buffer offsets scale by 1/eff and timeline by rate.
+    const eff = c.curve ? 1 : bufferSpeed.get(reversedSource.get(buf) ?? buf) ?? 1;
+    const rate = c.curve ? 1 : c.speed / eff;
+    if (!c.curve && Math.abs(rate - 1) > 1e-6) src.playbackRate.value = rate;
+    let offset = c.in / eff + skip * rate;
+    if (c.reverse && !c.curve) offset = buf.duration - (c.in / eff + c.duration * rate) + skip * rate; // buffer is reversed
     let lead = 0; // silence before the audio starts, when the reversed range reaches past the decoded audio
     if (c.curve) {
       const cv = { ...c, curve: c.curve };
@@ -121,14 +135,14 @@ export function scheduleClipAudio(
       // Rate follows the curve in 50 ms steps (pitch moves with it, like a tape).
       src.playbackRate.setValueAtTime(curveSpeedAt(cv, loc(skip)), t0);
       for (let tl = skip + 0.05; tl < c.duration; tl += 0.05) src.playbackRate.linearRampToValueAtTime(curveSpeedAt(cv, loc(tl)), t0 + tl - skip);
-    } else if (offset < 0) lead = -offset;
+    } else if (offset < 0) lead = -offset / rate;
     offset = Math.max(0, Math.min(offset, buf.duration - 0.001));
     const t0s = t0 + lead;
     // start()'s duration is in buffer seconds, so it is only right for the stretched (constant-speed) buffer;
     // a curve clip consumes a different span of source, so it is ended by stop() at the clip's end instead.
     if (t0s < t1) {
       if (c.curve) src.start(t0s, offset);
-      else src.start(t0s, offset, c.duration - skip - lead);
+      else src.start(t0s, offset, (c.duration - skip - lead) * rate);
       src.stop(t1);
     }
     srcs.push(src);

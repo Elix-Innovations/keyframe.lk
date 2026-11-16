@@ -180,7 +180,8 @@ export function Preview() {
     let raf = 0;
     const draw = () => {
       matteHints.playing = playing;
-      const t = currentTime();
+      // While playing, a frame drawn now reaches the screen about one refresh later: draw it for that moment.
+      const t = playing ? currentTime() + 1 / 60 : currentTime();
       const p0 = useEditor.getState().project!;
       const p = before ? beforeProject(p0) : p0;
       const frameFor = (clip: Clip) => {

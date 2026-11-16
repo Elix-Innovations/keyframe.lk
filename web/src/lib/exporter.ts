@@ -91,6 +91,10 @@ export async function exportVideo(project: Project, opts: ExportOptions): Promis
     const conversion = await Conversion.init({
       input,
       output,
+      // Keep the source's own time base. By default the output is shifted to start at the first packet (often 30-150 ms
+      // into a phone or screen recording), and frames would then be drawn with captions from too early in the timeline,
+      // while the soundtrack (rendered from 0) stayed put. The timeline, the preview and transcription all count from 0.
+      trim: { start: 0 },
       // With a custom soundtrack the original audio is dropped here and the mastered mix is muxed in afterwards.
       audio: mix || !withAudio ? { discard: true } : undefined,
       video: {
