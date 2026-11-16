@@ -61,11 +61,12 @@ function useSceneDownload(scene: MotionScene) {
   return { pct, run };
 }
 
-function DownloadButton({ scene, className }: { scene: MotionScene; className?: string }) {
+function DownloadButton({ scene, className, compact }: { scene: MotionScene; className?: string; compact?: boolean }) {
   const { pct, run } = useSceneDownload(scene);
   return (
-    <Button size="xs" variant="secondary" className={className} disabled={pct !== null} onClick={() => void run()} title="Download as transparent WebM">
-      {pct === null ? <><Download />Download</> : <><Spinner className="size-3" />{pct}%</>}
+    <Button size={compact && pct === null ? 'icon-xs' : 'xs'} variant="secondary" className={cn('shrink-0', className)} disabled={pct !== null} onClick={() => void run()}
+      title="Download as transparent WebM" aria-label="Download as transparent WebM">
+      {pct === null ? <><Download />{!compact && 'Download'}</> : <><Spinner className="size-3" />{pct}%</>}
     </Button>
   );
 }
@@ -79,7 +80,7 @@ function SceneThumb({ scene, className }: { scene: MotionScene; className?: stri
     const c = ref.current;
     if (!c) return;
     const dpr = Math.min(2, window.devicePixelRatio || 1);
-    const H0 = Math.round(168 * dpr), W = Math.round((H0 * frame.w) / frame.h), H = H0;
+    const H0 = Math.round(240 * dpr), W = Math.round((H0 * frame.w) / frame.h), H = H0;
     c.width = W; c.height = H;
     const ctx = c.getContext('2d')!;
     const still = scene.role === 'transition' ? scene.duration * 0.5 : scene.role === 'background' ? 1 : Math.min(scene.duration * 0.45, scene.duration - 0.3);
@@ -97,8 +98,10 @@ function SceneThumb({ scene, className }: { scene: MotionScene; className?: stri
     return () => { cancelAnimationFrame(raf); document.fonts?.removeEventListener?.('loadingdone', onFont); };
   }, [scene, hover, frame.h, frame.w]);
   return (
-    <canvas ref={ref} className={cn('mx-auto block rounded-md', className)} style={{ aspectRatio: `${frame.w} / ${frame.h}`, height: 168, maxWidth: '100%', background: 'linear-gradient(135deg,#2a2f38,#13161b)' }}
-      onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)} />
+    <div className={cn('flex aspect-[4/5] w-full items-center justify-center overflow-hidden rounded-md', className)} style={{ background: 'linear-gradient(135deg,#2a2f38,#13161b)' }}
+      onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}>
+      <canvas ref={ref} className="block size-full object-contain" />
+    </div>
   );
 }
 
@@ -106,15 +109,15 @@ function SceneCard({ scene, onAdd, onAddCut, onDelete, sub }: { scene: MotionSce
   return (
     <div className="group relative overflow-hidden rounded-lg border bg-muted/40 p-1.5 transition-colors hover:border-foreground/25">
       <SceneThumb scene={scene} />
-      <div className="mt-1.5 flex items-baseline justify-between gap-2 px-0.5">
-        <span className="truncate text-xs font-medium">{scene.name}</span>
+      <div className="mt-1.5 flex min-w-0 items-baseline justify-between gap-2 px-0.5">
+        <span className="min-w-0 truncate text-xs font-medium" title={scene.name}>{scene.name}</span>
         <span className="shrink-0 text-[10px] text-muted-foreground">{sub ?? `${scene.duration.toFixed(1)}s`}</span>
       </div>
       <div className="mt-1.5 flex gap-1">
         <Button size="xs" variant="secondary" className="flex-1" onClick={onAdd}><Plus />Add</Button>
         {onAddCut && <Button size="xs" variant="secondary" className="flex-1" onClick={onAddCut}>At cut</Button>}
+        <DownloadButton scene={scene} compact />
       </div>
-      <DownloadButton scene={scene} className="mt-1 w-full" />
       {onDelete && <Button variant="secondary" size="icon-xs" onClick={onDelete} className="absolute top-2 right-2 opacity-0 transition-opacity hover:text-destructive group-hover:opacity-100" aria-label="Delete scene"><Trash2 /></Button>}
     </div>
   );
@@ -185,13 +188,13 @@ export function MotionPanel() {
               return items.length > 0 && (
                 <div key={g} className="flex flex-col gap-1">
                   <div className="text-[11px] font-medium text-muted-foreground">{g}</div>
-                  <div className="grid grid-cols-4 gap-1.5">
+                  <div className="grid grid-cols-[repeat(auto-fill,minmax(136px,1fr))] gap-2">
                     {items.map(({ e, scene }) => <SceneCard key={e.id} scene={scene} sub={e.note.length > 22 ? `${scene.duration.toFixed(1)}s` : e.note} onAdd={() => addMotionLayer(scene)} />)}
                   </div>
                 </div>
               );
             }) : (
-              <div className="grid grid-cols-4 gap-1.5">
+              <div className="grid grid-cols-[repeat(auto-fill,minmax(136px,1fr))] gap-2">
                 {library.map(({ e, scene }) => (
                   <SceneCard key={e.id} scene={scene} sub={e.note.length > 22 ? `${scene.duration.toFixed(1)}s` : e.note}
                     onAdd={() => addMotionLayer(scene)} onAddCut={role === 'transition' ? () => addMotionLayer(scene, 'cut') : undefined} />
@@ -201,7 +204,7 @@ export function MotionPanel() {
           </Section>
           {saved.filter((s) => s.role === role).length > 0 && (
             <Section title="My scenes">
-              <div className="grid grid-cols-4 gap-1.5">
+              <div className="grid grid-cols-[repeat(auto-fill,minmax(136px,1fr))] gap-2">
                 {saved.filter((s) => s.role === role).map((s, i) => (
                   <SceneCard key={`${i}-${s.name}-${s.duration}`} scene={s} onAdd={() => addMotionLayer(s)} onAddCut={role === 'transition' ? () => addMotionLayer(s, 'cut') : undefined}
                     onDelete={() => persist(saved.filter((x) => x !== s))} />
@@ -238,7 +241,7 @@ export function MotionPanel() {
           </Section>
           {result && (
             <Section title="Result" right={<span className="text-[11px] text-muted-foreground">{(result.ms / 1000).toFixed(0)}s · {result.via === 'claude-cli' ? 'your Claude account' : result.via}</span>}>
-              <SceneThumb scene={result.scene} />
+              <SceneThumb scene={result.scene} className="mx-auto max-w-[220px]" />
               <div className="flex items-baseline justify-between gap-2"><span className="truncate text-xs font-medium">{result.scene.name}</span><span className="text-[11px] text-muted-foreground">{result.scene.duration.toFixed(1)}s</span></div>
               <div className="flex flex-wrap gap-1.5">
                 <Button size="xs" onClick={() => addMotionLayer(result.scene)}><Plus />Add at playhead</Button>

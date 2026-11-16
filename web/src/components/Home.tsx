@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { nanoid } from 'nanoid';
-import { Clock, Copy, Ellipsis, Film, Keyboard, Languages, LayoutGrid, Pencil, Plus, Rows, Search, Trash2, Upload } from '@/components/icons';
+import { Clock, Copy, Ellipsis, Film, Keyboard, Languages, LayoutGrid, Pencil, Plus, Rows, Search, Trash2, Upload, X } from '@/components/icons';
 import type { HealthResponse, Project } from '@/types';
 import * as db from '@/lib/db';
 import { health } from '@/lib/api';
@@ -9,6 +9,9 @@ import { hasAudio } from '@/audio/decode';
 import { clipEnd, makeAudioClip, makeVideoClip, withClips } from '@/lib/clips';
 import { newProject, saveNow, useEditor } from '@/store';
 import { cn } from '@/lib/utils';
+import { isElectron } from '@/lib/shortcuts';
+import { ALIGNER_BUSY, useAlignerSetup } from '@/lib/desktop';
+import { AlignerSetup } from './AlignerSetup';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -69,11 +72,15 @@ function Dot({ ok, pending, className }: { ok: boolean; pending?: boolean; class
 }
 
 const ALIGN_NOTE: Record<string, string> = {
-  ready: 'Ready', available: 'Ready', downloading: 'Downloading model', missing: 'Run npm run align:fetch', unavailable: 'Not installed',
+  ready: 'Ready', available: 'Ready', downloading: 'Downloading model', missing: isElectron ? 'Not installed' : 'Run npm run align:fetch', unavailable: 'Not installed',
 };
 
 function EngineStatus() {
-  const { server, python, align, checked } = useEngineStatus();
+  const { server, python: pyUp, align: pyAlign, checked } = useEngineStatus();
+  // Desktop: the installer's live state wins over the health check made when the page opened.
+  const setup = useAlignerSetup();
+  const python = pyUp || setup?.phase === 'ready';
+  const align = setup?.phase === 'ready' ? 'ready' : setup && ALIGNER_BUSY.includes(setup.phase) ? 'installing' : pyAlign;
   const t = server?.transcription;
   const anyTranscribe = !!t && (t.gemini || t.elevenlabs || t.openai);
   const rows: { label: string; ok: boolean; note: string }[] = [
@@ -85,7 +92,7 @@ function EngineStatus() {
     { label: 'Music library', ok: !!server?.music, note: server?.music ? 'Ready' : 'Not configured' },
     { label: 'FFmpeg', ok: !!server?.ffmpeg, note: server?.ffmpeg ? 'Available' : 'Not found' },
     { label: 'Python audio service', ok: python, note: python ? 'Connected' : 'Not running' },
-    { label: 'Word timing aligner', ok: align === 'ready' || align === 'available', note: ALIGN_NOTE[align ?? ''] ?? 'Not running' },
+    { label: 'Word timing aligner', ok: align === 'ready' || align === 'available', note: align === 'installing' ? `Installing ${setup?.percent ?? 0}%` : ALIGN_NOTE[align ?? ''] ?? 'Not running' },
   ];
   const summary = [
     { key: 'captions', ok: anyTranscribe },
@@ -116,8 +123,32 @@ function EngineStatus() {
             </li>
           ))}
         </ul>
+        {setup && setup.phase !== 'ready' && <AlignerSetup state={setup} compact className="border-t px-3 py-2.5" />}
       </PopoverContent>
     </Popover>
+  );
+}
+
+const ALIGNER_CARD_KEY = 'keyframe.alignerCardDismissed';
+
+/** Desktop: offer caption-timing setup until it is installed (dismissible, but a failed install always shows). */
+function AlignerCard() {
+  const setup = useAlignerSetup();
+  const [dismissed, setDismissed] = useState(() => { try { return localStorage.getItem(ALIGNER_CARD_KEY) === '1'; } catch { return false; } });
+  if (!setup || setup.booting || setup.phase === 'ready' || setup.phase === 'unsupported') return null;
+  const busy = ALIGNER_BUSY.includes(setup.phase);
+  if (dismissed && !busy && setup.phase !== 'failed') return null;
+  return (
+    <div className="relative mt-3 rounded-2xl border bg-card p-4">
+      {!busy && (
+        <button type="button" aria-label="Hide" className="absolute top-3 right-3 rounded-md p-1 text-muted-foreground hover:bg-foreground/[0.07] hover:text-foreground"
+          onClick={() => { setDismissed(true); writePref(ALIGNER_CARD_KEY, '1'); }}>
+          <X className="size-3.5" />
+        </button>
+      )}
+      <div className="mb-2 pr-8 text-[15px] font-medium">Accurate caption timing</div>
+      <AlignerSetup state={setup} className="w-full" />
+    </div>
   );
 }
 
@@ -339,7 +370,7 @@ export function Home() {
       <input ref={input} type="file" accept="video/*" multiple hidden onChange={(e) => { const fs = Array.from(e.target.files ?? []); if (fs.length) create(fs.map((file) => ({ file }))); e.target.value = ''; }} />
 
       {/* Sidebar */}
-      <aside className="hidden w-56 shrink-0 flex-col gap-1 border-r bg-card/60 p-3 md:flex">
+      <aside className="app-sidebar hidden w-56 shrink-0 flex-col gap-1 border-r bg-card/60 p-3 md:flex">
         <a href="#" className="mb-3 rounded-lg px-2 py-1.5 outline-none focus-visible:ring-3 focus-visible:ring-ring/50" aria-label="Keyframe.lk home"><Logo size={24} withWordmark /></a>
         <button type="button" onClick={browse} disabled={busy}
           className="mb-2 inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-primary text-[13px] font-semibold text-primary-foreground shadow-lg shadow-primary/25 transition-transform outline-none hover:scale-[1.02] focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-60">
@@ -390,6 +421,7 @@ export function Home() {
               <span className="text-xs text-muted-foreground">Convert Sinhala text.</span>
             </button>
           </div>
+          <AlignerCard />
 
           {/* Recent */}
           {recent.length > 0 && !query && (

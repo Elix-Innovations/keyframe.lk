@@ -1,7 +1,7 @@
 {
   "name": "keyframe-desktop",
   "productName": "Keyframe",
-  "version": "1.0.0",
+  "version": "1.0.2",
   "license": "MIT",
   "description": "Keyframe.lk video editor",
   "main": "main.js",
@@ -21,6 +21,7 @@
     "files": [
       "main.js",
       "aligner.js",
+      "preload.js",
       "splash.html",
       "icon.png",
       "package.json"
