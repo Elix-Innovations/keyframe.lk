@@ -5,7 +5,6 @@ import {
   AiMagicIcon, AudioWave01Icon, Clock01Icon, Download04Icon, KeyframesDoubleIcon, LaptopIcon, MusicNote01Icon,
   ShieldKeyIcon, SubtitleIcon, Tick02Icon, Upload04Icon, Video01Icon,
 } from '@hugeicons/core-free-icons';
-import { Logo, LogoMark } from '@/components/Logo';
 import {
   Activity, ArrowLeft, Captions, CloudCheck, Copy, Download, Ellipsis, Film, Frame, Highlighter, Languages, LayoutTemplate,
   Play, Redo2, Save, Scissors, Search, Sparkles, Trash2, Type, Undo2, WandSparkles, ZoomIn, ZoomOut,
@@ -29,6 +28,32 @@ npm run setup
 npm run dev`;
 
 /* ---------- primitives ---------- */
+
+/** The Keyframe mark from public/logo.svg, with the tile in theme rose only (same colours as the shipped files). */
+function KfMark({ size = 28, className = '' }: { size?: number; className?: string }) {
+  return (
+    <svg viewBox="0 0 1024 1024" width={size} height={size} className={`shrink-0 ${className}`} aria-hidden>
+      <defs>
+        <linearGradient id="kf-tile" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stopColor="#eb104e" /><stop offset="1" stopColor="#eb104e" /></linearGradient>
+        <linearGradient id="kf-ink" gradientUnits="userSpaceOnUse" x1="260" y1="200" x2="760" y2="820"><stop offset="0" stopColor="#fff" /><stop offset="1" stopColor="#ffe4e6" /></linearGradient>
+      </defs>
+      <rect width="1024" height="1024" rx="230" fill="url(#kf-tile)" />
+      <g stroke="url(#kf-ink)" strokeWidth="112" strokeLinecap="round" strokeLinejoin="round" fill="none"><path d="M330 250V774" /><path d="M700 250 430 512 700 774" /></g>
+      <rect x="-62" y="-62" width="124" height="124" rx="26" fill="#a10031" transform="translate(430 512) rotate(45)" />
+      <rect x="-40" y="-40" width="80" height="80" rx="16" fill="url(#kf-ink)" transform="translate(430 512) rotate(45)" />
+    </svg>
+  );
+}
+
+/** Landing lockup: mark plus "Keyframe.lk", with ".lk" in rose instead of the app's rose-to-coral gradient. */
+function Wordmark({ size = 28 }: { size?: number }) {
+  return (
+    <span className="inline-flex items-center gap-2" aria-label="Keyframe.lk">
+      <KfMark size={size} />
+      <span className="font-semibold tracking-tight" style={{ fontSize: Math.max(14, size * 0.56) }}>Keyframe<span className="text-[var(--rose)]">.lk</span></span>
+    </span>
+  );
+}
 
 function GitHubMark({ className = 'size-4' }: { className?: string }) {
   return (
@@ -103,7 +128,7 @@ function Heading({ eyebrow, title, children, light }: { eyebrow: string; title: 
 /** Card with an illustration panel on top, title and copy below. `wash` gives it the rose gradient instead of grey. */
 function ShowCard({ title, copy, children, panel = 'h-64', wash }: { title: string; copy: string; children: ReactNode; panel?: string; wash?: boolean }) {
   return (
-    <article className={`reveal flex flex-col overflow-hidden rounded-[22px] border border-[var(--line)] ${wash ? 'bg-[linear-gradient(170deg,#f43f5e_0%,#ff8a80_45%,#ffe4dc_100%)]' : 'bg-[#f3f1f1]'}`}>
+    <article className={`reveal flex flex-col overflow-hidden rounded-[22px] border border-[var(--line)] ${wash ? 'bg-[linear-gradient(170deg,#f43f5e_0%,#fb7185_45%,#ffe4e8_100%)]' : 'bg-[#f3f1f1]'}`}>
       <div aria-hidden className={`relative ${panel}`}>{children}</div>
       <div className="px-6 pt-6 pb-7">
         <h3 className="text-lg font-semibold tracking-[-0.02em] text-[var(--ink)]">{title}</h3>
@@ -168,7 +193,7 @@ function Nav() {
     <header className="relative z-40">
       <div className="mx-auto flex h-20 max-w-6xl items-center justify-between gap-4 px-5">
         <Link href="/" aria-label="Keyframe.lk home" className="flex items-center gap-2 text-white">
-          <LogoMark size={28} className="rounded-lg ring-2 ring-white/40" />
+          <KfMark size={28} className="rounded-lg ring-2 ring-white/40" />
           <span className="text-lg font-semibold tracking-tight">Keyframe<span className="text-white/70">.lk</span></span>
         </Link>
         <nav aria-label="Sections" className="hidden items-center gap-7 text-sm text-white/90 md:flex">
@@ -224,7 +249,7 @@ function EditorWindow() {
       {/* header */}
       <div className="relative flex h-11 items-center gap-1.5 px-3">
         <Tool icon={ArrowLeft} />
-        <LogoMark size={20} /><span className="text-xs font-semibold text-[var(--ink)]">Keyframe</span>
+        <KfMark size={20} /><span className="text-xs font-semibold text-[var(--ink)]">Keyframe</span>
         <div className="absolute left-1/2 hidden -translate-x-1/2 items-center gap-2 sm:flex">
           <span className="text-xs font-medium text-[var(--ink)]">My first reel</span>
           <span className="flex items-center gap-1 rounded-full border border-[var(--line)] bg-white px-2 py-0.5 text-[9px] text-[var(--subtle)]"><CloudCheck className="size-3 text-emerald-600" />Saved</span>
@@ -446,7 +471,7 @@ const WORDS = [['මම', '0.00'], ['software', '0.41'], ['engineering', '0.93']
 
 // Node graph: tags around a glowing hub. [label, x%, y%, tone]
 const NODES: [string, number, number, string][] = [
-  ['Captions', 24, 24, 'bg-[var(--rose)] text-white'], ['Fonts', 20, 42, 'bg-[var(--coral)] text-white'], ['Music', 24, 60, 'bg-[#f59e0b] text-white'], ['AI tools', 20, 78, 'bg-[#8b5cf6] text-white'],
+  ['Captions', 24, 24, 'bg-[var(--rose)] text-white'], ['Fonts', 20, 42, 'bg-[var(--coral)] text-white'], ['Music', 24, 60, 'bg-[#9f1239] text-white'], ['AI tools', 20, 78, 'bg-[#8b5cf6] text-white'],
   ['Timeline', 76, 24, 'bg-white text-[var(--ink)] border border-[var(--line)]'], ['Styles', 80, 42, 'bg-white text-[var(--ink)] border border-[var(--line)]'],
   ['Audio', 76, 60, 'bg-white text-[var(--ink)] border border-[var(--line)]'], ['Export', 80, 78, 'bg-white text-[var(--rose)] border border-[var(--rose)]/40'],
 ];
@@ -603,7 +628,7 @@ function Pricing() {
       </Heading>
       <div className="mt-14 grid gap-5 lg:grid-cols-2">
         {PLANS.map((p) => (
-          <article key={p.name} className={`reveal rounded-[26px] p-2 ${p.hot ? 'bg-[linear-gradient(160deg,#ffd0c8,#ffe9e2_55%,#fff4f0)] shadow-[0_30px_60px_-36px_rgba(225,29,72,.7)]' : 'bg-[#f1eeee]'}`}>
+          <article key={p.name} className={`reveal rounded-[26px] p-2 ${p.hot ? 'bg-[linear-gradient(160deg,#ffd1da,#ffe8ec_55%,#fff4f6)] shadow-[0_30px_60px_-36px_rgba(225,29,72,.7)]' : 'bg-[#f1eeee]'}`}>
             <div className="rounded-[20px] bg-white p-6 shadow-sm">
               <p className="flex items-center gap-3 text-2xl font-semibold tracking-[-0.03em] text-[var(--ink)]">
                 <span className={`grid size-9 place-items-center rounded-xl ${p.hot ? 'btn-rose' : 'bg-[var(--canvas)] text-[var(--rose)]'}`}><Ico icon={p.icon} className="size-[18px]" /></span>{p.name}
@@ -638,7 +663,7 @@ const FORMATS: [string, string, string][] = [
 function Formats() {
   return (
     <section className="relative isolate overflow-hidden py-28">
-      <div aria-hidden className="absolute inset-0 -z-10 bg-[linear-gradient(180deg,var(--canvas)_0%,#ffb3a3_22%,#f43f5e_55%,#ff8a7a_80%,var(--canvas)_100%)]" />
+      <div aria-hidden className="absolute inset-0 -z-10 bg-[linear-gradient(180deg,var(--canvas)_0%,#fda4b4_22%,#f43f5e_55%,#fb7185_80%,var(--canvas)_100%)]" />
       <div className="relative mx-auto max-w-6xl px-5">
         {FORMATS.map(([f, sub, pos], i) => (
           <span key={f} aria-hidden className={`absolute hidden flex-col items-center gap-2 lg:flex ${pos}`}>
@@ -682,14 +707,14 @@ function Reel({ i }: { i: number }) {
 }
 
 function Fact({ tone, tag, children, foot }: { tone: 'dark' | 'rose' | 'white'; tag: string; children: ReactNode; foot: string }) {
-  const cls = { dark: 'bg-[var(--ink)] text-white', rose: 'bg-[linear-gradient(160deg,#f43f5e,#ff7a6e)] text-white', white: 'border border-[var(--line)] bg-white text-[var(--ink)]' }[tone];
+  const cls = { dark: 'bg-[var(--ink)] text-white', rose: 'bg-[linear-gradient(160deg,#f43f5e,#fb7185)] text-white', white: 'border border-[var(--line)] bg-white text-[var(--ink)]' }[tone];
   return (
     <article className={`reveal flex flex-col justify-between gap-10 rounded-[22px] p-7 ${cls}`}>
       <div>
         <p className={`text-[11px] font-medium tracking-[0.14em] uppercase ${tone === 'white' ? 'text-[var(--rose)]' : 'text-white/70'}`}>{tag}</p>
         <p className="mt-4 text-xl leading-snug font-medium tracking-[-0.02em]">{children}</p>
       </div>
-      <p className={`flex items-center gap-2.5 text-xs ${tone === 'white' ? 'text-[var(--ink-2)]' : 'text-white/75'}`}><LogoMark size={22} className="rounded-md" />{foot}</p>
+      <p className={`flex items-center gap-2.5 text-xs ${tone === 'white' ? 'text-[var(--ink-2)]' : 'text-white/75'}`}><KfMark size={22} className="rounded-md" />{foot}</p>
     </article>
   );
 }
@@ -830,7 +855,7 @@ function Footer() {
     <footer className="bg-white">
       <div className="mx-auto grid max-w-6xl grid-cols-2 gap-10 px-5 py-16 md:grid-cols-[1.8fr_repeat(3,1fr)]">
         <div className="col-span-2 md:col-span-1">
-          <Logo size={44} withWordmark />
+          <Wordmark size={44} />
           <p className="mt-5 max-w-xs text-sm leading-relaxed text-[var(--ink-2)]">Sinhala caption video editor with auto captions, live FM fonts, music and on-device export.</p>
           <a href={REPO} target="_blank" rel="noreferrer" aria-label="Keyframe.lk on GitHub" className="mt-5 inline-grid size-9 place-items-center rounded-full border border-[var(--line)] text-[var(--ink)] hover:text-[var(--rose)]"><GitHubMark /></a>
         </div>

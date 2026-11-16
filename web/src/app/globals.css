@@ -192,7 +192,7 @@
   /* The page lives inside <html class="dark"> by default, so re-declare the tokens the base layer reads (light values from :root). */
   --background: #f7f6f6; --foreground: #1f1622; --border: #ece6e6; --scrollbar: #e0cfd0;
   --canvas: #f7f6f6; --ink: #1f1622; --ink-2: #5f5560; --subtle: #8a7f88; --line: #ece6e6; --tint: #fdf1ef;
-  --rose: oklch(0.6 0.235 16); --coral: oklch(0.68 0.19 38); --blush: #ffd6d9; --peach: #ffd9bf; --sky: #fff4ee;
+  --rose: oklch(0.6 0.235 16); --coral: oklch(0.7 0.17 10); /* landing is rose-only: --coral is a lighter rose, not orange */ --blush: #ffd6d9; --peach: #ffd6dd; --sky: #fff4f6;
   --mint: #8fe0c8; --mint-ink: #2b6b58; --flag: #ef5350; --hot: #ff2d5a; /* --hot only highlights caption words drawn over video */
 }
 html:has(.landing), html:has(.landing) body { background: #f7f6f6; }
