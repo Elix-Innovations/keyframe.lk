@@ -49,7 +49,12 @@ export function useFilmstrip(assetId: string | undefined, duration: number): Fil
     if (assetId) {
       let p = cache.get(assetId);
       if (!p) { p = build(assetId, duration); cache.set(assetId, p); }
-      void p.then((f) => { if (live) setFs(f); });
+      const pending = p;
+      void pending.then((f) => {
+        // A failed build (e.g. a file handle that still needs read permission) must not stay cached for the session.
+        if (!f && cache.get(assetId) === pending) cache.delete(assetId);
+        if (live) setFs(f);
+      });
     }
     return () => { live = false; };
   }, [assetId, duration]);

@@ -72,7 +72,7 @@ export function trimAdjRight<T extends Timed>(adj: T[], id: string, dt: number):
 
 export function splitAdj<T extends Timed>(adj: T[], id: string, t: number): { adj: T[]; id: string | null } {
   const a = adj.find((x) => x.id === id);
-  if (!a || t <= a.start + MIN_ADJ / 2 || t >= adjEnd(a) - MIN_ADJ / 2) return { adj, id: null };
+  if (!a || t < a.start + MIN_ADJ || t > adjEnd(a) - MIN_ADJ) return { adj, id: null };
   const right: T = { ...a, id: nanoid(8), start: t, duration: adjEnd(a) - t };
   return { adj: adj.flatMap((x) => (x.id === id ? [{ ...a, duration: t - a.start }, right] : [x])), id: right.id };
 }

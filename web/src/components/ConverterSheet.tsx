@@ -39,10 +39,14 @@ export function ConverterSheet() {
   useEffect(() => onFontsChanged(() => force((n) => n + 1)), []);
   useEffect(() => { if (font) ensureFont(font.id); }, [font]);
 
-  const copy = (t: string, what: string) => navigator.clipboard.writeText(t).then(() => notify(`${what} copied.`, 'success'));
+  const copy = async (t: string, what: string) => {
+    try { await navigator.clipboard.writeText(t); } catch { notify('Could not copy to the clipboard.', 'error'); return; }
+    notify(`${what} copied.`, 'success');
+  };
 
   const onSubtitle = async (f: File) => {
-    const out = convertSubtitleFile(await f.text(), srtDir);
+    let out: string;
+    try { out = convertSubtitleFile(await f.text(), srtDir); } catch { notify('Could not read that file.', 'error'); return; }
     const suffix = srtDir === 'u2fm' ? 'fm' : 'unicode';
     downloadBlob(new Blob(['﻿' + out], { type: 'text/plain;charset=utf-8' }), f.name.replace(/(\.\w+)$/, `.${suffix}$1`));
     notify('Converted subtitle file downloaded.', 'success');
@@ -123,14 +127,14 @@ export function ConverterSheet() {
             </div>
             <button type="button" onClick={() => fileRef.current?.click()}
               onDragOver={(e) => { e.preventDefault(); setOver(true); }} onDragLeave={() => setOver(false)}
-              onDrop={(e) => { e.preventDefault(); setOver(false); const f = e.dataTransfer.files?.[0]; if (f) onSubtitle(f); }}
+              onDrop={(e) => { e.preventDefault(); setOver(false); const f = e.dataTransfer.files?.[0]; if (f) void onSubtitle(f); }}
               className={cn('flex flex-col items-center gap-1.5 rounded-md border border-dashed px-4 py-8 text-center transition-colors',
                 over ? 'border-primary bg-primary/10' : 'hover:border-foreground/25 hover:bg-sidebar-accent/60')}>
               <FileText className="size-5 text-muted-foreground" />
               <span className="text-xs font-medium">{over ? 'Drop to convert' : 'Drop an SRT or VTT file'}</span>
               <span className="text-[11px] text-muted-foreground">or <span className="text-primary">browse</span> · numbers and timings stay untouched</span>
             </button>
-            <input ref={fileRef} type="file" accept=".srt,.vtt,.txt" hidden onChange={(e) => { const f = e.target.files?.[0]; if (f) onSubtitle(f); e.target.value = ''; }} />
+            <input ref={fileRef} type="file" accept=".srt,.vtt,.txt" hidden onChange={(e) => { const f = e.target.files?.[0]; if (f) void onSubtitle(f); e.target.value = ''; }} />
           </TabsContent>
 
           <TabsContent value="keys" className="flex flex-col gap-3 px-4 py-3">

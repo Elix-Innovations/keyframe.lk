@@ -11,10 +11,15 @@ import * as db from './lib/db';
 import { fontFileLooksFM, loadBundledFMFonts, registerCustomFont } from './lib/fonts';
 
 /** `#/new` (from the landing page's Start button): make a blank project and go straight into the workspace. */
-async function startBlankProject() {
-  const p = newProject('Untitled project');
-  await db.putProject(p);
-  location.replace(`#/p/${p.id}`);
+let creatingBlank: Promise<void> | null = null;
+function startBlankProject() {
+  // Idempotent while in flight: the hash stays '#/new' until the write finishes, and StrictMode re-runs effects.
+  creatingBlank ??= (async () => {
+    const p = newProject('Untitled project');
+    await db.putProject(p);
+    location.replace(`#/p/${p.id}`);
+  })().finally(() => { creatingBlank = null; });
+  return creatingBlank;
 }
 
 function parseHash() {
@@ -25,7 +30,7 @@ function parseHash() {
 /** On launch with no project in the URL, reopen the project that was open when the app was closed. */
 function initialProjectId() {
   const fromHash = parseHash();
-  if (location.hash === '#/new') { void startBlankProject(); return null; }
+  if (location.hash === '#/new') return null; // the mount effect creates the project
   if (fromHash || location.hash) return fromHash;
   return lastProjectId();
 }
@@ -44,7 +49,7 @@ export function App() {
 
   useEffect(() => {
     const onHash = () => {
-      if (location.hash === '#/new') { void startBlankProject(); return; }
+      if (location.hash === '#/new') { startBlankProject().catch(console.error); return; }
       setProjectId(parseHash());
       if (location.hash === '#/convert') useEditor.getState().setConverterOpen(true);
     };
@@ -59,13 +64,15 @@ export function App() {
       let fixed = false;
       try { fixed = localStorage.getItem('keyframe.fmFontsChecked') === '1'; } catch { /* storage unavailable */ }
       if (!fixed) {
+        let writeFailed = false;
         for (const f of fonts) {
           if (f.def.script === 'english' && !f.def.legacy && await fontFileLooksFM(f.blob).catch(() => false)) {
             f.def = { ...f.def, script: 'sinhala', legacy: true };
-            await db.putFont(f.def, f.blob);
+            // A failed write must not stop the remaining fonts from being registered below.
+            try { await db.putFont(f.def, f.blob); } catch (e) { writeFailed = true; console.error(e); }
           }
         }
-        try { localStorage.setItem('keyframe.fmFontsChecked', '1'); } catch { /* storage unavailable */ }
+        if (!writeFailed) try { localStorage.setItem('keyframe.fmFontsChecked', '1'); } catch { /* storage unavailable */ }
       }
       fonts.forEach((f) => registerCustomFont(f.def, f.blob).catch(() => undefined));
     }).catch(console.error);
@@ -79,7 +86,7 @@ export function App() {
     db.getProject(projectId).then((p) => {
       if (p) load(p);
       else { rememberLastProject(null); notify('Project not found', 'error'); location.hash = ''; }
-    });
+    }).catch((e) => { notify(e?.message || 'Could not open the project', 'error'); location.hash = ''; });
   }, [projectId, project?.id, load, notify]);
 
   return (

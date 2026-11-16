@@ -38,6 +38,10 @@ export async function importPremierePack(files: File[], onStatus?: (s: string) =
         const m = await parseMogrt(file);
         warnings.push(...m.notes.map((n) => `${file.name}: ${n}`));
         const look: PackLook = { name: m.info.name, origin, fontId: m.info.fontId, size: m.info.size, color: m.info.color };
+        const preview = async () => {
+          onStatus?.(`Analysing the preview in ${file.name}…`);
+          for (const [i, r] of (await analyzeVideo(m.video!)).entries()) templates.push(buildTemplate({ ...look, name: `${look.name} ${i + 1}`, color: look.color ?? r.color, glow: r.glow, approximate: true }, r.inKeys, r.outKeys));
+        };
         if (m.aep) {
           const px = m.info.size && m.info.compH ? m.info.size * (1080 / m.info.compH) : m.info.size;
           const mo = motionFromAep(m.aep, m.info.size ?? 64);
@@ -45,15 +49,15 @@ export async function importPremierePack(files: File[], onStatus?: (s: string) =
           if (mo.letterIn || mo.letterOut || mo.lineIn || mo.lineOut) {
             const t = buildTemplate({ ...look, size: px, approximate: true }, mo.lineIn, mo.lineOut, mo.letterIn || mo.letterOut ? mo : undefined);
             templates.push(t);
-          }
+          } else if (m.video) await preview(); // no usable motion in the project: measure the bundled preview instead
+          else templates.push(buildTemplate({ ...look, size: px })); // keep the pack's font, size and colour
         } else if (m.anims.length) {
           for (const a of m.anims) {
             const { inKeys, outKeys } = animFromTracks(a.tracks);
             if (inKeys || outKeys) templates.push(buildTemplate({ ...look, name: m.anims.length > 1 ? a.name : look.name, perLetter: a.perLetter }, inKeys, outKeys));
           }
         } else if (m.video) {
-          onStatus?.(`Analysing the preview in ${file.name}…`);
-          for (const [i, r] of (await analyzeVideo(m.video)).entries()) templates.push(buildTemplate({ ...look, name: `${look.name} ${i + 1}`, color: look.color ?? r.color, glow: r.glow, approximate: true }, r.inKeys, r.outKeys));
+          await preview();
         } else if (!m.notes.length) templates.push(buildTemplate(look));
       } else {
         const runs = await analyzeVideo(file, (f) => onStatus?.(`Analysing ${file.name}… ${Math.round(f * 100)}%`));

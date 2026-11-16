@@ -55,6 +55,12 @@ function toggleLane(key: string, field: LaneField) {
   useEditor.getState().update((p) => ({ ...p, lanes: { ...p.lanes, [key]: { ...p.lanes?.[key], [field]: !p.lanes?.[key]?.[field] } } }));
 }
 
+/** Module scope so its identity is stable: a Btn defined inside LaneHeader remounts on every time tick. */
+const Btn = ({ on, onClick, title, children }: { on: boolean; onClick: () => void; title: string; children: React.ReactNode }) => (
+  <button title={title} aria-label={title} aria-pressed={on} onClick={onClick}
+    className={cn('grid size-5 place-items-center rounded transition-colors [&_svg]:size-3.5', on ? 'bg-primary/20 text-primary' : 'text-muted-foreground hover:bg-sidebar-accent hover:text-foreground')}>{children}</button>
+);
+
 /** Header cell for one timeline row: icon, name and the hide / lock / mute switches. */
 function LaneHeader({ top, height, label, icon, laneKey, eye = true, lock = true, mute, order, wave, resize }: {
   top: number; height: number; label: string; icon: React.ReactNode; laneKey: string; eye?: boolean; lock?: boolean;
@@ -88,10 +94,6 @@ function LaneHeader({ top, height, label, icon, laneKey, eye = true, lock = true
     }
   };
   const lane = useEditor((s) => laneOf(s.project!, laneKey));
-  const Btn = ({ on, onClick, title, children }: { on: boolean; onClick: () => void; title: string; children: React.ReactNode }) => (
-    <button title={title} aria-label={title} aria-pressed={on} onClick={onClick}
-      className={cn('grid size-5 place-items-center rounded transition-colors [&_svg]:size-3.5', on ? 'bg-primary/20 text-primary' : 'text-muted-foreground hover:bg-sidebar-accent hover:text-foreground')}>{children}</button>
-  );
   return (
     <div className={cn('absolute left-0 flex flex-row items-center justify-between gap-0.5 border-b border-r bg-card px-2', drag && 'z-30 bg-accent shadow-lg')} style={{ top, height, width: HEAD, ...(drag ? { transform: `translateY(${drag.dy}px)` } : {}) }}>
       {/* CapCut style: just the track-type icon (drag it to reorder), then the switches. The name is in the tooltip. */}
@@ -267,7 +269,7 @@ const MusicBlock = memo(function MusicBlock({ t, pps, top, height }: { t: MusicT
     <ContextMenuContent className="w-56">
       <ContextMenuItem disabled={!trackOps.canSplit(t.id)} onClick={() => trackOps.splitAtPlayhead(t.id)}><Scissors />Split at playhead<ContextMenuShortcut>S</ContextMenuShortcut></ContextMenuItem>
       <ContextMenuItem onClick={() => trackOps.duplicate(t.id)}><Copy />Duplicate</ContextMenuItem>
-      <ContextMenuItem onClick={() => void generateCaptionsFromAudio(t.id)}><AudioLines />Generate captions from audio</ContextMenuItem>
+      <ContextMenuItem onClick={() => { generateCaptionsFromAudio(t.id).catch((e) => useEditor.getState().notify((e as Error).message || 'Could not generate captions.', 'error')); }}><AudioLines />Generate captions from audio</ContextMenuItem>
       <ContextMenuItem onClick={() => trackOps.toggleMute(t.id)}>{t.muted ? <Volume /> : <VolumeOff />}{t.muted ? 'Unmute' : 'Mute'}</ContextMenuItem>
       <ContextMenuItem onClick={() => { useEditor.getState().setPanel('audio'); }}><Pencil />Edit volume and fades…</ContextMenuItem>
       <ContextMenuItem onClick={() => patch({ start: Math.max(0, currentTime()) })}><Crosshair />Move to playhead</ContextMenuItem>
@@ -311,7 +313,9 @@ function CaptionMenu({ c, children }: { c: Caption; children: React.ReactNode })
           const len = c.end - c.start;
           const copy: Caption = { ...retime(c, c.end, c.end + len), id: nanoid(8) };
           copy.words = copy.words.map((w) => ({ ...w, id: nanoid(8) }));
-          st().setCaptions([...all(), copy]);
+          // Make room first: normalizeCaptions never shifts later captions, so an overlapping copy would be trimmed or dropped.
+          const later = all().filter((x) => x.start >= c.end).map((x) => x.id);
+          st().setCaptions([...shiftCaptions(all(), later, len), copy]);
         }}><Copy />Duplicate after</ContextMenuItem>
         <ContextMenuSeparator />
         <ContextMenuItem onClick={() => copyCaptionStyle(c.id)}><Copy />Copy style<ContextMenuShortcut>⌘C</ContextMenuShortcut></ContextMenuItem>
@@ -328,6 +332,16 @@ function CaptionMenu({ c, children }: { c: Caption; children: React.ReactNode })
     </ContextMenu>
   );
 }
+
+/** Module scope so its identity is stable: a Tool defined inside Timeline remounts every toolbar button on each time tick. */
+const Tool = ({ label, onClick, disabled, active, children }: { label: string; onClick: () => void; disabled?: boolean; active?: boolean; children: React.ReactNode }) => (
+  <Tooltip>
+    <TooltipTrigger asChild>
+      <Button variant="ghost" size="icon-sm" aria-label={label} aria-pressed={active} disabled={disabled} onClick={onClick} className={cn(active && 'bg-primary/15 text-primary')}>{children}</Button>
+    </TooltipTrigger>
+    <TooltipContent>{label}</TooltipContent>
+  </Tooltip>
+);
 
 export function Timeline() {
   const project = useEditor((s) => s.project)!;
@@ -415,10 +429,11 @@ export function Timeline() {
   };
   const setZoomKeepCenter = (z: number) => {
     const el = scroller.current!;
-    const center = (el.scrollLeft + el.clientWidth / 2) / pps;
+    const center = (el.scrollLeft + el.clientWidth / 2 - PAD) / pps; // time 0 sits at x = PAD
     const nz = Math.min(40, Math.max(1, z));
+    const newPps = Math.max(8, ((width - PAD - 16) / dur) * nz);
     setZoom(nz);
-    requestAnimationFrame(() => { el.scrollLeft = center * ((width - PAD - 16) / dur) * nz - el.clientWidth / 2; });
+    requestAnimationFrame(() => { el.scrollLeft = center * newPps + PAD - el.clientWidth / 2; });
   };
 
   const AUD_H = 40;
@@ -478,6 +493,25 @@ export function Timeline() {
     return order.find((g) => y < area[g] + sizes[g]) ?? order[order.length - 1];
   };
   const [dropAt, setDropAt] = useState<{ x: number; y: number } | null>(null);
+  // A drag cancelled (Esc) or dropped elsewhere never reaches the scroller, so clear the drop line here.
+  useEffect(() => {
+    const clear = () => setDropAt(null);
+    window.addEventListener('dragend', clear);
+    window.addEventListener('drop', clear);
+    return () => { window.removeEventListener('dragend', clear); window.removeEventListener('drop', clear); };
+  }, []);
+  // React's onWheel is a passive listener, so ctrl/cmd+wheel zoom needs a native non-passive one to stop the page zooming too.
+  useEffect(() => {
+    const el = scroller.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      if (!e.ctrlKey && !e.metaKey) return;
+      e.preventDefault();
+      setZoom((z) => Math.min(40, Math.max(1, z * (e.deltaY < 0 ? 1.15 : 1 / 1.15))));
+    };
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => el.removeEventListener('wheel', onWheel);
+  }, []);
   // Publish row geometry so clip blocks can turn a pointer position into a track while dragging.
   const contentY = (clientY: number) => clientY - scroller.current!.getBoundingClientRect().top + scroller.current!.scrollTop;
   geo.timeAt = (clientX) => (clientX - scroller.current!.getBoundingClientRect().left + scroller.current!.scrollLeft - PAD) / pps;
@@ -521,21 +555,13 @@ export function Timeline() {
     if (splitSelection()) return;
     if (selTrack && trackOps.splitAtPlayhead()) return;
     if (selOverlay && overlayOps.splitAtPlayhead()) return;
+    if (selAdj) { adjOps.splitAtPlayhead(); return; } // like the S shortcut: never fall through and cut every clip under the playhead
     if (clipOps.splitAtPlayhead()) return;
     const t = currentTime();
     const target = project.captions.find((c) => t > c.start && t < c.end);
     const parts = target && splitCaptionAt(target, t);
     if (target && parts) setCaptions(project.captions.flatMap((c) => (c.id === target.id ? parts : [c])));
   };
-  const Tool = ({ label, onClick, disabled, active, children }: { label: string; onClick: () => void; disabled?: boolean; active?: boolean; children: React.ReactNode }) => (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <Button variant="ghost" size="icon-sm" aria-label={label} aria-pressed={active} disabled={disabled} onClick={onClick} className={cn(active && 'bg-primary/15 text-primary')}>{children}</Button>
-      </TooltipTrigger>
-      <TooltipContent>{label}</TooltipContent>
-    </Tooltip>
-  );
-
   const isDrag = (e: React.DragEvent) => e.dataTransfer.types.includes(DRAG_MIME) || e.dataTransfer.types.includes('Files');
   const onDrop = async (e: React.DragEvent) => {
     e.preventDefault();
@@ -599,7 +625,7 @@ export function Timeline() {
         <Tool label="Paste only the look: filters, cut-out, blur, effects, style (⇧⌘V)" disabled={!hasClip} onClick={() => pasteAttributes()}><WandSparkles /></Tool>
         <Tool label="Copy all edits of the selected clip (⌥⌘C)" disabled={!selectedClip} onClick={() => copyEdits()}><Copy /></Tool>
         <Tool label="Paste copied edits onto the selected clip (⌥⇧⌘V)" disabled={!selectedClip || !hasEdits()} onClick={() => pasteEdits()}><ClipboardPaste /></Tool>
-        <Tool label="Delete selected (Del)" disabled={!sel && !selectedClip && !selOverlay && !selTrack && nMulti < 2} onClick={() => { if (deleteSelection()) return; if (selTrack) trackOps.remove(selTrack); else if (selOverlay) overlayOps.remove(selOverlay); else if (selectedClip) clipOps.remove(selectedClip.id); else if (sel) { setCaptions(project.captions.filter((c) => c.id !== sel.id)); select(null); } }}><Trash2 /></Tool>
+        <Tool label="Delete selected (Del)" disabled={!sel && !selectedClip && !selOverlay && !selTrack && !selAdj && nMulti < 2} onClick={() => { if (deleteSelection()) return; if (selTrack) trackOps.remove(selTrack); else if (selOverlay) overlayOps.remove(selOverlay); else if (selAdj) adjOps.remove(selAdj); else if (selectedClip) clipOps.remove(selectedClip.id); else if (sel) { setCaptions(project.captions.filter((c) => c.id !== sel.id)); select(null); } }}><Trash2 /></Tool>
         <Tool label={selectedClip?.linkId ? 'Unlink video and audio' : 'Link selected clip with its audio / video'} disabled={!selectedClip}
           active={!!selectedClip?.linkId} onClick={() => { if (selectedClip) { if (selectedClip.linkId) clipOps.unlink(selectedClip.id); else clipOps.link(selectedClip.id); } }}><Link /></Tool>
         <Tool label={selectionGrouped() ? 'Ungroup (⇧⌘G)' : 'Group the selected items (⌘G)'} disabled={nMulti < 2} active={selectionGrouped()} onClick={() => groupSelection()}><Layers /></Tool>
@@ -614,7 +640,7 @@ export function Timeline() {
           <Tooltip>
             <TooltipTrigger asChild>
               <Button variant="ghost" size="icon-xs" aria-label="Find playhead"
-                onClick={() => { const el = scroller.current!; el.scrollLeft = currentTime() * pps - el.clientWidth / 2; }}><Crosshair /></Button>
+                onClick={() => { const el = scroller.current!; el.scrollLeft = currentTime() * pps + PAD - el.clientWidth / 2; }}><Crosshair /></Button>
             </TooltipTrigger>
             <TooltipContent>Find playhead</TooltipContent>
           </Tooltip>
@@ -622,9 +648,9 @@ export function Timeline() {
       </div>
       <div ref={scroller} className="relative min-h-0 flex-1 overflow-x-auto overflow-y-auto"
         onDragOver={(e) => { if (!isDrag(e)) return; e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; setDropAt({ x: e.clientX, y: e.clientY }); }}
-        onDragLeave={(e) => { if (e.currentTarget === e.target) setDropAt(null); }}
+        onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDropAt(null); }}
         onDrop={(e) => void onDrop(e)}
-        onWheel={(e) => { manualScroll.current = true; if (e.ctrlKey || e.metaKey) { e.preventDefault(); setZoom((z) => Math.min(40, Math.max(1, z * (e.deltaY < 0 ? 1.15 : 1 / 1.15)))); } }}
+        onWheel={() => { manualScroll.current = true; }}
         onPointerDown={(e) => {
           if (e.button !== 0) return;
           const el = e.currentTarget as HTMLElement, r = el.getBoundingClientRect();

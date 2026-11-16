@@ -40,11 +40,16 @@ export interface ExportOptions {
 
 export async function loadBrollImages(p: Project) {
   const map = new Map<string, ImageBitmap>();
-  await feedPhotosReady();
-  for (const b of [...p.broll, ...(p.overlays ?? []).flatMap(overlayAssetIds).map((assetId) => ({ assetId }))]) {
-    if (map.has(b.assetId)) continue;
-    const blob = await getBlob(b.assetId);
-    if (blob) map.set(b.assetId, await createImageBitmap(blob));
+  try {
+    await feedPhotosReady();
+    for (const b of [...p.broll, ...(p.overlays ?? []).flatMap(overlayAssetIds).map((assetId) => ({ assetId }))]) {
+      if (map.has(b.assetId)) continue;
+      const blob = await getBlob(b.assetId);
+      if (blob) map.set(b.assetId, await createImageBitmap(blob));
+    }
+  } catch (e) {
+    map.forEach((b) => b.close());
+    throw e;
   }
   return map;
 }
@@ -55,6 +60,7 @@ export async function loadBrollImages(p: Project) {
  * and passes the original audio through untouched.
  */
 export async function exportVideo(project: Project, opts: ExportOptions): Promise<Blob> {
+  opts.signal?.throwIfAborted();
   await requireSegmenter([...(project.clips ?? []), { fx: project.video }]); // the AI cut-out needs its model before the first frame
   const first = videoClips(project.clips ?? [])[0];
   if (!first) throw new Error('This project has no video.');
@@ -70,49 +76,56 @@ export async function exportVideo(project: Project, opts: ExportOptions): Promis
   const alpha = opts.screen === 'transparent';
   const withAudio = !screen || opts.screenAudio !== false;
   const broll = screen ? new Map<string, ImageBitmap>() : await loadBrollImages(project);
-  const { width, height } = outputSize(project, opts.longSide);
-  const canvas = new OffscreenCanvas(width, height);
-  const ctx = canvas.getContext('2d', { alpha });
-  if (!ctx) throw new Error('Could not create a 2D canvas.');
-
-  const input = new Input({ source: new BlobSource(file), formats: ALL_FORMATS });
-  const output = new Output({ format: alpha ? new WebMOutputFormat() : new Mp4OutputFormat({ fastStart: 'in-memory' }), target: new BufferTarget() });
-
   const mix = withAudio && needsMix(project);
-  const conversion = await Conversion.init({
-    input,
-    output,
-    // With a custom soundtrack the original audio is dropped here and the mastered mix is muxed in afterwards.
-    audio: mix || !withAudio ? { discard: true } : undefined,
-    video: {
-      codec: alpha ? 'vp9' : 'avc',
-      alpha: alpha ? 'keep' : 'discard',
-      bitrate: opts.quality === 'very-high' ? QUALITY_VERY_HIGH : QUALITY_HIGH,
-      forceTranscode: true,
-      processedWidth: width,
-      processedHeight: height,
-      // Screen exports still walk the source frames, so frame rate, length and caption timing match a normal export exactly.
-      process: async (sample) => {
-        await warmMattes(project.clips ?? [], sample.timestamp + ((project.clips ?? [])[0]?.start ?? 0), (id) => ((project.clips ?? [])[0]?.id === id ? { draw: (x, dx, dy, dw, dh) => sample.draw(x, dx, dy, dw, dh), w: sample.displayWidth || width, h: sample.displayHeight || height } : null));
-        if (screen) composeFrame(ctx, width, height, project, sample.timestamp, null, { background: screen, hideBroll: true });
-        else composeFrame(ctx, width, height, project, sample.timestamp, (c, dx, dy, dw, dh) => sample.draw(c, dx, dy, dw, dh), { brollImages: broll });
-        return canvas;
-      },
-    },
-  });
-  if (!conversion.isValid) {
-    const reasons = conversion.discardedTracks.map((d) => `${d.track.type}: ${d.reason}`).join(', ');
-    throw new Error(`This video can't be converted in the browser (${reasons || 'unsupported codec'}).`);
-  }
-  conversion.onProgress = (p) => opts.onProgress(mix ? p * 0.85 : p);
-  const onAbort = () => void conversion.cancel();
-  opts.signal?.addEventListener('abort', onAbort);
+  let output!: Output<WebMOutputFormat | Mp4OutputFormat, BufferTarget>;
   try {
-    await conversion.execute();
+    const { width, height } = outputSize(project, opts.longSide);
+    const canvas = new OffscreenCanvas(width, height);
+    const ctx = canvas.getContext('2d', { alpha });
+    if (!ctx) throw new Error('Could not create a 2D canvas.');
+
+    const input = new Input({ source: new BlobSource(file), formats: ALL_FORMATS });
+    output = new Output({ format: alpha ? new WebMOutputFormat() : new Mp4OutputFormat({ fastStart: 'in-memory' }), target: new BufferTarget() });
+
+    const conversion = await Conversion.init({
+      input,
+      output,
+      // With a custom soundtrack the original audio is dropped here and the mastered mix is muxed in afterwards.
+      audio: mix || !withAudio ? { discard: true } : undefined,
+      video: {
+        codec: alpha ? 'vp9' : 'avc',
+        alpha: alpha ? 'keep' : 'discard',
+        bitrate: opts.quality === 'very-high' ? QUALITY_VERY_HIGH : QUALITY_HIGH,
+        forceTranscode: true,
+        processedWidth: width,
+        processedHeight: height,
+        // Screen exports still walk the source frames, so frame rate, length and caption timing match a normal export exactly.
+        process: async (sample) => {
+          await warmMattes(project.clips ?? [], sample.timestamp + first.start, (id) => (first.id === id ? { draw: (x, dx, dy, dw, dh) => sample.draw(x, dx, dy, dw, dh), w: sample.displayWidth || width, h: sample.displayHeight || height } : null));
+          if (screen) composeFrame(ctx, width, height, project, sample.timestamp, null, { background: screen, hideBroll: true });
+          else composeFrame(ctx, width, height, project, sample.timestamp, (c, dx, dy, dw, dh) => sample.draw(c, dx, dy, dw, dh), { brollImages: broll });
+          return canvas;
+        },
+      },
+    });
+    opts.signal?.throwIfAborted();
+    if (!conversion.isValid) {
+      const reasons = conversion.discardedTracks.map((d) => `${d.track.type}: ${d.reason}`).join(', ');
+      throw new Error(`This video can't be converted in the browser (${reasons || 'unsupported codec'}).`);
+    }
+    conversion.onProgress = (p) => opts.onProgress(mix ? p * 0.85 : p);
+    const onAbort = () => void conversion.cancel();
+    opts.signal?.addEventListener('abort', onAbort);
+    try {
+      opts.signal?.throwIfAborted(); // an abort that fired before the listener existed is never delivered to it
+      await conversion.execute();
+    } finally {
+      opts.signal?.removeEventListener('abort', onAbort);
+    }
   } finally {
-    opts.signal?.removeEventListener('abort', onAbort);
     broll.forEach((b) => b.close());
   }
+  opts.signal?.throwIfAborted();
   const buf = (output.target as BufferTarget).buffer;
   if (!buf) throw new Error('Export produced no data.');
   const video = new Blob([buf], { type: alpha ? 'video/webm' : 'video/mp4' });
@@ -355,19 +368,22 @@ async function exportClips(project: Project, opts: ExportOptions): Promise<Blob>
   if (!ctx) throw new Error('Could not create a 2D canvas.');
   const broll = screen ? new Map<string, ImageBitmap>() : await loadBrollImages(project);
   const output = new Output({ format: alpha ? new WebMOutputFormat() : new Mp4OutputFormat({ fastStart: 'in-memory' }), target: new BufferTarget() });
-  const vsrc = new CanvasSource(canvas, { codec: alpha ? 'vp9' : 'avc', bitrate: opts.quality === 'very-high' ? QUALITY_VERY_HIGH : QUALITY_HIGH, alpha: alpha ? 'keep' : 'discard' });
-  output.addVideoTrack(vsrc, { frameRate: rate });
-  const asrc = soundtrack && aCodec ? new AudioBufferSource({ codec: aCodec, bitrate: 192_000 }) : null;
-  if (asrc) output.addAudioTrack(asrc);
-  await output.start();
+  type Run = { gen: AsyncGenerator<{ canvas: HTMLCanvasElement | OffscreenCanvas } | null>; i0: number; i1: number };
+  const runs = new Map<string, Run>();
 
   try {
+    const vsrc = new CanvasSource(canvas, { codec: alpha ? 'vp9' : 'avc', bitrate: opts.quality === 'very-high' ? QUALITY_VERY_HIGH : QUALITY_HIGH, alpha: alpha ? 'keep' : 'discard' });
+    output.addVideoTrack(vsrc, { frameRate: rate });
+    const asrc = soundtrack && aCodec ? new AudioBufferSource({ codec: aCodec, bitrate: 192_000 }) : null;
+    if (asrc) output.addAudioTrack(asrc);
+    await output.start();
+
     // Every video clip (on any track) gets one decoder pass over its frames, pulled in lockstep with the output frames it covers.
+    // The exclusive end is ceil(end * rate): the last frame still inside the clip is ceil(end * rate) - 1.
     const range = (c: typeof clips[number]) => {
-      const i0 = Math.max(0, Math.ceil(c.start * rate - 0.5)), i1 = Math.min(frameCount, Math.ceil((c.start + c.duration) * rate - 0.5));
+      const i0 = Math.max(0, Math.ceil(c.start * rate - 0.5)), i1 = Math.min(frameCount, Math.ceil((c.start + c.duration) * rate));
       return { i0, i1 };
     };
-    const runs = new Map<string, { gen: AsyncGenerator<{ canvas: HTMLCanvasElement | OffscreenCanvas } | null>; i0: number; i1: number }>();
     if (!screen) {
       for (const c of clips) {
         const { i0, i1 } = range(c);
@@ -418,6 +434,9 @@ async function exportClips(project: Project, opts: ExportOptions): Promise<Blob>
     throw e;
   } finally {
     broll.forEach((b) => b.close());
+    // Suspended decoders (abort or error) keep their VideoDecoder and queued frames alive until return() is called.
+    await Promise.allSettled([...runs.values()].map((r) => r.gen.return(undefined)));
+    sinks.forEach((s) => s.input.dispose());
   }
   const buf = (output.target as BufferTarget).buffer;
   if (!buf) throw new Error('Export produced no data.');

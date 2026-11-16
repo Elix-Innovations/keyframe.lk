@@ -322,16 +322,21 @@ export const useEditor = create<EditorState>((set, get) => ({
 
 const AUTOSAVE_MS = 5000;
 let inflight: Promise<void> | null = null;
+let saveFailed = false; // so a persistent failure toasts once, not on every autosave tick
 
-/** Write the open project now if it has unsaved edits. Safe to call often; writes run in order. */
+/** Write the open project now if it has unsaved edits. Safe to call often; writes run in order. Never rejects: a failed write leaves the project dirty (autosave retries) and tells the user. */
 export function saveNow(): Promise<void> {
   const { project, dirty } = useEditor.getState();
   if (!project || !dirty) return inflight ?? Promise.resolve();
   useEditor.setState({ saving: true });
   const job: Promise<void> = (inflight ?? Promise.resolve()).then(() => db.putProject(project)).then(() => {
     const s = useEditor.getState();
+    saveFailed = false;
     // Only mark clean if nothing changed while this write was running.
     useEditor.setState({ savedAt: Date.now(), dirty: s.project === project ? false : s.dirty });
+  }).catch((e) => {
+    console.error('Could not save the project', e);
+    if (!saveFailed) { saveFailed = true; useEditor.getState().notify('Could not save the project. Your latest edits may be lost.', 'error'); }
   });
   inflight = job;
   void job.finally(() => {

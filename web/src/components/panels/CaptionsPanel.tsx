@@ -46,20 +46,27 @@ function Generate() {
   const abort = useRef<AbortController | null>(null);
 
   useEffect(() => { health().then(setH); }, []);
+  useEffect(() => () => abort.current?.abort(), []);
   const anyProvider = h && (h.transcription.elevenlabs || h.transcription.gemini || h.transcription.openai);
 
   async function run() {
-    if (!project.videoAssetId) return;
-    // An edited timeline, or one with sound tracks, is transcribed from its own audio so captions match what is heard and the cuts.
-    const blob = isSimple(project) && !project.audio.tracks.length ? await getBlob(project.videoAssetId) : await renderVoiceWav(project).catch(() => undefined);
-    if (!blob) { notify('Could not read the timeline audio.', 'error'); return; }
-    abort.current = new AbortController();
-    setStage({ label: 'Uploading', progress: 0 });
+    if (!project.videoAssetId || abort.current) return;
+    // Claim the run before any await so a second click cannot start another transcription.
+    const ctrl = new AbortController();
+    abort.current = ctrl;
+    const pid = project.id;
+    setStage({ label: 'Preparing audio' });
     try {
+      // An edited timeline, or one with sound tracks, is transcribed from its own audio so captions match what is heard and the cuts.
+      const blob = isSimple(project) && !project.audio.tracks.length ? await getBlob(project.videoAssetId) : await renderVoiceWav(project).catch(() => undefined);
+      if (ctrl.signal.aborted) return;
+      if (!blob) { notify('Could not read the timeline audio.', 'error'); return; }
+      setStage({ label: 'Uploading', progress: 0 });
       const res = await transcribe(blob, {
-        language: lang, provider, signal: abort.current.signal,
+        language: lang, provider, signal: ctrl.signal,
         onUpload: (p) => setStage(p < 1 ? { label: 'Uploading', progress: p } : { label: 'Listening & transcribing' }),
       });
+      if (ctrl.signal.aborted || useEditor.getState().project?.id !== pid) return;
       const words: Word[] = res.words.map((w) => ({ id: nanoid(8), text: w.text, start: w.start, end: w.end }));
       if (words.length === 0) { notify('No speech was detected in this video.', 'error'); return; }
       update((p) => ({ ...p, words, language: lang === 'en' ? 'en' : 'si', duration: p.duration || res.duration, captions: segmentWords(words, p.segmentation) }));
@@ -67,6 +74,7 @@ function Generate() {
     } catch (e) {
       if ((e as Error).name !== 'AbortError') notify((e as Error).message, 'error');
     } finally {
+      if (abort.current === ctrl) abort.current = null;
       setStage(null);
     }
   }
@@ -153,11 +161,27 @@ function Segmentation() {
   const project = useEditor((s) => s.project)!;
   const update = useEditor((s) => s.update);
   const seg = project.segmentation;
-  const set = (patch: Partial<typeof seg>) =>
+  const resegment = (patch: Partial<typeof seg>) =>
     update((p) => {
       const segmentation = { ...p.segmentation, ...patch };
-      return { ...p, segmentation, captions: segmentWords(p.captions.flatMap((c) => c.words), segmentation) };
+      // Carry per-caption overrides, groups and ids over to the re-segmented captions by their first word.
+      const owner = new Map<string, Caption>();
+      for (const c of p.captions) for (const w of c.words) owner.set(w.id, c);
+      const used = new Set<string>();
+      const captions = segmentWords(p.captions.flatMap((c) => c.words), segmentation).map((nc) => {
+        const old = owner.get(nc.words[0].id);
+        if (!old) return nc;
+        const id = used.has(old.id) ? nc.id : old.id;
+        used.add(id);
+        return { ...nc, id, ...(old.styleOverride && { styleOverride: old.styleOverride }), ...(old.groupId && { groupId: old.groupId }) };
+      });
+      return { ...p, segmentation, captions };
     }, 'segmentation');
+  const set = (patch: Partial<typeof seg>) => {
+    resegment(patch);
+    const st = useEditor.getState();
+    if (st.selectedCaptionId && !st.project?.captions.some((c) => c.id === st.selectedCaptionId)) st.select(null);
+  };
   return (
     <Section title="Caption length">
       <Row label="Max words"><Slider value={seg.maxWords} min={1} max={15} onChange={(maxWords) => set({ maxWords })} /></Row>
@@ -283,15 +307,15 @@ function EnglishButton({ label = 'To English', ...opts }: { label?: string; capt
 }
 
 /** Toolbar for the selected words: size, color, bold, emphasis, font, case. */
-function WordToolbar({ c, sel, onChange, onClear }: { c: Caption; sel: Set<string>; onChange: (c: Caption) => void; onClear: () => void }) {
+function WordToolbar({ c, sel, onChange, onClear }: { c: Caption; sel: Set<string>; onChange: (c: Caption, key?: string) => void; onClear: () => void }) {
   const words = c.words.filter((w) => sel.has(w.id));
   const scale = words[0]?.style?.scale ?? 1;
   const color = words.find((w) => w.style?.color)?.style?.color ?? '#FFFFFF';
   const bold = words.every((w) => w.style?.bold);
   const emph = words.every((w) => w.emphasize);
-  const apply = (fn: (w: Word) => Word) => onChange({ ...c, words: c.words.map((w) => (sel.has(w.id) ? fn(w) : w)) });
-  const setStyle = (patch: NonNullable<Word['style']>) => apply((w) => ({ ...w, style: { ...w.style, ...patch } }));
-  const step = (d: number) => setStyle({ scale: Math.round(Math.min(3, Math.max(0.4, scale + d)) * 100) / 100 });
+  const apply = (fn: (w: Word) => Word, key?: string) => onChange({ ...c, words: c.words.map((w) => (sel.has(w.id) ? fn(w) : w)) }, key);
+  const setStyle = (patch: NonNullable<Word['style']>, key?: string) => apply((w) => ({ ...w, style: { ...w.style, ...patch } }), key);
+  const step = (d: number) => setStyle({ scale: Math.round(Math.min(3, Math.max(0.4, scale + d)) * 100) / 100 }, 'wscale');
   const font = words.find((w) => w.style?.font)?.style?.font ?? null;
   const script = words.some((w) => IS_SI.test(w.text)) ? 'sinhala' : 'english';
   const hasEnglish = words.some((w) => /[A-Za-z]/.test(w.text));
@@ -302,7 +326,7 @@ function WordToolbar({ c, sel, onChange, onClear }: { c: Caption; sel: Set<strin
       <Button variant="ghost" size="icon-xs" onClick={() => step(-0.1)} aria-label="Smaller"><Minus /></Button>
       <button className="min-w-11 rounded px-1 text-center font-mono text-[11px] tabular-nums hover:bg-muted" title="Reset size" onClick={() => setStyle({ scale: 1 })}>{Math.round(scale * 100)}%</button>
       <Button variant="ghost" size="icon-xs" onClick={() => step(0.1)} aria-label="Bigger"><Plus /></Button>
-      <ColorInput value={color} onChange={(v) => setStyle({ color: v })} />
+      <ColorInput value={color} onChange={(v) => setStyle({ color: v }, 'wcolor')} />
       <UiToggle size="sm" variant="outline" className="h-7" pressed={bold} onPressedChange={(b) => setStyle({ bold: b })} aria-label="Bold"><Bold /></UiToggle>
       <UiToggle size="sm" variant="outline" className="h-7 text-xs" pressed={emph} onPressedChange={(v) => apply((w) => ({ ...w, emphasize: v }))} aria-label="Emphasize"><Sparkles />Emphasis</UiToggle>
       <Button variant="ghost" size="xs" onClick={() => apply((w) => ({ ...w, style: undefined }))}><RotateCcw />Reset</Button>
@@ -326,17 +350,21 @@ function WordToolbar({ c, sel, onChange, onClear }: { c: Caption; sel: Set<strin
 const r2 = (n: number) => Math.round(n * 100) / 100;
 
 /** When each word is spoken (and so lit / shown): change the speed of the whole caption or type exact times per word. */
-function TimingBox({ c, onChange }: { c: Caption; onChange: (c: Caption) => void }) {
+function TimingBox({ c, onChange }: { c: Caption; onChange: (c: Caption, key?: string) => void }) {
   const ws = c.words;
   const setWord = (i: number, patch: Partial<Pick<Word, 'start' | 'end'>>) => {
     const w = { ...ws[i], ...patch };
     const lo = i === 0 ? c.start : ws[i - 1].start, hi = c.end;
     w.start = r2(Math.min(Math.max(w.start, lo), hi - 0.05));
     w.end = r2(Math.min(Math.max(w.end, w.start + 0.05), hi));
-    onChange({ ...c, words: ws.map((x, j) => (j === i ? w : x)) });
+    onChange({ ...c, words: ws.map((x, j) => (j === i ? w : x)) }, 'timing');
   };
   /** Scale word times around the caption start; `k` > 1 = faster speech, so words land earlier. */
-  const speed = (k: number) => onChange({ ...c, words: ws.map((w) => ({ ...w, start: r2(c.start + (w.start - c.start) / k), end: r2(Math.min(c.end, c.start + (w.end - c.start) / k)) })) });
+  const speed = (k: number) => onChange({ ...c, words: ws.map((w) => {
+    // Keep every word inside the caption (and at least 0.05s long) when slowing down, as setWord does.
+    const start = r2(Math.min(c.end - 0.05, c.start + (w.start - c.start) / k));
+    return { ...w, start, end: r2(Math.min(c.end, Math.max(start + 0.05, c.start + (w.end - c.start) / k))) };
+  }) });
   const even = () => {
     const step = (c.end - c.start) / ws.length;
     onChange({ ...c, words: ws.map((w, i) => ({ ...w, start: r2(c.start + i * step), end: r2(c.start + (i + 1) * step) })) });
@@ -365,12 +393,12 @@ function TimingBox({ c, onChange }: { c: Caption; onChange: (c: Caption) => void
 }
 
 /** Per-caption overrides: position, fonts, size, letter case. Stored in caption.styleOverride. */
-function CaptionStyleBox({ c, onChange }: { c: Caption; onChange: (c: Caption) => void }) {
+function CaptionStyleBox({ c, onChange }: { c: Caption; onChange: (c: Caption, key?: string) => void }) {
   const base = useEditor((s) => s.project!.style);
   const o = c.styleOverride ?? {};
   const eff: CaptionStyle = merge(base, o);
-  const set = (patch: DeepPartial<CaptionStyle>) => {
-    onChange({ ...c, styleOverride: merge(o, patch) });
+  const set = (patch: DeepPartial<CaptionStyle>, key?: string) => {
+    onChange({ ...c, styleOverride: merge(o, patch) }, key);
     // Captions grouped with ⌘G move together: shift the rest of the group by the same amount.
     const nx = patch.layout?.x, ny = patch.layout?.y;
     if (c.groupId && (nx !== undefined || ny !== undefined)) {
@@ -378,7 +406,7 @@ function CaptionStyleBox({ c, onChange }: { c: Caption; onChange: (c: Caption) =
       const dx = nx !== undefined ? nx - eff.layout.x : 0, dy = ny !== undefined ? ny - eff.layout.y : 0;
       const r = (v: number) => Math.round(v * 10) / 10;
       st.setCaptions(st.project!.captions.map((m) => m.groupId !== c.groupId || m.id === c.id ? m
-        : { ...m, styleOverride: { ...m.styleOverride, layout: { ...m.styleOverride?.layout, x: r((m.styleOverride?.layout?.x ?? lay.x) + dx), y: r((m.styleOverride?.layout?.y ?? lay.y) + dy) } } }), 'group-layout');
+        : { ...m, styleOverride: { ...m.styleOverride, layout: { ...m.styleOverride?.layout, x: r((m.styleOverride?.layout?.x ?? lay.x) + dx), y: r((m.styleOverride?.layout?.y ?? lay.y) + dy) } } }), key ? `cap-${key}-${c.id}` : 'group-layout');
     }
   };
   const drop = (section: 'layout' | 'text', key: string) => {
@@ -408,24 +436,24 @@ function CaptionStyleBox({ c, onChange }: { c: Caption; onChange: (c: Caption) =
           onChange={(y) => (y === -1 ? drop('layout', 'y') : set({ layout: { y } }))}
           options={[{ value: -1, label: 'Auto' }, { value: 18, label: 'Top' }, { value: 50, label: 'Middle' }, { value: 72, label: 'Bottom' }]} />
       </Row>
-      <Row label="Horizontal"><Slider value={eff.layout.x} min={0} max={100} step={0.5} onChange={(x) => set({ layout: { x } })} format={(v) => `${Math.round(v)}%`} /></Row>
-      <Row label="Vertical"><Slider value={eff.layout.y} min={0} max={100} step={0.5} onChange={(y) => set({ layout: { y } })} format={(v) => `${Math.round(v)}%`} /></Row>
-      <Row label="Size"><Slider value={eff.text.fontSize} min={20} max={160} onChange={(fontSize) => set({ text: { fontSize } })} /></Row>
+      <Row label="Horizontal"><Slider value={eff.layout.x} min={0} max={100} step={0.5} onChange={(x) => set({ layout: { x } }, 'x')} format={(v) => `${Math.round(v)}%`} /></Row>
+      <Row label="Vertical"><Slider value={eff.layout.y} min={0} max={100} step={0.5} onChange={(y) => set({ layout: { y } }, 'y')} format={(v) => `${Math.round(v)}%`} /></Row>
+      <Row label="Size"><Slider value={eff.text.fontSize} min={20} max={160} onChange={(fontSize) => set({ text: { fontSize } }, 'size')} /></Row>
       <Row label="Animation speed" hint="Speed of this caption's enter / exit animation">
-        <Slider value={eff.animationSpeed} min={0.25} max={3} step={0.05} format={(v) => `${v.toFixed(2)}×`} onChange={(animationSpeed) => set({ animationSpeed })} />
+        <Slider value={eff.animationSpeed} min={0.25} max={3} step={0.05} format={(v) => `${v.toFixed(2)}×`} onChange={(animationSpeed) => set({ animationSpeed }, 'anim')} />
       </Row>
       {eff.creative?.loop && eff.creative.loop !== 'none' && (
         <Row label="Idle speed" hint="Speed of the hover / float / wave loop">
-          <Slider value={eff.creative.loopSpeed ?? 1} min={0.2} max={4} step={0.05} format={(v) => `${v.toFixed(2)}×`} onChange={(loopSpeed) => set({ creative: { loopSpeed } as never })} />
+          <Slider value={eff.creative.loopSpeed ?? 1} min={0.2} max={4} step={0.05} format={(v) => `${v.toFixed(2)}×`} onChange={(loopSpeed) => set({ creative: { loopSpeed } as never }, 'loop')} />
         </Row>
       )}
       <Row label="Sinhala size" hint="Size of the Sinhala letters only">
         <Slider value={Math.round((eff.text.sinhala.fontSize ?? eff.text.fontSize) * (eff.text.sinhala.sizeScale ?? 1))} min={20} max={200}
-          onChange={(fontSize) => set({ text: { sinhala: { fontSize, sizeScale: 1 } } })} />
+          onChange={(fontSize) => set({ text: { sinhala: { fontSize, sizeScale: 1 } } }, 'si-size')} />
       </Row>
       <Row label="English size" hint="Size of the English letters only">
         <Slider value={Math.round((eff.text.english.fontSize ?? eff.text.fontSize) * (eff.text.english.sizeScale ?? 1))} min={20} max={200}
-          onChange={(fontSize) => set({ text: { english: { fontSize, sizeScale: 1 } } })} />
+          onChange={(fontSize) => set({ text: { english: { fontSize, sizeScale: 1 } } }, 'en-size')} />
       </Row>
       {(['sinhala', 'english'] as const).map((sc) => (
         <Row key={sc} label={sc === 'sinhala' ? 'Sinhala style' : 'English style'} hint="Bold and italic for this script only">
@@ -454,7 +482,7 @@ function CaptionStyleBox({ c, onChange }: { c: Caption; onChange: (c: Caption) =
 }
 
 const CaptionRow = memo(function CaptionRow({ c, index, active, selected, onChange, onDelete }: {
-  c: Caption; index: number; active: boolean; selected: boolean; onChange: (c: Caption) => void; onDelete: () => void;
+  c: Caption; index: number; active: boolean; selected: boolean; onChange: (c: Caption, key?: string) => void; onDelete: () => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const text = wordsToText(c.words);
@@ -567,23 +595,30 @@ export function CaptionsPanel() {
 
   const addAtPlayhead = () => {
     const t = currentTime();
-    const start = t, end = Math.min(t + 1.5, project.duration || t + 1.5);
+    // Keep the caption inside the timeline: at the very end, start a little earlier instead of making a zero-length caption.
+    const start = project.duration ? Math.min(t, Math.max(0, project.duration - 0.5)) : t;
+    const end = Math.min(start + 1.5, project.duration || start + 1.5);
     const c: Caption = { id: nanoid(8), start, end, words: [{ id: nanoid(8), text: 'නව caption', start, end }] };
     setCaptions([...project.captions, c]);
-    useEditor.getState().select(c.id);
+    // normalizeCaptions may still drop it; only select a caption that exists.
+    if (useEditor.getState().project?.captions.some((x) => x.id === c.id)) useEditor.getState().select(c.id);
   };
 
   const proofread = async () => {
     setProofing(true);
     try {
+      const pid = project.id;
       const words = project.captions.flatMap((c) => c.words);
       const res = await ai.proofread({ words: words.map((w) => w.text), language: project.language });
+      // Apply by word id to the current captions: edits made while the request ran must survive.
+      if (useEditor.getState().project?.id !== pid) return;
       let changed = 0;
       const byId = new Map(words.map((w, i) => [w.id, res.words[i] ?? w.text]));
-      const captions = project.captions.map((c) => ({
-        ...c, words: c.words.map((w) => { const t = byId.get(w.id)!; if (t !== w.text) changed++; return { ...w, text: t }; }),
+      update((p) => ({
+        ...p, captions: p.captions.map((c) => ({
+          ...c, words: c.words.map((w) => { const t = byId.get(w.id); if (t === undefined || !t.trim() || t === w.text) return w; changed++; return { ...w, text: t }; }),
+        })),
       }));
-      update((p) => ({ ...p, captions }));
       notify(res.warning ? `Fixed ${changed} words. ${res.warning}` : `Fixed ${changed} words.`, 'success');
     } catch (e) {
       notify((e as Error).message, 'error');
@@ -625,7 +660,7 @@ export function CaptionsPanel() {
           <div>
             {project.captions.map((c, i) => (
               <CaptionRow key={c.id} c={c} index={i} active={time >= c.start && time < c.end} selected={selected === c.id}
-                onChange={(nc) => setCaptions(project.captions.map((x) => (x.id === nc.id ? nc : x)))}
+                onChange={(nc, key) => setCaptions(project.captions.map((x) => (x.id === nc.id ? nc : x)), key ? `cap-${key}-${nc.id}` : undefined)}
                 onDelete={() => setCaptions(project.captions.filter((x) => x.id !== c.id))} />
             ))}
           </div>

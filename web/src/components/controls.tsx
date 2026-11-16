@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { ChevronDown, Loader2 } from '@/components/icons';
 import type { Fill, Gradient } from '@/types';
 import { grad } from '@/lib/style';
@@ -106,6 +106,9 @@ export function Segmented<T extends string | number>({
 const SWATCHES = ['#FFFFFF', '#000000', '#FFD400', '#FF8A00', '#FF3B3B', '#FF3CAC', '#3D8BFF', '#5CE1FF', '#39FF14', '#7CFFB2', '#111111', '#2F6BFF'];
 
 export function ColorInput({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const hex = useRef<HTMLInputElement>(null);
+  // The hex field is uncontrolled so typing is never interrupted; follow outside changes (swatches, picker) unless it is being edited.
+  useEffect(() => { const el = hex.current; if (el && document.activeElement !== el) el.value = value; }, [value]);
   return (
     <Popover>
       <PopoverTrigger asChild>
@@ -124,7 +127,7 @@ export function ColorInput({ value, onChange }: { value: string; onChange: (v: s
                 className={cn('aspect-square rounded-md border border-foreground/15 transition-transform hover:scale-110', value === c && 'ring-2 ring-ring')} style={{ background: c }} />
             ))}
           </div>
-          <Input className="h-8 font-mono text-xs uppercase" defaultValue={value} key={value}
+          <Input className="h-8 font-mono text-xs uppercase" defaultValue={value} ref={hex}
             onChange={(e) => { const v = e.target.value.trim(); if (/^#[0-9a-f]{6}$/i.test(v)) onChange(v.toUpperCase()); }} />
         </div>
       </PopoverContent>

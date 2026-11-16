@@ -27,7 +27,8 @@ const OPENAI_CHUNK_SECONDS = 600;
 
 interface RunResult { code: number; stdout: string; stderr: string }
 
-function run(cmd: string, args: string[], timeoutMs = 0): Promise<RunResult> {
+/** `keepAllStderr` skips the tail truncation, for callers that parse the whole log (e.g. silencedetect). */
+function run(cmd: string, args: string[], timeoutMs = 0, keepAllStderr = false): Promise<RunResult> {
   return new Promise((resolve, reject) => {
     const child = spawn(cmd, args, { stdio: ['ignore', 'pipe', 'pipe'] });
     let stdout = '';
@@ -37,7 +38,7 @@ function run(cmd: string, args: string[], timeoutMs = 0): Promise<RunResult> {
     child.stdout.on('data', (d: Buffer) => { stdout += d.toString(); });
     child.stderr.on('data', (d: Buffer) => {
       stderr += d.toString();
-      if (stderr.length > 64_000) stderr = stderr.slice(-32_000); // keep the tail only
+      if (!keepAllStderr && stderr.length > 64_000) stderr = stderr.slice(-32_000); // keep the tail only
     });
     child.on('error', (err) => { if (timer) clearTimeout(timer); reject(err); });
     child.on('close', (code) => { if (timer) clearTimeout(timer); resolve({ code: code ?? -1, stdout, stderr }); });
@@ -82,6 +83,19 @@ async function probeDuration(file: string): Promise<number | null> {
   }
 }
 
+/** Fallback when ffprobe is unavailable: read "Duration: hh:mm:ss.xx" from `ffmpeg -i`'s banner. */
+async function ffmpegDuration(file: string): Promise<number | null> {
+  try {
+    const r = await run(ffmpegPath(), ['-hide_banner', '-nostdin', '-i', file], 30_000);
+    const m = /Duration: (\d+):(\d+):(\d+(?:\.\d+)?)/.exec(r.stderr);
+    if (!m) return null;
+    const d = Number(m[1]) * 3600 + Number(m[2]) * 60 + parseFloat(m[3]);
+    return Number.isFinite(d) && d > 0 ? d : null;
+  } catch {
+    return null;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Upload reception (streamed straight to disk, never buffered in memory)
 // ---------------------------------------------------------------------------
@@ -118,6 +132,8 @@ async function receiveMultipart(body: ReadableStream<Uint8Array>, boundary: stri
   const fields: Record<string, string> = {};
   let filePath: string | null = null;
   let bytes = 0;
+  // Sticky write error (ENOSPC, EIO...): an 'error' event with no listener would crash the process.
+  let streamErr: Error | null = null;
 
   type Part = { name: string; out?: WriteStream; text?: Buffer[]; textLen: number };
   let part = null as Part | null;
@@ -128,8 +144,10 @@ async function receiveMultipart(body: ReadableStream<Uint8Array>, boundary: stri
   const emit = async (data: Buffer) => {
     if (!part || data.length === 0) return;
     if (part.out) {
+      if (streamErr || part.out.destroyed) throw streamErr ?? new Error('Upload write stream closed unexpectedly.');
       bytes += data.length;
       await writeChunk(part.out, data);
+      if (streamErr) throw streamErr;
     } else if (part.text) {
       if (part.textLen + data.length > 64 * 1024) throw new HttpError(413, `Form field "${part.name}" is too large.`);
       part.text.push(data);
@@ -138,7 +156,10 @@ async function receiveMultipart(body: ReadableStream<Uint8Array>, boundary: stri
   };
   const finishPart = async () => {
     if (!part) return;
-    if (part.out) await endStream(part.out);
+    if (part.out) {
+      if (streamErr) throw streamErr;
+      await endStream(part.out);
+    }
     else if (part.text) fields[part.name] = Buffer.concat(part.text).toString('utf8');
     part = null;
   };
@@ -177,7 +198,9 @@ async function receiveMultipart(body: ReadableStream<Uint8Array>, boundary: stri
               const original = /\bfilename="([^"]*)"/i.exec(disp)?.[1] ?? 'upload';
               const ext = path.extname(original).replace(/[^.\w]/g, '').slice(0, 10);
               filePath = path.join(dir, `input${ext}`);
-              part = { name, out: createWriteStream(filePath), textLen: 0 };
+              const out = createWriteStream(filePath);
+              out.on('error', (e) => { streamErr = e; });
+              part = { name, out, textLen: 0 };
             } else if (hasFilename) {
               part = { name, textLen: 0 }; // extra files are discarded
             } else {
@@ -382,7 +405,8 @@ const GEMINI_SCHEMA = {
 /** Choose cut points near every GEMINI_TARGET_CHUNK seconds, preferring the middle of a silence. */
 async function geminiCutPoints(audioPath: string, duration: number): Promise<number[]> {
   if (duration <= GEMINI_MAX_CHUNK) return [];
-  const r = await run(ffmpegPath(), ['-hide_banner', '-nostdin', '-i', audioPath, '-af', 'silencedetect=noise=-32dB:d=0.25', '-f', 'null', '-']);
+  // The whole log is needed: truncating it would drop the early silences of a long file.
+  const r = await run(ffmpegPath(), ['-hide_banner', '-nostdin', '-nostats', '-i', audioPath, '-af', 'silencedetect=noise=-32dB:d=0.25', '-f', 'null', '-'], 0, true);
   const silences: number[] = [];
   const re = /silence_start: ([\d.]+)[\s\S]*?silence_end: ([\d.]+)/g;
   for (let m; (m = re.exec(r.stderr));) silences.push((parseFloat(m[1]) + parseFloat(m[2])) / 2);
@@ -543,15 +567,29 @@ async function alignWords(file: string, raw: RawWord[], language: Language): Pro
 }
 
 async function transcribeGemini(audioPath: string, language: Language, dir: string): Promise<{ words: Word[]; language: string }> {
-  const duration = (await probeDuration(audioPath)) ?? 0;
+  // A duration of 0 would clamp every word timing to 0, so never default to it.
+  const duration = (await probeDuration(audioPath)) ?? (await ffmpegDuration(audioPath));
+  if (duration === null) throw new HttpError(500, 'Could not read the audio duration (is ffprobe installed?).');
   const cuts = await geminiCutPoints(audioPath, duration);
   const bounds = [0, ...cuts, duration];
-  const pieces = await Promise.all(bounds.slice(0, -1).map(async (start, i) => {
-    const end = bounds[i + 1];
-    if (bounds.length === 2) return { start, end, file: audioPath };
-    const file = path.join(dir, `gem_${String(i).padStart(4, '0')}.mp3`);
-    await ffmpeg(['-ss', start.toFixed(3), '-to', end.toFixed(3), '-i', audioPath, '-c:a', 'libmp3lame', '-b:a', '64k', file]);
-    return { start, end, file };
+  const pieces: { start: number; end: number; file: string }[] = new Array(bounds.length - 1);
+  // Cut a few chunks at a time; one libmp3lame process per chunk at once can exhaust CPU or file handles.
+  let nextCut = 0;
+  await Promise.all(Array.from({ length: Math.min(4, pieces.length) }, async () => {
+    while (nextCut < pieces.length) {
+      const i = nextCut++;
+      const start = bounds[i];
+      const end = bounds[i + 1];
+      if (bounds.length === 2) { pieces[i] = { start, end, file: audioPath }; continue; }
+      const file = path.join(dir, `gem_${String(i).padStart(4, '0')}.mp3`);
+      try {
+        await ffmpeg(['-ss', start.toFixed(3), '-to', end.toFixed(3), '-i', audioPath, '-c:a', 'libmp3lame', '-b:a', '64k', file]);
+      } catch (err) {
+        nextCut = pieces.length; // stop the other workers from starting more cuts
+        throw err;
+      }
+      pieces[i] = { start, end, file };
+    }
   }));
 
   const results: Word[][] = new Array(pieces.length);

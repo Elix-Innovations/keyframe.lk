@@ -47,6 +47,7 @@ export function parseKeyframeXml(xml: string, fallbackName: string): ParsedAnim[
   const doc = new DOMParser().parseFromString(xml, 'application/xml');
   if (doc.querySelector('parsererror')) throw new Error('The file is not readable XML.');
   const groups = new Map<Element | null, ParsedAnim>();
+  const ANIM = /Animator|RangeSelector|TextSelector/i;
   const GROUP = /^(Preset|PresetItem|SubClip|VideoClipTrackItem|ClipTrackItem|GraphicClip)$/;
   for (const el of Array.from(doc.getElementsByTagName('*'))) {
     const kf = Array.from(el.children).find((c) => c.tagName === 'Keyframes');
@@ -58,7 +59,7 @@ export function parseKeyframeXml(xml: string, fallbackName: string): ParsedAnim[
     let g: Element | null = el.parentElement;
     while (g && !GROUP.test(g.tagName)) g = g.parentElement;
     let a = groups.get(g);
-    if (!a) { a = { name: (g && childText(g, ['Name', 'PresetName'])) || fallbackName, tracks: [], perLetter: /Animator|RangeSelector|TextSelector/i.test(xml) }; groups.set(g, a); }
+    if (!a) { a = { name: (g && childText(g, ['Name', 'PresetName'])) || fallbackName, tracks: [], perLetter: ANIM.test(g ? new XMLSerializer().serializeToString(g) : xml) }; groups.set(g, a); }
     a.tracks.push({ kind, keys });
   }
   return [...groups.values()].filter((a) => a.tracks.length);

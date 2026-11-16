@@ -116,6 +116,8 @@ export async function startProRes(c: Context) {
       out,
     ];
     const child = spawn(ffmpegPath(), args, { stdio: ['pipe', 'pipe', 'pipe'] });
+    // A missing binary is reported through 'error' rather than thrown, so wait for it here to reach the catch below.
+    await new Promise<void>((res, rej) => { child.once('spawn', () => res()); child.once('error', rej); });
     const session: Session = {
       dir, out, width, height, child, stderr: '', frame: Buffer.alloc(width * height * 4), box: null, frames: 0, touched: Date.now(),
       exit: new Promise((resolve, reject) => { child.on('error', reject); child.on('close', (code) => resolve(code ?? -1)); }),
@@ -189,7 +191,13 @@ export async function finishProRes(c: Context) {
   const id = c.req.param('id') ?? '';
   const s = session(c);
   s.child.stdin.end();
-  const code = await s.exit;
+  let code: number;
+  try {
+    code = await s.exit;
+  } catch (e) {
+    await close(id);
+    throw e;
+  }
   if (code !== 0 || !s.frames) {
     const err = failure(s);
     await close(id);

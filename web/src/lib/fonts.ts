@@ -268,13 +268,15 @@ export function ensureFont(id: string): Promise<void> {
       const link = document.createElement('link');
       link.rel = 'stylesheet';
       link.href = href;
+      // A failed load must not stay cached as loaded, or later exports would silently use the fallback font.
+      const fail = () => { link.remove(); loaded.delete(def.id); resolve(); };
       link.onload = () => {
         const sample = def.script === 'sinhala' ? 'අආක' : 'Aa';
         Promise.all(
           (def.weights ?? [400]).map((w) => document.fonts.load(`${w} 40px "${def.family}"`, sample)),
-        ).then(() => resolve(), () => resolve());
+        ).then(() => resolve(), fail);
       };
-      link.onerror = () => resolve();
+      link.onerror = fail;
       document.head.appendChild(link);
     });
   } else if (def.source === 'bundled' && def.url) {

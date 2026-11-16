@@ -5,7 +5,7 @@ import { ai, ApiError, claudeStatus, type ClaudeStatus } from '@/lib/api';
 import { BG_GROUPS, bgGroup, MOTION_LIBRARY } from '@/lib/motionLibrary';
 import { makeOverlay } from '@/lib/overlays';
 import { currentTime } from '@/lib/player';
-import { clipEnd, videoClips } from '@/lib/clips';
+import { clipEnd, trackOf, videoClips } from '@/lib/clips';
 import { kvGet, kvSet } from '@/lib/db';
 import { drawScene } from '@/render/scene';
 import { outputSize } from '@/render/compose';
@@ -32,7 +32,7 @@ export function addMotionLayer(scene: MotionScene, where: 'playhead' | 'cut' = '
   if (!p) return null;
   let start = currentTime();
   if (where === 'cut') {
-    const cuts = videoClips(p.clips ?? []).flatMap((c) => [c.start, clipEnd(c)]).filter((t) => t > 0.05 && t < p.duration - 0.05);
+    const cuts = videoClips(p.clips ?? []).filter((c) => trackOf(c) === 0 && !c.cutout).flatMap((c) => [c.start, clipEnd(c)]).filter((t) => t > 0.05 && t < p.duration - 0.05);
     if (!cuts.length) { st.notify('This timeline has no cut between clips yet. Added at the playhead instead.', 'info'); }
     else {
       const near = cuts.reduce((b, t) => (Math.abs(t - start) < Math.abs(b - start) ? t : b));
@@ -92,7 +92,7 @@ function SceneThumb({ scene, className }: { scene: MotionScene; className?: stri
       if (hover) raf = requestAnimationFrame(draw);
     };
     draw();
-    const onFont = () => draw();
+    const onFont = () => { if (!hover) draw(); }; // while hovering the running loop redraws; a second chain would never be cancelled
     document.fonts?.addEventListener?.('loadingdone', onFont);
     return () => { cancelAnimationFrame(raf); document.fonts?.removeEventListener?.('loadingdone', onFont); };
   }, [scene, hover, frame.h, frame.w]);
@@ -140,6 +140,7 @@ export function MotionPanel() {
   const [status, setStatus] = useState<ClaudeStatus | null | undefined>(undefined);
   const abort = useRef<AbortController | null>(null);
 
+  useEffect(() => () => abort.current?.abort(), []); // stop the Claude run (and its CLI process) when the panel closes
   useEffect(() => { void claudeStatus().then(setStatus); void kvGet<MotionScene[]>(SAVED_KEY).then((v) => setSaved(v ?? [])).catch(() => undefined); }, []);
   useEffect(() => {
     if (!busy) return;
@@ -158,7 +159,7 @@ export function MotionPanel() {
     setBusy(true); setError(''); setSecs(0);
     const ctl = new AbortController(); abort.current = ctl;
     try {
-      const r = await ai.motion({ prompt: prompt.trim(), role, duration: duration || undefined, frame, palette, fonts: { english: project.style.text.englishFont, sinhala: project.style.text.sinhalaFont }, base }, ctl.signal);
+      const r = await ai.motion({ prompt: prompt.trim(), role: base?.role ?? role, duration: duration || undefined, frame, palette, fonts: { english: project.style.text.englishFont, sinhala: project.style.text.sinhalaFont }, base }, ctl.signal);
       setResult({ scene: r.scene, via: r.via, ms: r.ms });
     } catch (e) {
       if ((e as Error).name !== 'AbortError') setError(e instanceof ApiError ? e.message : (e as Error).message);
@@ -168,7 +169,7 @@ export function MotionPanel() {
   return (
     <div>
       <div className="sticky top-0 z-10 flex flex-col gap-2 border-b bg-sidebar px-3 py-2.5">
-        <Segmented fill size="sm" value={role} onChange={setRole} options={(Object.keys(ROLE_LABEL) as Role[]).map((r) => ({ value: r, label: ROLE_LABEL[r] }))} />
+        <Segmented fill size="sm" value={role} onChange={(r) => { setRole(r); if (r !== 'background') setDuration((d) => Math.min(d, 6)); }} options={(Object.keys(ROLE_LABEL) as Role[]).map((r) => ({ value: r, label: ROLE_LABEL[r] }))} />
         <Segmented fill size="sm" value={tab} onChange={setTab} options={[{ value: 'library', label: 'Library' }, { value: 'create', label: 'Create with Claude' }]} />
       </div>
 
@@ -201,8 +202,8 @@ export function MotionPanel() {
           {saved.filter((s) => s.role === role).length > 0 && (
             <Section title="My scenes">
               <div className="grid grid-cols-4 gap-1.5">
-                {saved.filter((s) => s.role === role).map((s) => (
-                  <SceneCard key={s.name + s.duration} scene={s} onAdd={() => addMotionLayer(s)} onAddCut={role === 'transition' ? () => addMotionLayer(s, 'cut') : undefined}
+                {saved.filter((s) => s.role === role).map((s, i) => (
+                  <SceneCard key={`${i}-${s.name}-${s.duration}`} scene={s} onAdd={() => addMotionLayer(s)} onAddCut={role === 'transition' ? () => addMotionLayer(s, 'cut') : undefined}
                     onDelete={() => persist(saved.filter((x) => x !== s))} />
                 ))}
               </div>
@@ -243,7 +244,10 @@ export function MotionPanel() {
                 <Button size="xs" onClick={() => addMotionLayer(result.scene)}><Plus />Add at playhead</Button>
                 {result.scene.role === 'transition' && <Button size="xs" variant="secondary" onClick={() => addMotionLayer(result.scene, 'cut')}>Add at cut</Button>}
                 <DownloadButton scene={result.scene} />
-                <Button size="xs" variant="secondary" onClick={() => { persist([{ ...result.scene, name: result.scene.name }, ...saved]); notify('Saved to My scenes.', 'success'); }}>Save</Button>
+                <Button size="xs" variant="secondary" onClick={() => {
+                  if (saved.some((x) => JSON.stringify(x) === JSON.stringify(result.scene))) { notify('Already in My scenes.', 'info'); return; }
+                  persist([{ ...result.scene }, ...saved]); notify('Saved to My scenes.', 'success');
+                }}>Save</Button>
               </div>
               <p className="text-[11px] text-muted-foreground">To change it, describe the change above and press “Edit this result”.</p>
               <Button size="xs" variant="secondary" className="self-start" disabled={busy || !prompt.trim()} onClick={() => void generate(result.scene)}>Edit this result</Button>

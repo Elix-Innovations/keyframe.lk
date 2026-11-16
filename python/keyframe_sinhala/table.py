@@ -49,7 +49,7 @@ CONSONANTS: list[list[str]] = [
 INDEPENDENT_VOWELS: list[list[str]] = [
     ["අ", "w"], ["ආ", "wd"], ["ඇ", "we"], ["ඈ", "wE"], ["ඉ", "b"], ["ඊ", "B"],
     ["උ", "W"], ["ඌ", "W!"], ["ඍ", "R"], ["ඎ", "RD"], ["ඏ", "Ì"], ["ඐ", "Ï"],
-    ["එ", "t"], ["ඒ", "ta"], ["ඓ", "ft"], ["ඔ", "T"], ["ඕ", "´"], ["ඖ", "T!"],
+    ["එ", "t"], ["ඒ", "tA"], ["ඓ", "ft"], ["ඔ", "T"], ["ඕ", "´"], ["ඖ", "T!"],
 ]
 
 # Post-base dependent vowel signs (and al-lakuna).
@@ -68,6 +68,7 @@ PRE_BASE: list[list[str]] = [
 # Consonant + vowel sign pairs drawn with a dedicated glyph form instead of
 # the generic sign. Only used on bare consonants (no rakar / yansa / repaya).
 SPECIAL_SYLLABLES: list[list[str]] = [
+    ["ම්", "ï"], ["රි", "ß"], ["රී", "Í"],
     ["කු", "l="], ["කූ", "l+"], ["ගු", ".="], ["ගූ", ".+"], ["තු", ";="], ["තූ", ";+"],
     ["ශු", "Y="], ["ශූ", "Y+"],
     ["රු", "re"], ["රූ", "rE"], ["රැ", "/"], ["රෑ", "?"],
@@ -105,7 +106,7 @@ PUNCTUATION: list[list[str]] = [
 # other converters): precomposed ligature glyphs and duplicate glyph forms.
 # Decode only (fm -> unicode). [fm, unicode]
 DECODE_ALIASES: list[list[str]] = [
-    ["®", "ඣ"], ["`.", "ඟ"], ["`v", "ඬ"], ["`o", "ඳ"],
+    ["ta", "ඒ"], ["®", "ඣ"], ["`.", "ඟ"], ["`v", "ඬ"], ["`o", "ඳ"],
     ["A", HAL], ["=", "ු"], ["+", "ූ"], ["¾", "ර්"],
     ["Ë", "ක්‍ෂ"], ["†", "ත්‍ථ"], ["…", "ත්‍ව"], ["‡", "න්‍ද"], ["„", "ද්‍ව"],
     ["Š", "ද්‍ධ"], ["ø", "ද්‍ර"], ["›", "ශ්‍රී"],
@@ -200,6 +201,7 @@ def build_wijesekara() -> tuple[dict[str, dict[str, str]], list[list[str]]]:
         if len(f) == 2 and f[0] in iv_by_key:
             compose.append([iv_by_key[f[0]], f[1], u])
     compose.append(["ඔ", "a", "ඕ"])  # ඕ has its own glyph ("´"), typists use T+a
+    compose.append(["එ", "a", "ඒ"])  # ඒ is encoded "tA", but typists use t+a
     # Repeated signs: D+D -> ෲ
     for u, f in VOWEL_SIGNS:
         if len(f) == 2 and f[0] in sign_by_key and f[1] in sign_by_key:
@@ -211,6 +213,11 @@ def build_wijesekara() -> tuple[dict[str, dict[str, str]], list[list[str]]]:
             c = cons_by_key[f[0]]
             if c + sign_by_key.get(f[1], "\0") != u:
                 compose.append([c, f[1], u])
+    # Two-key special syllables built on a single-key special: ¿+E -> ළූ
+    special_by_key = {f: u for u, f in SPECIAL_SYLLABLES if len(f) == 1}
+    for u, f in SPECIAL_SYLLABLES:
+        if len(f) == 2 and f[0] in special_by_key:
+            compose.append([special_by_key[f[0]], f[1], u])
     # Multi-key consonants built on the "C" half form: C+O -> ඣ
     for u, f in CONSONANTS:
         if len(f) == 2 and f[0] == "C" and f[1] in cons_by_key:

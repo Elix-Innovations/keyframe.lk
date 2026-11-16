@@ -114,7 +114,7 @@ function resolveLook(
   const size = (o.fontSize ?? text.fontSize) * refScale * sizeMul * (o.sizeScale ?? 1);
   const presetName = o.shadowPreset ?? text.shadowPreset;
   const preset = SHADOW_PRESETS[presetName];
-  const shadow = { ...preset, ...(o.shadow ?? {}), passes: preset.passes };
+  const shadow = { ...preset, color: text.shadow?.color ?? preset.color, ...(o.shadow ?? {}), passes: preset.passes };
   return {
     font,
     cssFont: `${italic ? 'italic ' : ''}${weightFor(font, bold)} ${size.toFixed(2)}px ${cssFamily(font)}`,
@@ -216,9 +216,12 @@ function drawRun(ctx: Ctx2D, run: Run, x: number, baseline: number, fillOverride
   if (L.shadow.passes > 0 && L.shadow.opacity > 0) {
     ctx.save();
     ctx.shadowColor = hexA(L.shadow.color, L.shadow.opacity * alpha);
-    ctx.shadowBlur = L.shadow.blur * (L.size / 64) * scale;
-    ctx.shadowOffsetX = FAR * scale + L.shadow.offsetX * (L.size / 64) * scale;
-    ctx.shadowOffsetY = L.shadow.offsetY * (L.size / 64) * scale;
+    // Shadow offsets are in device space and ignore the transform, so cancel the far glyph's full (rotated) displacement.
+    const m = ctx.getTransform();
+    const u = L.size / 64;
+    ctx.shadowBlur = L.shadow.blur * u * scale;
+    ctx.shadowOffsetX = FAR * m.a + (L.shadow.offsetX * m.a + L.shadow.offsetY * m.c) * u;
+    ctx.shadowOffsetY = FAR * m.b + (L.shadow.offsetX * m.b + L.shadow.offsetY * m.d) * u;
     ctx.fillStyle = '#000';
     ctx.strokeStyle = '#000';
     ctx.lineWidth = L.strokeWidth * 2;
@@ -379,7 +382,7 @@ export function renderCaptionAt(
   const bg = style.text.background;
   if (bg.enabled) {
     ctx.save();
-    ctx.globalAlpha *= bg.opacity * chunkAnim.alpha;
+    ctx.globalAlpha *= bg.opacity;
     ctx.fillStyle = bg.color;
     roundRect(ctx, {
       x: bbox.x - bg.padX * refScale, y: bbox.y - bg.padY * refScale,
@@ -387,6 +390,13 @@ export function renderCaptionAt(
     }, bg.radius * refScale);
     ctx.fill();
     ctx.restore();
+  }
+
+  // Typewriter / wipe reveal sweeps left to right across the whole block, not within each word.
+  if (chunkAnim.reveal < 1) {
+    ctx.beginPath();
+    ctx.rect(bbox.x - base.size, bbox.y - base.size, base.size + bbox.w * chunkAnim.reveal, bbox.h + base.size * 2);
+    ctx.clip();
   }
 
   // Box highlight slides from the previous word to the active one.
@@ -403,7 +413,6 @@ export function renderCaptionAt(
       r = { x: a.x + (r.x - a.x) * e, y: a.y + (r.y - a.y) * e, w: a.w + (r.w - a.w) * e, h: a.h + (r.h - a.h) * e };
     }
     ctx.save();
-    ctx.globalAlpha *= chunkAnim.alpha;
     ctx.fillStyle = style.highlight.boxColor;
     roundRect(ctx, r, style.highlight.boxRadius * refScale);
     ctx.fill();
@@ -423,18 +432,15 @@ export function renderCaptionAt(
     ctx.save();
     const wcx = b.x + b.width / 2, wcy = b.baseline - b.ascent / 2 + b.descent / 2;
     applyTransform(ctx, anim, wcx, wcy, b.size);
-    const alpha = chunkAnim.alpha * anim.alpha;
-    ctx.globalAlpha *= anim.alpha;
-    if (anim.reveal < 1 || chunkAnim.reveal < 1) {
-      const rv = Math.min(anim.reveal, chunkAnim.reveal);
+    if (anim.reveal < 1) {
       ctx.beginPath();
-      ctx.rect(b.x - b.size, b.baseline - b.ascent - b.size, b.size + b.width * rv, b.ascent + b.descent + b.size * 2);
+      ctx.rect(b.x - b.size, b.baseline - b.ascent - b.size, b.size + b.width * anim.reveal, b.ascent + b.descent + b.size * 2);
       ctx.clip();
     }
-    const scale = ctx.getTransform().a;
+    const tm = ctx.getTransform(), scale = Math.hypot(tm.a, tm.b);
     let x = b.x;
     for (const run of b.runs) {
-      drawRun(ctx, run, x, b.baseline, fillOverride, scale, alpha);
+      drawRun(ctx, run, x, b.baseline, fillOverride, scale, 1);
       x += run.width;
     }
     ctx.restore();
@@ -562,7 +568,7 @@ function renderCreative(
     const align = style.layout.align;
     const lcx = cx + ((spec.shift ?? 0) / 100) * blockW + (align === 'left' ? (m.width * m.fit - blockW) / 2 : align === 'right' ? (blockW - m.width * m.fit) / 2 : 0);
     ctx.save();
-    ctx.globalAlpha *= outAlpha * anim.alpha;
+    ctx.globalAlpha *= outAlpha;
     applyTransform(ctx, anim, lcx, lineY, m.size);
     ctx.translate(lcx, lineY);
     if (spec.rotate) ctx.rotate((spec.rotate * Math.PI) / 180);
@@ -602,7 +608,7 @@ function renderCreative(
       if (lp.scale !== 1) ctx.scale(lp.scale, lp.scale);
       ctx.globalAlpha *= lp.alpha;
       if (pa !== IDENTITY) applyTransform(ctx, pa, 0, 0, em);
-      const sc = ctx.getTransform().a;
+      const tm = ctx.getTransform(), sc = Math.hypot(tm.a, tm.b);
       if (splitD > 0.01) {
         for (const [dx, tint] of [[-splitD, '#FF2D55'], [splitD, '#18D2FF']] as const) {
           ctx.save(); ctx.globalAlpha *= 0.7; ctx.translate(dx, 0);
@@ -611,7 +617,7 @@ function renderCreative(
         }
       }
       const own = tint ? { color: lerpStops(tint, (at + m.width / 2) / m.width), gradient: null } : null;
-      drawRun(ctx, run, -run.width / 2, baseline, own, sc, pa.alpha * anim.alpha);
+      drawRun(ctx, run, -run.width / 2, baseline, own, sc, 1);
       ctx.restore();
     });
     ctx.restore();

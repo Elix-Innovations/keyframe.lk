@@ -12,6 +12,14 @@ const FONT = '-apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
 
 const dims = (img: Img) => ('naturalWidth' in img ? { w: img.naturalWidth, h: img.naturalHeight } : { w: img.width, h: img.height });
 
+/** Draw a photo to fill a box with a centred cover-crop, so a tall photo whose box height was clamped is cropped rather than squashed. */
+function drawPhoto(ctx: Ctx2D, pic: Img, x: number, y: number, w: number, h: number) {
+  const d = dims(pic);
+  if (!d.w || !d.h) return;
+  const sc = Math.max(w / d.w, h / d.h), sw = w / sc, sh = h / sc;
+  ctx.drawImage(pic, (d.w - sw) / 2, (d.h - sh) / 2, sw, sh, x, y, w, h);
+}
+
 function wrap(ctx: Ctx2D, text: string, maxW: number): string[] {
   const out: string[] = [];
   for (const para of text.split('\n')) {
@@ -185,7 +193,7 @@ export function paintFeed(ctx: Ctx2D, spec: ScreenSpec, images: Map<string, Img>
     const top = c.top;
     ctx.fillStyle = '#242526';
     ctx.fillRect(0, top, FEED_W, c.height - 12);
-    if (c.bare && c.img) { const pic = images?.get(p.assetId!); if (pic) ctx.drawImage(pic, 0, top, c.img.w, c.img.h); return; }
+    if (c.bare && c.img) { const pic = images?.get(p.assetId!); if (pic) drawPhoto(ctx, pic, 0, top, c.img.w, c.img.h); return; }
     // Header: avatar, page name, time.
     const av = spec.feed.avatarAssetId ? images?.get(spec.feed.avatarAssetId) : undefined;
     ctx.save();
@@ -199,7 +207,7 @@ export function paintFeed(ctx: Ctx2D, spec: ScreenSpec, images: Map<string, Img>
     ctx.fillText(name, 84, top + 38);
     ctx.fillStyle = '#B0B3B8'; ctx.font = `400 20px ${FONT}`;
     ctx.fillText(`${p.time} · 🌐`, 84, top + 64);
-    if (i < posts.length - 1) {
+    if (i !== adIndex) {
       ctx.font = `700 24px ${FONT}`; const nw = ctx.measureText(name).width;
       ctx.fillStyle = '#B0B3B8'; ctx.fillText('·', 84 + nw + 8, top + 38);
       ctx.fillStyle = '#2D88FF'; ctx.fillText('Follow', 84 + nw + 26, top + 38);
@@ -215,7 +223,7 @@ export function paintFeed(ctx: Ctx2D, spec: ScreenSpec, images: Map<string, Img>
     if (c.lines.some(Boolean)) { for (const ln of c.lines) { ctx.fillText(ln, 20, y + 24); y += 33; } y += 16; } else y += 4;
     // Photo.
     const pic = p.assetId ? images?.get(p.assetId) : undefined;
-    if (pic && c.img) { ctx.drawImage(pic, 0, y, c.img.w, c.img.h); y += c.img.h; }
+    if (pic && c.img) { drawPhoto(ctx, pic, 0, y, c.img.w, c.img.h); y += c.img.h; }
     else if (c.img?.synth) { drawScene(ctx, y, c.img.h, i); y += c.img.h; }
     // Like / comment / share counts with outline icons, reactions on the right.
     const ry = y + 14;

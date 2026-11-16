@@ -95,7 +95,9 @@ export async function usage(): Promise<UsageResponse> {
 }
 
 export async function resetUsage(): Promise<void> {
-  await fetch('/api/usage', { method: 'DELETE' });
+  const res = await fetch('/api/usage', { method: 'DELETE' }).catch(() => null);
+  if (!res) throw new ApiError(0, 'Could not reach the Keyframe.lk server.');
+  if (!res.ok) throw new ApiError(res.status, `Reset failed (${res.status})`);
 }
 
 export async function sfxSearch(q: string, page = 1, signal?: AbortSignal): Promise<SfxSearchResponse> {

@@ -61,7 +61,7 @@ def test_fm_codes_unique() -> None:
 
 
 def test_punctuation_and_passthrough() -> None:
-    assert unicode_to_fm("ආ, ඒ.") == "wd\" ta'"
+    assert unicode_to_fm("ආ, ඒ.") == "wd\" tA'"
     assert unicode_to_fm("2026") == "2026"
     assert fm_to_unicode("2026 ") == "2026 "
 

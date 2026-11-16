@@ -113,20 +113,29 @@ function Library({ onAdd }: { onAdd: (lt: LibraryTrack) => Promise<void> }) {
   const [playing, setPlaying] = useState<string | null>(null);
   const [adding, setAdding] = useState<string | null>(null);
   const audioEl = useRef<HTMLAudioElement | null>(null);
+  const searchAbort = useRef<AbortController | null>(null);
 
-  useEffect(() => { health().then((h) => setConfigured(h ? h.music : false)); return () => audioEl.current?.pause(); }, []);
+  useEffect(() => { health().then((h) => setConfigured(h ? h.music : false)); return () => { audioEl.current?.pause(); searchAbort.current?.abort(); }; }, []);
 
   const search = async (opts: { q?: string; mood?: string | null; bpmMin?: number; bpmMax?: number } = {}) => {
+    // Only the latest search may publish results or clear `loading`.
+    searchAbort.current?.abort();
+    const ctrl = new AbortController();
+    searchAbort.current = ctrl;
     setLoading(true);
     try {
-      const r = await musicSearch({ q: opts.q ?? q, mood: (opts.mood ?? mood)?.toLowerCase(), bpmMin: opts.bpmMin, bpmMax: opts.bpmMax });
+      // `mood: null` means "no mood" (deselect / AI suggest), so only fall back when it is not provided.
+      const m = 'mood' in opts ? opts.mood : mood;
+      const r = await musicSearch({ q: opts.q ?? q, mood: m?.toLowerCase(), bpmMin: opts.bpmMin, bpmMax: opts.bpmMax }, ctrl.signal);
+      if (ctrl.signal.aborted) return;
       setConfigured(r.configured);
       setResults(r.tracks);
       if (r.configured && !r.tracks.length) notify('No tracks found. Try another mood or search.', 'info');
     } catch (e) {
+      if (ctrl.signal.aborted) return;
       notify((e as Error).message, 'error');
     } finally {
-      setLoading(false);
+      if (searchAbort.current === ctrl) setLoading(false);
     }
   };
 
@@ -151,8 +160,13 @@ function Library({ onAdd }: { onAdd: (lt: LibraryTrack) => Promise<void> }) {
     audioEl.current?.pause();
     const a = new Audio(t.previewUrl);
     a.volume = 0.8;
-    a.onended = () => setPlaying(null);
-    void a.play().catch(() => notify('Could not play that preview.', 'error'));
+    const stop = () => {
+      setPlaying((p) => (p === t.id ? null : p));
+      if (audioEl.current === a) audioEl.current = null;
+    };
+    a.onended = stop;
+    a.onerror = stop;
+    void a.play().catch(() => { stop(); notify('Could not play that preview.', 'error'); });
     audioEl.current = a;
     setPlaying(t.id);
   };
@@ -214,18 +228,21 @@ export function AudioPanel() {
 
   const addTrack = async (blob: Blob, name: string, extra: Partial<MusicTrack> = {}, handle?: FileSystemFileHandle | null) => {
     setBusy(true);
+    let assetId: string | null = null;
     try {
-      const assetId = handle && blob instanceof File ? await db.putFileHandle(handle, blob) : await db.putBlob(blob);
+      assetId = handle && blob instanceof File ? await db.putFileHandle(handle, blob) : await db.putBlob(blob);
       const buf = await loadAudioAsset(assetId);
       const analysis = await analyzeTrack(blob, buf);
       const dur = project.duration || buf.duration;
       const t: MusicTrack = {
         id: nanoid(8), assetId, name, source: 'upload', fileDuration: buf.duration, start: 0, offset: 0,
-        duration: dur, volume: 0, fadeIn: 0.5, fadeOut: 2, loop: buf.duration < dur, analysis, layer: freeLayer(audio.tracks, 0, dur), ...extra,
+        duration: dur, volume: 0, fadeIn: 0.5, fadeOut: 2, loop: buf.duration < dur, analysis, layer: 0, ...extra,
       };
-      set((a) => ({ ...a, tracks: [...a.tracks, t] }));
+      // Compute the layer from fresh state: concurrent adds would otherwise all pick the same row.
+      set((a) => ({ ...a, tracks: [...a.tracks, { ...t, layer: freeLayer(a.tracks, 0, dur) }] }));
       notify(`Added “${name}”${analysis.bpm ? ` · ${Math.round(analysis.bpm)} BPM` : ''}.`, 'success');
     } catch (e) {
+      if (assetId) void db.deleteBlob(assetId).catch(() => {});
       notify((e as Error).message || 'Could not read that audio file.', 'error');
     } finally {
       setBusy(false);
@@ -244,9 +261,16 @@ export function AudioPanel() {
   };
 
   const addLibrary = async (lt: LibraryTrack) => {
-    const res = await fetch(lt.previewUrl);
-    if (!res.ok) { notify('Could not download that track.', 'error'); return; }
-    await addTrack(await res.blob(), `${lt.name} — ${lt.artist}`, { source: 'library', license: lt.license, attribution: lt.attribution });
+    let blob: Blob;
+    try {
+      const res = await fetch(lt.previewUrl);
+      if (!res.ok) { notify('Could not download that track.', 'error'); return; }
+      blob = await res.blob();
+    } catch (e) {
+      notify((e as Error).message || 'Could not download that track.', 'error');
+      return;
+    }
+    await addTrack(blob, `${lt.name} — ${lt.artist}`, { source: 'library', license: lt.license, attribution: lt.attribution });
   };
 
   const sfx = audio.sfx;

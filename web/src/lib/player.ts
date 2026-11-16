@@ -72,9 +72,10 @@ function loop() {
   if (!playing) return;
   const t = currentTime();
   if (t >= dur() - 1e-3 || (stopAt !== null && t >= stopAt)) {
+    const end = stopAt;
     pause();
-    if (stopAt !== null) { useEditor.getState().setTime(stopAt); syncVideos(stopAt); }
     stopAt = null;
+    if (end !== null) { const e = Math.min(end, dur()); useEditor.getState().setTime(e); syncVideos(e); }
     return;
   }
   syncVideos(t);
@@ -103,7 +104,8 @@ export function play() {
 }
 
 export function pause() {
-  if (!playing) { stopAt = null; return; }
+  stopAt = null; // a manual pause must not leave a stale range end for the next play
+  if (!playing) return;
   const t = currentTime();
   playing = false;
   cancelAnimationFrame(raf);

@@ -1,7 +1,8 @@
 import Link from 'next/link';
-import type { ReactNode } from 'react';
+import { Fragment, type ReactNode } from 'react';
 import { HugeiconsIcon } from '@hugeicons/react';
 import {
+  AppleIcon,
   AiMagicIcon, AudioWave01Icon, Clock01Icon, Download04Icon, KeyframesDoubleIcon, LaptopIcon, MusicNote01Icon,
   ShieldKeyIcon, SubtitleIcon, Tick02Icon, Upload04Icon, Video01Icon,
 } from '@hugeicons/core-free-icons';
@@ -15,12 +16,11 @@ import { LoopVideo } from './LoopVideo';
 import { ReelFrame } from './ReelFrame';
 import { SmoothScroll } from './SmoothScroll';
 import { FmSample } from './FmSample';
+import { ScrollFx } from './ScrollFx';
 
 type Icon = typeof SubtitleIcon;
 
-const EDITOR = '/editor';
-const START = '/editor#/new'; // opens a blank project straight in the workspace
-const REPO = 'https://github.com/elixinnovations/keyframe-web';
+const REPO = 'https://github.com/Elix-Innovations/keyframe.lk';
 const RELEASES = `${REPO}/releases/latest`;
 const ELIX = 'https://elix.lk';
 
@@ -92,6 +92,21 @@ function Diamond({ className = 'size-2.5 bg-[var(--rose)]' }: { className?: stri
   return <span aria-hidden className={`keyframe-diamond inline-block ${className}`} />;
 }
 
+/** Windows mark: four panes. */
+function WindowsMark({ className = 'size-4' }: { className?: string }) {
+  return <svg viewBox="0 0 24 24" className={className} fill="currentColor" aria-hidden><path d="M3 5.5 10.5 4.5v7H3zM11.5 4.35 21 3v8.5h-9.5zM3 12.5h7.5v7L3 18.5zM11.5 12.5H21V21l-9.5-1.35z" /></svg>;
+}
+
+/** The two desktop downloads (the editor ships as a macOS and a Windows app, not a web app). */
+function DownloadButtons({ dark = true, className = '' }: { dark?: boolean; className?: string }) {
+  return (
+    <div className={`flex flex-wrap justify-center gap-2 ${className}`}>
+      <Button href={RELEASES} kind={dark ? 'dark' : 'rose'} external><Ico icon={AppleIcon} className="size-4" />Download for macOS</Button>
+      <Button href={RELEASES} kind={dark ? 'white' : 'ghost'} external><WindowsMark />Download for Windows</Button>
+    </div>
+  );
+}
+
 function Button({ href, children, kind = 'rose', external, size = 'md' }: { href: string; children: ReactNode; kind?: 'rose' | 'white' | 'dark' | 'ghost'; external?: boolean; size?: 'md' | 'sm' }) {
   const cls = {
     rose: 'btn-rose',
@@ -119,7 +134,7 @@ function Eyebrow({ children, light }: { children: ReactNode; light?: boolean }) 
 
 function Heading({ eyebrow, title, children, light }: { eyebrow: string; title: ReactNode; children?: ReactNode; light?: boolean }) {
   return (
-    <div className="reveal mx-auto max-w-2xl text-center">
+    <div className="reveal fx-head mx-auto max-w-2xl text-center">
       <Eyebrow light={light}>{eyebrow}</Eyebrow>
       <h2 className={`mt-4 text-4xl leading-[1.08] font-semibold tracking-[-0.04em] text-balance sm:text-[3.3rem] ${light ? 'text-white' : 'text-[var(--ink)]'}`}>{title}</h2>
       {children && <p className={`mx-auto mt-4 max-w-md text-[15px] leading-relaxed ${light ? 'text-white/85' : 'text-[var(--ink-2)]'}`}>{children}</p>}
@@ -130,7 +145,7 @@ function Heading({ eyebrow, title, children, light }: { eyebrow: string; title: 
 /** Card with an illustration panel on top, title and copy below. `wash` gives it the rose gradient instead of grey. */
 function ShowCard({ title, copy, children, panel = 'h-64', wash }: { title: string; copy: string; children: ReactNode; panel?: string; wash?: boolean }) {
   return (
-    <article className={`reveal flex flex-col overflow-hidden rounded-[22px] border border-[var(--line)] ${wash ? 'bg-[linear-gradient(170deg,#f43f5e_0%,#fb7185_45%,#ffe4e8_100%)]' : 'bg-[#f3f1f1]'}`}>
+    <article className={`reveal fx-card flex flex-col overflow-hidden rounded-[22px] border border-[var(--line)] ${wash ? 'bg-[linear-gradient(170deg,#f43f5e_0%,#fb7185_45%,#ffe4e8_100%)]' : 'bg-[#f3f1f1]'}`}>
       <div aria-hidden className={`relative ${panel}`}>{children}</div>
       <div className="px-6 pt-6 pb-7">
         <h3 className="text-lg font-semibold tracking-[-0.02em] text-[var(--ink)]">{title}</h3>
@@ -188,11 +203,11 @@ function Glint({ className }: { className: string }) {
 
 /* ---------- nav ---------- */
 
-const NAV = [['Features', '#features'], ['Benefits', '#benefits'], ['Pricing', '#pricing'], ['Install', '#install'], ['FAQ', '#faq']];
+const NAV = [['Features', '#features'], ['Benefits', '#benefits'], ['Install', '#install'], ['FAQ', '#faq']];
 
 function Nav() {
   return (
-    <header className="relative z-40">
+    <header className="in-down relative z-40">
       <div className="mx-auto flex h-20 max-w-6xl items-center justify-between gap-4 px-5">
         <Link href="/" aria-label="Keyframe.lk home" className="flex items-center gap-2 text-white">
           <KfMark size={28} className="rounded-lg ring-2 ring-white/40" />
@@ -203,7 +218,7 @@ function Nav() {
         </nav>
         <div className="flex items-center gap-2">
           <a href={REPO} target="_blank" rel="noreferrer" aria-label="Keyframe.lk on GitHub" className="hidden size-10 place-items-center rounded-full text-white transition-colors hover:bg-white/10 sm:grid"><GitHubMark /></a>
-          <Button href={EDITOR} kind="dark">Open editor <Arrow /></Button>
+          <Button href={RELEASES} kind="dark" external>Download <Arrow /></Button>
         </div>
       </div>
     </header>
@@ -399,42 +414,37 @@ function Hero() {
       {/* theme wash: rose (brand-1) only, lightening through rose tints, a soft blush bloom on the right, fading to the canvas at the bottom */}
       <div aria-hidden className="absolute inset-x-0 top-0 -z-20 h-[64rem] [mask-image:linear-gradient(180deg,#000_80%,transparent)] bg-[radial-gradient(42%_38%_at_86%_50%,color-mix(in_oklab,var(--rose)_35%,white),transparent_72%),radial-gradient(70%_32%_at_50%_100%,color-mix(in_oklab,var(--rose)_6%,white),transparent_75%),linear-gradient(180deg,var(--rose)_0%,var(--rose)_40%,color-mix(in_oklab,var(--rose)_80%,white)_60%,color-mix(in_oklab,var(--rose)_35%,white)_80%,var(--canvas)_100%)]" />
       <div aria-hidden className="pointer-events-none absolute inset-0 -z-10 hidden lg:block">
-        <TimelineGhost className="-left-24" />
-        <GraphGhost className="-right-24" />
+        <TimelineGhost className="tex-draw -left-24" />
+        <GraphGhost className="tex-draw -right-24 [--td:.25s]" />
         {/* hairline under the nav, lit in two places */}
-        <span className="absolute inset-x-0 top-20 h-px bg-white/15" />
-        <Glint className="top-20 left-[31%] h-px w-28" />
-        <Glint className="top-20 right-[31%] h-px w-28" />
+        <span className="tex-line absolute inset-x-0 top-20 h-px bg-white/15" />
+        <Glint className="tex-glint top-20 left-[31%] h-px w-28" />
+        <Glint className="tex-glint top-20 right-[31%] h-px w-28 [--td:1.2s]" />
         {/* the headline sits in a canvas safe zone: corner brackets and a lit playhead edge */}
-        <span className="hud-corners absolute top-32 left-1/2 h-[30rem] w-[56rem] -translate-x-1/2 opacity-60">
-          <Glint className="top-[18rem] -left-px h-20 w-px" />
-          <Glint className="top-[20rem] -right-px h-16 w-px" />
+        <span className="hud-corners tex-frame absolute top-32 left-1/2 h-[30rem] w-[56rem] -translate-x-1/2 opacity-60">
+          <Glint className="tex-glint top-[18rem] -left-px h-20 w-px [--td:1.3s]" />
+          <Glint className="tex-glint top-[20rem] -right-px h-16 w-px [--td:1.4s]" />
         </span>
       </div>
       <Nav />
       <div className="mx-auto max-w-6xl px-5 pt-14 text-center sm:pt-20">
-        <span className="inline-flex items-center gap-2 rounded-full border border-white/30 bg-white/10 px-3.5 py-1.5 text-xs font-medium text-white backdrop-blur">
+        <span className="in-up inline-flex items-center gap-2 rounded-full border border-white/30 bg-white/10 px-3.5 py-1.5 text-xs font-medium text-white backdrop-blur">
           <Mark />Sinhala, English and code-mixed
         </span>
         <h1 className="mx-auto mt-6 max-w-3xl text-[2.7rem] leading-[1.04] font-semibold tracking-[-0.05em] text-balance text-white sm:text-6xl lg:text-[4.4rem]">
-          Sinhala captions, timed to the frame.
+          {'Sinhala captions, timed to the frame.'.split(' ').map((w, i) => <Fragment key={i}>{i > 0 && ' '}<span className="in-word"><span style={{ ['--i' as string]: i }}>{w}</span></span></Fragment>)}
         </h1>
-        <p className="mx-auto mt-5 max-w-lg text-[15px] leading-relaxed text-white/90">
-          Word-by-word captions, live FM fonts, music and 4K export, all in your browser. The video never leaves your computer.
+        <p className="in-up mx-auto mt-5 max-w-lg text-[15px] leading-relaxed text-white/90" style={{ ['--d' as string]: '.45s' }}>
+          Word-by-word captions, live FM fonts, music and 4K export, in a desktop app for macOS and Windows. Your video never leaves your computer.
         </p>
-        {/* the reference's email pill, reworked: repo on the left, download on the right */}
-        <div className="mx-auto mt-9 flex w-fit items-center gap-3 rounded-full bg-white/85 p-1.5 shadow-[0_20px_40px_-20px_rgba(120,20,40,.6)] backdrop-blur sm:pl-5">
-          <a href={REPO} target="_blank" rel="noreferrer" className="hidden items-center gap-2 text-sm text-[var(--ink-2)] transition-colors hover:text-[var(--ink)] sm:flex">
-            <GitHubMark /><span className="mono">elixinnovations/keyframe-web</span>
-          </a>
-          <Button href={RELEASES} kind="dark" external>Download for macOS <Arrow /></Button>
-        </div>
-        <p className="mt-4 text-sm text-white/90">
-          or <Link href={START} className="font-medium text-white underline decoration-white/40 underline-offset-4 hover:decoration-white">try it in your browser</Link>, no account needed
+        <div className="in-up" style={{ ['--d' as string]: '.6s' }}><DownloadButtons className="mt-9" /></div>
+        <p className="in-up mt-4 flex items-center justify-center gap-2 text-sm text-white/90" style={{ ['--d' as string]: '.75s' }}>
+          Free, no account needed ·
+          <a href={REPO} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 font-medium text-white underline decoration-white/40 underline-offset-4 hover:decoration-white"><GitHubMark className="size-3.5" />Source on GitHub</a>
         </p>
       </div>
       {/* the editor inside a ghost browser frame, as in the reference */}
-      <div className="mx-auto mt-16 max-w-5xl px-5">
+      <div className="in-stage mx-auto mt-16 max-w-5xl px-5">
         <div className="rounded-[30px] border border-white/45 bg-white/10 p-2 pt-0 backdrop-blur-sm sm:p-3 sm:pt-0">
           <div aria-hidden className="flex h-10 items-center gap-1.5 px-2">
             {[0, 1, 2].map((i) => <span key={i} className="size-3 rounded-full border border-white/60" />)}
@@ -453,7 +463,7 @@ const WORKS = ['ElevenLabs Scribe', 'Gemini', 'OpenAI Whisper', 'Claude', 'Jamen
 
 function WorksWith() {
   return (
-    <section className="mx-auto max-w-5xl px-5 pt-24 pb-6 text-center">
+    <section className="reveal mx-auto max-w-5xl px-5 pt-24 pb-6 text-center">
       <p className="text-sm font-medium text-[var(--ink)]">Built on the tools creators already trust</p>
       <p className="sr-only">{WORKS.join(', ')}</p>
       <div className="mask-x mt-8 overflow-hidden">
@@ -577,7 +587,7 @@ function Features() {
 /* ---------- benefits: 3 × 2 ---------- */
 
 const BENEFITS: [Icon, string, string][] = [
-  [LaptopIcon, 'Renders on your device', 'Preview and export run in your browser with WebCodecs. No render queue, no upload wait.'],
+  [LaptopIcon, 'Renders on your device', 'Preview and export run right on your computer. No render queue, no upload wait.'],
   [ShieldKeyIcon, 'Only audio leaves', 'Only the extracted audio goes to the speech provider you pick, with your own key.'],
   [Clock01Icon, 'Timed to the frame', 'Word timestamps drive highlights, so emphasis lands on the beat every time.'],
   [Video01Icon, 'Vertical by default', 'Safe zones for Reels, TikTok and Shorts, and one renderer for preview and export.'],
@@ -653,13 +663,13 @@ function Steps() {
 /* ---------- pricing (licence), nested-box cards ---------- */
 
 const PLANS = [
-  { name: 'Noncommercial', icon: LaptopIcon, price: 'Free', per: 'forever', note: 'For creators, students and personal channels.', cta: 'Open the editor', href: START, external: false, hot: true,
-    items: ['Every editor feature', 'Unlimited projects', 'Unlimited exports', 'Your own speech keys', 'macOS desktop app', 'Source on GitHub'] },
+  { name: 'Noncommercial', icon: LaptopIcon, price: 'Free', per: 'forever', note: 'For creators, students and personal channels.', cta: 'Download free', href: RELEASES, external: true, hot: true,
+    items: ['Every editor feature', 'Unlimited projects', 'Unlimited exports', 'Your own speech keys', 'macOS and Windows apps', 'Source on GitHub'] },
   { name: 'Commercial', icon: KeyframesDoubleIcon, price: 'Licence', per: 'on request', note: 'For agencies, brands and paid client work.', cta: 'Contact Elix', href: ELIX, external: true, hot: false,
     items: ['Everything in Free', 'Paid and client work', 'Licence from Elix', 'Talk to us about setup'] },
 ];
 
-function Pricing() {
+export function Pricing() {
   return (
     <section id="pricing" className="mx-auto max-w-6xl px-5 pb-24">
       <Heading eyebrow="Pricing" title="Free to use. Fair for business.">
@@ -667,7 +677,7 @@ function Pricing() {
       </Heading>
       <div className="mt-14 grid gap-5 lg:grid-cols-2">
         {PLANS.map((p) => (
-          <article key={p.name} className={`reveal rounded-[26px] p-2 ${p.hot ? 'bg-[linear-gradient(160deg,#ffd1da,#ffe8ec_55%,#fff4f6)] shadow-[0_30px_60px_-36px_rgba(225,29,72,.7)]' : 'bg-[#f1eeee]'}`}>
+          <article key={p.name} className={`reveal fx-tilt rounded-[26px] p-2 ${p.hot ? 'bg-[linear-gradient(160deg,#ffd1da,#ffe8ec_55%,#fff4f6)] shadow-[0_30px_60px_-36px_rgba(225,29,72,.7)]' : 'bg-[#f1eeee]'}`}>
             <div className="rounded-[20px] bg-white p-6 shadow-sm">
               <p className="flex items-center gap-3 text-2xl font-semibold tracking-[-0.03em] text-[var(--ink)]">
                 <span className={`grid size-9 place-items-center rounded-xl ${p.hot ? 'btn-rose' : 'bg-[var(--canvas)] text-[var(--rose)]'}`}><Ico icon={p.icon} className="size-[18px]" /></span>{p.name}
@@ -702,7 +712,7 @@ const FORMATS: [string, string, string][] = [
 function Formats() {
   return (
     <section className="relative isolate overflow-hidden py-28">
-      <div aria-hidden className="absolute inset-0 -z-10 bg-[linear-gradient(180deg,var(--canvas)_0%,#fda4b4_22%,#f43f5e_55%,#fb7185_80%,var(--canvas)_100%)]" />
+      <div aria-hidden className="reveal fx-band absolute inset-0 -z-10 bg-[linear-gradient(180deg,var(--canvas)_0%,#fda4b4_22%,#f43f5e_55%,#fb7185_80%,var(--canvas)_100%)]" />
       <div className="relative mx-auto max-w-6xl px-5">
         {FORMATS.map(([f, sub, pos], i) => (
           <span key={f} aria-hidden className={`absolute hidden flex-col items-center gap-2 lg:flex ${pos}`}>
@@ -715,7 +725,7 @@ function Formats() {
         <Heading light eyebrow="Formats" title={<>Fits every<br />workflow</>}>
           Import SRT, VTT or ASS, and hand off video, alpha overlays or caption files to whatever comes next.
         </Heading>
-        <div className="mt-8 flex justify-center"><Button href={START} kind="dark">Start captioning <Arrow /></Button></div>
+        <DownloadButtons className="mt-8" />
       </div>
     </section>
   );
@@ -732,26 +742,24 @@ const LOOKS = [
 function Reel({ i }: { i: number }) {
   const l = LOOKS[i];
   return (
-    <figure className="reveal overflow-hidden rounded-[22px] border border-[var(--line)] bg-white p-2">
-      <div className="relative aspect-[4/5] overflow-hidden rounded-2xl bg-[#0d0a10]">
-        <LoopVideo src={`/landing/${l.clip}.mp4`} poster={`/landing/${l.clip}.jpg`} className="absolute inset-0 size-full object-cover" />
-        <span className="mono absolute top-3 left-3 rounded-full bg-white/90 px-2.5 py-0.5 text-[10px] text-[var(--ink)]">STYLE / 0{i + 1}</span>
-      </div>
-      <figcaption className="px-3 pt-3 pb-2">
-        <span className="block text-sm font-semibold text-[var(--ink)]">{l.name}</span>
-        <span className="block text-xs text-[var(--ink-2)]">{l.note}</span>
+    <figure className="reveal relative aspect-[9/16] overflow-hidden rounded-[22px] bg-[#0d0a10]">
+      <LoopVideo src={`/landing/${l.clip}.mp4`} poster={`/landing/${l.clip}.jpg`} className="absolute inset-0 size-full object-cover" />
+      <span className="mono absolute top-3 left-3 rounded-full bg-white/90 px-2.5 py-0.5 text-[10px] text-[var(--ink)]">STYLE / 0{i + 1}</span>
+      <figcaption className="absolute inset-x-0 bottom-0 bg-[linear-gradient(transparent,rgba(5,6,10,.85))] px-4 pt-10 pb-4 text-white">
+        <span className="block text-sm font-semibold">{l.name}</span>
+        <span className="block text-xs text-white/75">{l.note}</span>
       </figcaption>
     </figure>
   );
 }
 
-function Fact({ tone, tag, children, foot }: { tone: 'dark' | 'rose' | 'white'; tag: string; children: ReactNode; foot: string }) {
+function Fact({ tone, tag, children, foot, className = '' }: { tone: 'dark' | 'rose' | 'white'; tag: string; children: ReactNode; foot: string; className?: string }) {
   const cls = { dark: 'bg-[var(--ink)] text-white', rose: 'bg-[linear-gradient(160deg,#f43f5e,#fb7185)] text-white', white: 'border border-[var(--line)] bg-white text-[var(--ink)]' }[tone];
   return (
-    <article className={`reveal flex flex-col justify-between gap-10 rounded-[22px] p-7 ${cls}`}>
+    <article className={`reveal flex flex-col justify-between rounded-[22px] gap-4 p-5 ${cls} ${className}`}>
       <div>
         <p className={`text-[11px] font-medium tracking-[0.14em] uppercase ${tone === 'white' ? 'text-[var(--rose)]' : 'text-white/70'}`}>{tag}</p>
-        <p className="mt-4 text-xl leading-snug font-medium tracking-[-0.02em]">{children}</p>
+        <p className="mt-2 text-base leading-snug font-medium tracking-[-0.02em]">{children}</p>
       </div>
       <p className={`flex items-center gap-2.5 text-xs ${tone === 'white' ? 'text-[var(--ink-2)]' : 'text-white/75'}`}><KfMark size={22} className="rounded-md" />{foot}</p>
     </article>
@@ -764,19 +772,16 @@ function Reels() {
       <Heading eyebrow="Made with Keyframe" title="See the captions in action">
         Real reels captioned in Keyframe. Every style is editable word by word.
       </Heading>
-      <div className="mt-14 grid gap-4 md:grid-cols-3">
-        <div className="grid content-start gap-4">
-          <Fact tone="dark" tag="Word highlight" foot="Timed from word-level transcripts">Every word lights up the moment it is spoken, so emphasis lands on the beat.</Fact>
-          <Reel i={0} />
+      {/* bento: 9:16 reel tiles around a 2-wide block of facts (one wide tile over two squares) */}
+      <div className="mt-14 grid grid-cols-2 gap-4 lg:grid-cols-5">
+        <Reel i={0} />
+        <div className="col-span-2 grid grid-cols-2 gap-4 max-lg:order-last">
+          <Fact tone="dark" tag="Word highlight" foot="Word-level timing" className="col-span-2">Every word lights up the moment it is spoken, so emphasis lands on the beat.</Fact>
+          <Fact tone="white" tag="FM fonts" foot="25 fonts">Type Unicode, see FM fonts live.</Fact>
+          <Fact tone="rose" tag="One renderer" foot="Up to 4K">What you preview is what you export.</Fact>
         </div>
-        <div className="grid content-start gap-4">
-          <Reel i={1} />
-          <Fact tone="white" tag="FM fonts" foot="25 built-in fonts">Type in Unicode. The canvas draws legacy FM fonts live, no converter round trips.</Fact>
-        </div>
-        <div className="grid content-start gap-4">
-          <Fact tone="rose" tag="One renderer" foot="WebCodecs · up to 4K">Preview and export share one renderer, so what you see is the file you get.</Fact>
-          <Reel i={2} />
-        </div>
+        <Reel i={1} />
+        <Reel i={2} />
       </div>
     </section>
   );
@@ -791,7 +796,7 @@ function Install() {
         You need Node, Python with uv, and one speech provider key.
       </Heading>
       <div className="mt-14 grid gap-4 lg:grid-cols-[1.5fr_1fr]">
-        <div className="reveal min-w-0 overflow-hidden rounded-[22px] bg-[var(--ink)] shadow-[0_30px_70px_-34px_rgba(31,22,34,.7)]">
+        <div className="reveal fx-tilt min-w-0 overflow-hidden rounded-[22px] bg-[var(--ink)] shadow-[0_30px_70px_-34px_rgba(31,22,34,.7)]">
           <div className="mono flex items-center justify-between border-b border-white/10 px-5 py-3 text-[11px] text-white/55">
             <span className="flex items-center gap-1.5"><i className="size-2.5 rounded-full bg-[#ff5f57]/80" /><i className="size-2.5 rounded-full bg-[#febc2e]/80" /><i className="size-2.5 rounded-full bg-[#28c840]/80" /><span className="ml-2">~/keyframe</span></span>
             <CopyButton text={INSTALL} />
@@ -805,10 +810,11 @@ function Install() {
           <div>
             <span className="btn-rose grid size-9 place-items-center rounded-lg"><Ico icon={LaptopIcon} className="size-[18px]" /></span>
             <p className="mt-6 text-xl font-semibold tracking-[-0.02em] text-[var(--ink)]">Prefer an app?</p>
-            <p className="mt-1.5 text-sm leading-relaxed text-[var(--ink-2)]">A macOS build is on the releases page. Same editor, packaged with Electron.</p>
+            <p className="mt-1.5 text-sm leading-relaxed text-[var(--ink-2)]">Get the desktop app for macOS or Windows from the releases page.</p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <Button href={RELEASES} external>Download for macOS</Button>
+            <Button href={RELEASES} external><Ico icon={AppleIcon} className="size-4" />macOS</Button>
+            <Button href={RELEASES} kind="white" external><WindowsMark />Windows</Button>
             <Button href={REPO} kind="white" external><GitHubMark />GitHub</Button>
           </div>
         </div>
@@ -820,7 +826,7 @@ function Install() {
 /* ---------- faq, two columns ---------- */
 
 const FAQ = [
-  ['Does my video get uploaded?', 'No. Rendering and export run in your browser, so the video stays on your computer. Only the audio track is sent to the transcription provider you configure. The optional AI tools send caption text, plus any images you ask it to place as B-roll.'],
+  ['Does my video get uploaded?', 'No. Rendering and export run in the app, so the video stays on your computer. Only the audio track is sent to the transcription provider you configure. The optional AI tools send caption text, plus any images you ask it to place as B-roll.'],
   ['Which languages work?', 'Sinhala, English and code-mixed speech such as "මම software engineering කරනවා", in Unicode and legacy FM fonts.'],
   ['What do I need to run it?', 'Node and Python locally, plus an API key for transcription (ElevenLabs, Gemini or OpenAI). The setup steps are in the README.'],
   ['What can I export?', 'MP4 up to 4K, transparent MOV (ProRes 4444) or WebM for other editors, and SRT, VTT and ASS caption files.'],
@@ -831,18 +837,18 @@ const FAQ = [
 function Faq() {
   return (
     <section id="faq" className="mx-auto grid max-w-6xl gap-10 px-5 pb-28 lg:grid-cols-[1fr_1.4fr]">
-      <div className="reveal">
+      <div className="reveal fx-head">
         <Eyebrow>FAQ</Eyebrow>
         <h2 className="mt-4 text-4xl leading-[1.05] font-semibold tracking-[-0.045em] text-[var(--ink)] sm:text-[3.3rem]">Your questions<br />answered</h2>
         <p className="mt-4 max-w-xs text-sm leading-relaxed text-[var(--ink-2)]">Something else? Open an issue on GitHub and we will get back to you.</p>
         <div className="mt-6"><Button href={`${REPO}/issues`} kind="white" external size="sm">Ask on GitHub <Arrow /></Button></div>
       </div>
-      <div className="reveal divide-y divide-[var(--line)] border-y border-[var(--line)]">
+      <div className="divide-y divide-[var(--line)] border-y border-[var(--line)]">
         {FAQ.map(([q, a], i) => (
-          <details key={q} open={i === 0} className="group py-5">
+          <details key={q} open={i === 0} className="reveal group py-5">
             <summary className="flex cursor-pointer items-center justify-between gap-6 text-base font-medium tracking-[-0.01em] text-[var(--ink)]">
               {q}
-              <span aria-hidden className="faq-plus grid size-7 shrink-0 place-items-center rounded-full border border-[var(--line)] text-base leading-none text-[var(--rose)] transition-transform">+</span>
+              <span aria-hidden className="faq-plus grid size-7 shrink-0 place-items-center rounded-full border border-[var(--line)] text-base leading-none text-[var(--rose)]">+</span>
             </summary>
             <p className="mt-3 max-w-xl text-sm leading-relaxed text-[var(--ink-2)]">{a}</p>
           </details>
@@ -856,7 +862,7 @@ function Faq() {
 
 function Cta() {
   return (
-    <section className="relative isolate overflow-hidden bg-[#140d12] px-5 py-28 text-center">
+    <section className="reveal fx-band relative isolate overflow-hidden bg-[#140d12] px-5 py-28 text-center">
       <div aria-hidden className="absolute bottom-[-12rem] left-1/2 -z-10 h-[24rem] w-[60rem] -translate-x-1/2 rounded-full bg-[radial-gradient(closest-side,rgba(244,63,94,.55),transparent)] blur-2xl" />
       <div aria-hidden className="pointer-events-none absolute inset-0 -z-10 hidden lg:block">
         <span className="absolute top-20 left-[-4rem] h-48 w-80 rounded-[26px] border border-white/10" />
@@ -874,32 +880,29 @@ function Cta() {
       </div>
       <span className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/5 px-3.5 py-1.5 text-xs font-medium text-white"><Mark />Free · source available</span>
       <h2 className="mx-auto mt-6 max-w-2xl text-4xl leading-[1.05] font-semibold tracking-[-0.045em] text-balance text-white sm:text-6xl">Your next reel, captioned before the kettle boils.</h2>
-      <p className="mx-auto mt-5 max-w-md text-[15px] leading-relaxed text-white/70">Open the editor in your browser. No account, no upload.</p>
-      <div className="mt-9 flex flex-wrap justify-center gap-2">
-        <Button href={START}>Open the editor <Arrow /></Button>
-        <Button href="#install" kind="ghost">Run it locally</Button>
-      </div>
+      <p className="mx-auto mt-5 max-w-md text-[15px] leading-relaxed text-white/70">Download Keyframe for macOS or Windows. No account, no upload.</p>
+      <DownloadButtons dark={false} className="mt-9" />
     </section>
   );
 }
 
 const FOOT: [string, [string, string][]][] = [
-  ['Sections', [['Features', '#features'], ['Benefits', '#benefits'], ['Pricing', '#pricing'], ['FAQ', '#faq']]],
+  ['Sections', [['Features', '#features'], ['Benefits', '#benefits'], ['FAQ', '#faq']]],
   ['Project', [['GitHub', REPO], ['Docs', `${REPO}#readme`], ['Releases', RELEASES], ['Issues', `${REPO}/issues`]]],
-  ['Company', [['Elix Innovations', ELIX], ['Open editor', EDITOR]]],
+  ['Company', [['Elix Innovations', ELIX], ['Download', RELEASES]]],
 ];
 
 function Footer() {
   return (
     <footer className="bg-white">
       <div className="mx-auto grid max-w-6xl grid-cols-2 gap-10 px-5 py-16 md:grid-cols-[1.8fr_repeat(3,1fr)]">
-        <div className="col-span-2 md:col-span-1">
+        <div className="reveal col-span-2 md:col-span-1">
           <Wordmark size={44} />
           <p className="mt-5 max-w-xs text-sm leading-relaxed text-[var(--ink-2)]">Sinhala caption video editor with auto captions, live FM fonts, music and on-device export.</p>
           <a href={REPO} target="_blank" rel="noreferrer" aria-label="Keyframe.lk on GitHub" className="mt-5 inline-grid size-9 place-items-center rounded-full border border-[var(--line)] text-[var(--ink)] hover:text-[var(--rose)]"><GitHubMark /></a>
         </div>
         {FOOT.map(([h, links]) => (
-          <nav key={h} aria-label={h}>
+          <nav key={h} aria-label={h} className="reveal">
             <p className="text-sm font-semibold text-[var(--ink)]">{h}</p>
             <ul className="mt-4 space-y-2.5 text-sm text-[var(--ink-2)]">
               {links.map(([l, href]) => <li key={l}><a href={href} {...(href.startsWith('http') ? { target: '_blank', rel: 'noreferrer' } : {})} className="hover:text-[var(--rose)]">{l}</a></li>)}
@@ -919,13 +922,14 @@ export function Landing() {
   return (
     <div className="landing min-h-screen bg-[var(--canvas)] text-[var(--ink)] antialiased">
       <SmoothScroll />
+      <ScrollFx />
       <main>
         <Hero />
         <WorksWith />
         <Features />
         <Benefits />
         <Steps />
-        <Pricing />
+        {/* Pricing hidden for now: restore <Pricing /> and the #pricing nav and footer links */}
         <Formats />
         <Reels />
         <Install />

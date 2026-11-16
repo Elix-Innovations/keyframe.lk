@@ -71,10 +71,13 @@ const CURVE_PRESETS: { label: string; v: Partial<VideoFilters> }[] = [
 ];
 
 const smooth = (a: number, b: number, x: number) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+/** Weight of each tone zone (shadows, darks, lights, highlights) at x. */
+function zoneWeights(x: number): number[] {
+  return [1 - smooth(0, 0.3, x), smooth(0, 0.3, x) * (1 - smooth(0.3, 0.6, x)), smooth(0.3, 0.6, x) * (1 - smooth(0.6, 0.9, x)), smooth(0.6, 0.9, x)];
+}
 function curveAt(f: VideoFilters, x: number) {
-  const zs = 1 - smooth(0, 0.3, x), zd = smooth(0, 0.3, x) * (1 - smooth(0.3, 0.6, x));
-  const zl = smooth(0.3, 0.6, x) * (1 - smooth(0.6, 0.9, x)), zh = smooth(0.6, 0.9, x);
-  return Math.max(0, Math.min(1, x + (f.curveShadows * zs + f.curveDarks * zd + f.curveLights * zl + f.curveHighlights * zh) * 0.002));
+  const w = zoneWeights(x);
+  return Math.max(0, Math.min(1, x + CURVE_KEYS.reduce((a, k, i) => a + f[k] * w[i], 0) * 0.002));
 }
 
 function CurveEditor({ f, patch }: { f: VideoFilters; patch: Patch }) {
@@ -86,7 +89,11 @@ function CurveEditor({ f, patch }: { f: VideoFilters; patch: Patch }) {
     const r = ref.current.getBoundingClientRect();
     const y = 1 - (e.clientY - r.top) / r.height;
     const i = drag.current, x = CURVE_X[i];
-    patch({ [CURVE_KEYS[i]]: Math.round(Math.max(-100, Math.min(100, ((y - x) / 0.2) * 100))) }, `flt-${CURVE_KEYS[i]}`);
+    // Invert curveAt at this node: the other zones also contribute here, and this zone only has weight w[i].
+    const w = zoneWeights(x);
+    const others = CURVE_KEYS.reduce((a, k, j) => (j === i ? a : a + f[k] * w[j]), 0);
+    const v = ((y - x) / 0.002 - others) / w[i];
+    patch({ [CURVE_KEYS[i]]: Math.round(Math.max(-100, Math.min(100, v))) }, `flt-${CURVE_KEYS[i]}`);
   };
   const pts = Array.from({ length: 41 }, (_, i) => { const x = i / 40; return `${(x * S).toFixed(1)},${((1 - curveAt(f, x)) * S).toFixed(1)}`; });
   return (
@@ -151,7 +158,7 @@ export function ColorGrade({ filters: f, patch, part }: { filters: VideoFilters;
         <Field f={f} k="blacks" label="Blacks" patch={patch} />
       </Section>)}
 
-      {show('basic') && (<Section title="Colour" collapsible right={<ResetBtn patch={patch} keys={['temperature', 'tint', 'vibrance']} />}>
+      {show('basic') && (<Section title="Colour" collapsible right={<ResetBtn patch={patch} keys={['temperature', 'tint', 'vibrance', 'gainR', 'gainG', 'gainB']} />}>
         <Row label="Temperature" kf={kfOf('temperature')}>
           <div className="flex min-w-0 flex-1 flex-col gap-1">
             <div className="h-1.5 rounded-full" style={{ background: 'linear-gradient(90deg,#3b82f6,#e5e7eb,#f59e0b)' }} />

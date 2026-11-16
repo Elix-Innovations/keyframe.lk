@@ -5,6 +5,7 @@ import { prepareClipAudio, scheduleClipAudio } from './clips';
 import { getSfx } from './sfx';
 import { currentTime } from '@/lib/player';
 import { beforeProject } from '@/lib/before';
+import { laneOf } from '@/lib/videoFx';
 
 /**
  * Live soundtrack for the editor preview. Every sound is scheduled from the project: audio clips
@@ -80,7 +81,7 @@ useEditor.subscribe((s, prev) => {
   if (s.before !== prev.before && s.playing) void previewAudio.start();
   const p = s.project, q = prev.project;
   if (!p || !q || p === q) return;
-  const changed = p.clips !== q.clips || p.audio.original !== q.audio.original || p.audio.tracks !== q.audio.tracks || p.audio.ducking !== q.audio.ducking ||
+  const changed = p.clips !== q.clips || laneOf(p, 'audio').muted !== laneOf(q, 'audio').muted || p.audio.original !== q.audio.original || p.audio.tracks !== q.audio.tracks || p.audio.ducking !== q.audio.ducking ||
     p.audio.normalize !== q.audio.normalize || p.audio.sfx !== q.audio.sfx || (p.audio.sfx.enabled && (p.captions !== q.captions || p.hook !== q.hook)) ||
     (p.audio.ducking.enabled && p.captions !== q.captions);
   if (!changed || !s.playing) return;

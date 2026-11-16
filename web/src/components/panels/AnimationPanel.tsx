@@ -13,7 +13,8 @@ export function AnimationPanel() {
   const [hover, setHover] = useState<string | null>(null);
   const perWord = style.displayMode === 'word-appear' || style.displayMode === 'compact-emphasis';
 
-  const Grid = ({ field }: { field: 'animation' | 'wordAnimation' }) => (
+  // A plain function, not a component: a component defined here would remount every preview tile on each hover change.
+  const renderGrid = (field: 'animation' | 'wordAnimation') => (
     <div className="grid grid-cols-2 gap-2">
       {IDS.map((id) => {
         const key = `${field}-${id}`;
@@ -41,11 +42,11 @@ export function AnimationPanel() {
       {perWord && (
         <Section title="Word entrance">
           <p className="text-xs text-muted-foreground">Each word animates in as it is spoken.</p>
-          <Grid field="wordAnimation" />
+          {renderGrid('wordAnimation')}
         </Section>
       )}
       <Section title="Caption entrance">
-        <Grid field="animation" />
+        {renderGrid('animation')}
       </Section>
     </div>
   );

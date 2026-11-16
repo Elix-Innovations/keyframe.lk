@@ -196,6 +196,12 @@ export function blendFilters(preset: Partial<VideoFilters>, strength: number): V
   for (const key of Object.keys(NEUTRAL_FILTERS) as (keyof VideoFilters)[]) {
     const to = preset[key] ?? NEUTRAL_FILTERS[key];
     if (WHEEL_HUES.includes(key)) { out[key] = k > 0 ? to : NEUTRAL_FILTERS[key]; continue; }
+    if (key === 'hue') {
+      // hue-rotate is circular: blend along the shortest way round, not linearly from 0.
+      const d = ((to + 540) % 360) - 180;
+      out.hue = Math.round(((((d * k) % 360) + 360) % 360) * 10) / 10;
+      continue;
+    }
     out[key] = Math.round((NEUTRAL_FILTERS[key] + (to - NEUTRAL_FILTERS[key]) * k) * 10) / 10;
   }
   return out;
@@ -271,7 +277,8 @@ export function liveFilters(layer: Pick<VideoLayer, 'filters' | 'fkf'>, t: numbe
   return out as unknown as VideoFilters;
 }
 
-export const newKeyframe = (t: number, from: Transform): VideoKeyframe => ({ id: nanoid(8), t, ...from, ease: 'easeInOut' });
+// Copy only the transform fields: `from` may be a stored keyframe (transformAt holds the end keyframes), whose id / t must not leak in.
+export const newKeyframe = (t: number, from: Transform): VideoKeyframe => ({ id: nanoid(8), t, scale: from.scale, x: from.x, y: from.y, rotation: from.rotation, opacity: from.opacity, ease: 'easeInOut' });
 export const newEffect = (effectId: string): EffectInstance => ({ id: nanoid(8), effectId, intensity: 0.6 });
 
 const WHEEL_HUES: (keyof VideoFilters)[] = ['shadowHue', 'midHue', 'highHue'];

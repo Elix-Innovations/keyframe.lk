@@ -36,7 +36,7 @@ export function DisplayControls({ style, setStyle, preview = true }: { style: Ca
         )}
         <div className="flex flex-col gap-1.5">
           {MODES.map((m) => (
-            <button key={m.id} onClick={() => setStyle((s) => ({ ...s, displayMode: m.id }))}
+            <button key={m.id} onClick={() => setStyle((s) => ({ ...s, displayMode: m.id, wordsPerChunk: m.id === 'word-by-word' ? Math.max(1, s.wordsPerChunk) : s.wordsPerChunk }))}
               className={`rounded-xl border px-3 py-2.5 text-left transition-all ${mode === m.id ? 'border-primary bg-primary/10 ring-1 ring-primary' : 'hover:border-primary/40 hover:bg-muted/40'}`}>
               <div className="font-medium">{m.label}</div>
               <div className="text-xs text-muted-foreground">{m.desc}</div>

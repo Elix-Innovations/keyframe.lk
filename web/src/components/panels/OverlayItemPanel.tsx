@@ -113,7 +113,7 @@ export function OverlayItemPanel() {
           <Row label="Style">
             <PreviewPicker placeholder="Apply a style" className="w-40"
               options={TEXT_PRESETS.map((p) => ({ id: p.id, label: p.label, spec: { ...p.apply, fontId: o.fontId, text: o.text.split('\n')[0].slice(0, 12) || 'Aa' } }))}
-              onChange={(id) => { const p = TEXT_PRESETS.find((x) => x.id === id); if (p) patch({ ...p.apply, bg: p.apply.bg ?? null, glow: p.apply.glow ?? null, strokeWidth: p.apply.strokeWidth ?? 0, shadow: p.apply.shadow ?? false, loop: p.apply.loop ?? 'none' }); }} />
+              onChange={(id) => { const p = TEXT_PRESETS.find((x) => x.id === id); if (p) patch({ ...p.apply, bg: p.apply.bg ?? null, glow: p.apply.glow ?? null, strokeWidth: p.apply.strokeWidth ?? 0, shadow: p.apply.shadow ?? false, italic: p.apply.italic ?? false, bold: p.apply.bold ?? true, loop: p.apply.loop ?? 'none' }); }} />
           </Row>
         )}
       </Section>
@@ -156,7 +156,7 @@ export function OverlayItemPanel() {
       }}>Save as template</Button>}>
         <p className="text-[11px] text-muted-foreground">Everything about this layer's look is editable here. Changes only affect this layer.</p>
       </Section>
-      <TemplateEditor style={o.tpl.style} onStyle={(style, key) => patch({ tpl: { ...o.tpl!, style }, y: style.layout.y }, key)} />
+      <TemplateEditor style={o.tpl.style} onStyle={(style, key) => patch({ tpl: { ...o.tpl!, style }, ...(style.layout.y !== o.tpl!.style.layout.y ? { y: style.layout.y } : {}) }, key)} />
       </>}
       {tab === 'display' && o.tpl && <>
       <DisplayControls style={o.tpl.style} preview
@@ -197,15 +197,20 @@ export function OverlayItemPanel() {
       </Section>
       </>}
       {tab === 'motion' && o.kind === 'screen' && <Section title="Motion"><p className="text-[11px] text-muted-foreground">The feed moves with the screen corners and the Scroll settings in the Edit tab.</p></Section>}
-      {tab === 'motion' && o.kind !== 'screen' && <>
-      <AnimGrid value={o} maxLen={o.duration} sample={sampleBase(o)} onChange={(p, key) => patch(p, key)} />
+      {tab === 'motion' && o.tpl && <Section title="Motion"><p className="text-[11px] text-muted-foreground">Text templates animate with the animation and speed set in their Style tab.</p></Section>}
+      {tab === 'motion' && o.kind !== 'screen' && !o.tpl && <>
+      {o.kind === 'motion' ? (
+        <Section title="Motion"><p className="text-[11px] text-muted-foreground">Motion graphics play their own animation. Only the playback speed below applies.</p></Section>
+      ) : (
+        <AnimGrid value={o} maxLen={o.duration} sample={sampleBase(o)} onChange={(p, key) => patch(p, key)} />
+      )}
       <Section title="Playback speed">
-        <Row label="Speed" hint="How fast the loop animation and keyframes play."><Slider value={o.speed ?? 1} min={0.25} max={4} step={0.05} format={(v) => `${v.toFixed(2)}×`} onChange={(speed) => patch({ speed }, 'spd')} /></Row>
+        <Row label="Speed" hint={o.kind === 'motion' ? 'How fast the animation plays.' : 'How fast the loop animation and keyframes play.'}><Slider value={o.speed ?? 1} min={0.25} max={4} step={0.05} format={(v) => `${v.toFixed(2)}×`} onChange={(speed) => patch({ speed }, 'spd')} /></Row>
         <div className="flex flex-wrap justify-end gap-1">
           {[0.5, 1, 1.5, 2, 3].map((s) => <Button key={s} size="xs" variant={(o.speed ?? 1) === s ? 'default' : 'secondary'} onClick={() => patch({ speed: s })}>{s}×</Button>)}
         </div>
       </Section>
-      <Keyframes o={o} patch={patch} />
+      {o.kind !== 'motion' && <Keyframes o={o} patch={patch} />}
       </>}
       {tab === 'timing' && <>
       <Section title="Timing">
@@ -232,7 +237,9 @@ function Keyframes({ o, patch }: { o: OverlayItem; patch: (p: Partial<OverlayIte
   const set = (list: typeof kfs) => patch({ keyframes: list });
   const edit = (p: Partial<NonNullable<typeof k>>, key: string) => k && patch({ keyframes: kfs.map((x) => (x.id === k.id ? { ...x, ...p } : x)) }, `kf-${key}`);
   const add = () => {
-    const t = Math.min(o.duration, Math.max(0, currentTime() - o.start));
+    // Keyframes run on the speed-scaled clock the renderer uses (overlayClock), so convert real time here.
+    const spd = o.speed || 1;
+    const t = Math.min(o.duration * spd, Math.max(0, (currentTime() - o.start) * spd));
     const near = kfs.find((x) => Math.abs(x.t - t) < 0.05);
     if (near) { setSel(near.id); return; }
     const kf = newKeyframe(Number(t.toFixed(2)), transformAt(kfs, t, IDENTITY));
@@ -246,14 +253,14 @@ function Keyframes({ o, patch }: { o: OverlayItem; patch: (p: Partial<OverlayIte
       ) : (
         <div className="flex flex-wrap gap-1">
           {kfs.map((x) => (
-            <button key={x.id} type="button" onClick={() => { setSel(x.id); seek(o.start + x.t); }}
+            <button key={x.id} type="button" onClick={() => { setSel(x.id); seek(o.start + x.t / (o.speed || 1)); }}
               className={`rounded-md px-2 py-0.5 font-mono text-[11px] ${x.id === sel ? 'bg-primary text-primary-foreground' : 'bg-muted hover:bg-accent'}`}>◆ {x.t.toFixed(2)}s</button>
           ))}
         </div>
       )}
       {k && (
         <>
-          <Row label="Time (s)"><Input type="number" step={0.05} min={0} max={o.duration} className="h-7 w-24 text-xs" value={k.t} onChange={(e) => edit({ t: Math.min(o.duration, Math.max(0, num(e.target.value, k.t))) }, 't')} /></Row>
+          <Row label="Time (s)"><Input type="number" step={0.05} min={0} max={o.duration * (o.speed || 1)} className="h-7 w-24 text-xs" value={k.t} onChange={(e) => edit({ t: Math.min(o.duration * (o.speed || 1), Math.max(0, num(e.target.value, k.t))) }, 't')} /></Row>
           <Row label="Size ×"><Slider value={Math.round(k.scale * 100)} min={0} max={400} format={(v) => `${v}%`} onChange={(v) => edit({ scale: v / 100 }, 'scale')} /></Row>
           <Row label="Move X"><Slider value={Math.round(k.x)} min={-100} max={100} format={(v) => `${v}%`} onChange={(x) => edit({ x }, 'x')} /></Row>
           <Row label="Move Y"><Slider value={Math.round(k.y)} min={-100} max={100} format={(v) => `${v}%`} onChange={(y) => edit({ y }, 'y')} /></Row>

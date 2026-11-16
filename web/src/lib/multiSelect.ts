@@ -5,7 +5,7 @@ import type { Project } from '../types';
 import { currentTime } from './player';
 import { splitAdj } from './adj';
 import { shiftCaptions } from './segment';
-import { clipEnd, deleteClips, splitClips, trackOf, withClips, withPartner } from './clips';
+import { captionsFollowClips, clipEnd, closeMainGaps, deleteClips, splitClips, trackOf, withClips, withPartner } from './clips';
 
 /** Timeline multi-selection across clips, overlays and filter / effect blocks. Pure helpers plus the pointer protocol the blocks share. */
 
@@ -13,12 +13,14 @@ const SNAP_PX = 8;
 const EPS = 1e-6;
 type Timed = { id: string; start: number; duration: number };
 
-type SelState = Pick<ReturnType<typeof useEditor.getState>, 'multiIds' | 'selectedClipId' | 'selectedOverlayId' | 'selectedAdjId' | 'selectedCaptionId' | 'selectedTrackId'>;
+type SelState = Pick<ReturnType<typeof useEditor.getState>, 'multiIds' | 'selectedClipId' | 'selectedOverlayId' | 'extraOverlayIds' | 'selectedAdjId' | 'selectedCaptionId' | 'selectedTrackId'>;
 
 /** Ids of everything selected on the timeline (one id when a single item is selected). */
 export function selectedIds(st: SelState): string[] {
   if (st.multiIds.length > 1) return st.multiIds;
-  return [st.selectedClipId, st.selectedOverlayId, st.selectedAdjId, st.selectedCaptionId, st.selectedTrackId].filter((x): x is string => !!x);
+  // A preview multi-selection of overlays lives in selectedOverlayId + extraOverlayIds with multiIds empty.
+  const ids = [st.selectedClipId, st.selectedOverlayId, ...st.extraOverlayIds, st.selectedAdjId, st.selectedCaptionId, st.selectedTrackId].filter((x): x is string => !!x);
+  return [...new Set(ids)];
 }
 
 /** Select one item by id, whatever it is. */
@@ -114,6 +116,12 @@ export function moveSelection(p: Project, ids: string[], dt: number, pps: number
     if (o.end <= m.start + EPS) delta = Math.max(delta, o.end - m.start);
     else if (o.start >= m.end - EPS) delta = Math.min(delta, o.start - m.end);
   }
+  // Overlays and filter / effect blocks never cross the ones that stay behind on their own track.
+  for (const [mv, all] of [[ovl, p.overlays ?? []], [adj, p.adj ?? []]] as const) for (const m of mv) for (const o of all) {
+    if (sel.has(o.id) || o.track !== m.track) continue;
+    if (o.start + o.duration <= m.start + EPS) delta = Math.max(delta, o.start + o.duration - m.start);
+    else if (o.start >= m.start + m.duration - EPS) delta = Math.min(delta, o.start - (m.start + m.duration));
+  }
   const shift = <T extends { id: string; start: number }>(list: T[], set: Set<string>) => list.map((x) => (set.has(x.id) ? { ...x, start: x.start + delta } : x));
   const next = mc.size ? withClips(p, shift(clips, mc)) : p;
   return {
@@ -130,13 +138,18 @@ export function deleteSelection(): boolean {
   const st = useEditor.getState();
   if (st.multiIds.length < 2) return false;
   const set = new Set(st.multiIds);
-  st.update((p) => ({
-    ...withClips(p, deleteClips(p.clips ?? [], st.multiIds, st.rippleDelete)),
-    ...(p.overlays ? { overlays: p.overlays.filter((o) => !set.has(o.id)) } : {}),
-    ...(p.adj ? { adj: p.adj.filter((a) => !set.has(a.id)) } : {}),
-    captions: p.captions.filter((c) => !set.has(c.id)),
-    audio: { ...p.audio, tracks: p.audio.tracks.filter((t) => !set.has(t.id)) },
-  }));
+  st.update((p) => {
+    // Like setClips: the main track stays magnetic and captions follow their clips.
+    const before = p.clips ?? [];
+    const after = closeMainGaps(deleteClips(before, st.multiIds, st.rippleDelete));
+    return {
+      ...withClips(p, after),
+      ...(p.overlays ? { overlays: p.overlays.filter((o) => !set.has(o.id)) } : {}),
+      ...(p.adj ? { adj: p.adj.filter((a) => !set.has(a.id)) } : {}),
+      captions: captionsFollowClips(p.captions, before, after).filter((c) => !set.has(c.id)),
+      audio: { ...p.audio, tracks: p.audio.tracks.filter((t) => !set.has(t.id)) },
+    };
+  });
   st.setMulti([]);
   return true;
 }
@@ -146,21 +159,20 @@ export function splitSelection(): boolean {
   const st = useEditor.getState();
   if (st.multiIds.length < 2) return false;
   const t = currentTime(), ids = st.multiIds;
-  let changed = false;
-  st.update((p) => {
-    let q = p;
-    const r = splitClips(p.clips ?? [], ids, t);
-    if (r.ids.length) q = withClips(q, r.clips);
-    for (const id of ids) {
-      const o = splitAdj(q.overlays ?? [], id, t);
-      if (o.id) q = { ...q, overlays: o.adj };
-      const a = splitAdj(q.adj ?? [], id, t);
-      if (a.id) q = { ...q, adj: a.adj };
-    }
-    changed = q !== p;
-    return q;
-  });
-  return changed;
+  const p = st.project;
+  if (!p) return false;
+  let q = p;
+  const r = splitClips(p.clips ?? [], ids, t);
+  if (r.ids.length) q = withClips(q, r.clips);
+  for (const id of ids) {
+    const o = splitAdj(q.overlays ?? [], id, t);
+    if (o.id) q = { ...q, overlays: o.adj };
+    const a = splitAdj(q.adj ?? [], id, t);
+    if (a.id) q = { ...q, adj: a.adj };
+  }
+  if (q === p) return false; // nothing under the playhead: leave history untouched
+  st.update(() => q);
+  return true;
 }
 
 /** Everything that can be multi-selected. */

@@ -144,7 +144,8 @@ function dropIslands(arr: Float32Array | Uint8Array, w: number, h: number, keep 
  * the person, the matte is raised to match. It only ever adds confident interior, so it does not bring back a halo.
  */
 function assistWithFast(m: { alpha: Uint8Array; w: number; h: number }, frame: Cvs) {
-  if (state !== 'ready') { void loadSegmenter(); return; }
+  if (state === 'idle') void loadSegmenter(); // a failed load is retried only by an explicit action, not by every redraw
+  if (state !== 'ready') return;
   try {
     const res = segmenter!.segmentForVideo(frame as CanvasImageSource, ++tick * 33);
     const mk = res.confidenceMasks?.[0];
@@ -190,7 +191,7 @@ interface Store {
   w: number; h: number;
   live: Map<number, PreciseMask>;
   packed: Map<number, Uint8Array>;
-  unpacking: Set<number>;
+  unpacking: Map<number, Promise<void>>;
   state: 'idle' | 'running' | 'done' | 'error';
   progress: number;
   error: string;
@@ -199,7 +200,7 @@ interface Store {
 const stores = new Map<string, Store>();
 const storeOf = (asset: string): Store => {
   let s = stores.get(asset);
-  if (!s) { s = { w: 0, h: 0, live: new Map(), packed: new Map(), unpacking: new Set(), state: 'idle', progress: 0, error: '', abort: null }; stores.set(asset, s); }
+  if (!s) { s = { w: 0, h: 0, live: new Map(), packed: new Map(), unpacking: new Map(), state: 'idle', progress: 0, error: '', abort: null }; stores.set(asset, s); }
   return s;
 };
 
@@ -217,13 +218,18 @@ async function unpackBytes(data: Uint8Array): Promise<Uint8Array> {
   return new Uint8Array(await new Response(new Blob([data as BlobPart]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).arrayBuffer());
 }
 
-async function unpack(s: Store, k: number) {
-  if (s.live.has(k) || s.unpacking.has(k)) return;
+function unpack(s: Store, k: number): Promise<void> {
+  if (s.live.has(k)) return Promise.resolve();
+  const inFlight = s.unpacking.get(k); // callers that must have the frame (export) wait on the same decompression
+  if (inFlight) return inFlight;
   const bytes = s.packed.get(k);
-  if (!bytes) return;
-  s.unpacking.add(k);
-  try { livePut(s, k, { alpha: await unpackBytes(bytes), w: s.w, h: s.h }); } finally { s.unpacking.delete(k); }
-  listeners.forEach((l) => l());
+  if (!bytes) return Promise.resolve();
+  const job = (async () => {
+    try { livePut(s, k, { alpha: await unpackBytes(bytes), w: s.w, h: s.h }); } finally { s.unpacking.delete(k); }
+    listeners.forEach((l) => l());
+  })();
+  s.unpacking.set(k, job);
+  return job;
 }
 
 /** The prepared (or already computed) matte for source time `t`, synchronously, or null. Unpacks the next frames in the background. */
@@ -244,7 +250,8 @@ let pending: { asset: string; k: number; frame: Cvs } | null = null;
 
 /** Compute one matte in the background (latest request wins); redraws when it lands. Used while paused and for unprepared clips. */
 function requestPrecise(asset: string, t: number, frame: Cvs) {
-  if (preciseState !== 'ready') { void loadPrecise(); return; }
+  if (preciseState === 'idle') void loadPrecise(); // a failed load is retried only by an explicit action, not by every redraw
+  if (preciseState !== 'ready') return;
   const s = storeOf(asset), k = gridKey(t);
   if (s.live.has(k) || s.packed.has(k)) return;
   pending = { asset, k, frame };
@@ -351,19 +358,31 @@ export async function requireSegmenter(clips: { fx?: VideoLayer }[]) {
 }
 
 let tick = 0;
-let lastMask: { id: string; at: number; arr: Float32Array; w: number; h: number } | null = null;
+let lastMask: { id: string; at: number; fp: string; arr: Float32Array; w: number; h: number } | null = null;
+
+let fpCanvas: Cvs | null = null;
+/** Cheap signature of a frame's pixels: a seek can show the previous frame at the new time, and that must not share a mask. */
+function fingerprint(c: Cvs): string {
+  try {
+    const x = ctxOf(fpCanvas ??= make(8, 8));
+    x.clearRect(0, 0, 8, 8);
+    x.drawImage(c as CanvasImageSource, 0, 0, 8, 8);
+    return x.getImageData(0, 0, 8, 8).data.join(',');
+  } catch { return ''; }
+}
 
 /** Person confidence (0..1 per pixel) for the frame in `canvas`, or null while the model is not ready. */
 function personMask(id: string, canvas: Cvs, t: number): { arr: Float32Array; w: number; h: number } | null {
-  if (state !== 'ready') { void loadSegmenter(); return null; }
-  const at = Math.round(t * 60);
-  if (lastMask && lastMask.id === id && lastMask.at === at) return lastMask;
+  if (state === 'idle') void loadSegmenter();
+  if (state !== 'ready') return null;
+  const at = Math.round(t * 60), fp = fingerprint(canvas);
+  if (lastMask && lastMask.id === id && lastMask.at === at && lastMask.fp === fp) return lastMask;
   try {
     const res = segmenter!.segmentForVideo(canvas as CanvasImageSource, ++tick * 33);
     const m = res.confidenceMasks?.[0];
     if (!m) return null;
     const arr = new Float32Array(m.getAsFloat32Array()); // copy: the model reuses its buffer
-    const out = { id, at, arr, w: m.width, h: m.height };
+    const out = { id, at, fp, arr, w: m.width, h: m.height };
     res.confidenceMasks?.forEach((x) => x.close());
     lastMask = out;
     return out;
@@ -586,7 +605,6 @@ export function processSource(id: string, src: FrameSource, layer: Pick<VideoLay
         }
         pm = got ? { arr: m.cleanup !== false ? cleaned(got) : got.alpha, w: got.w, h: got.h, u8: true, id: got } : null;
         if (!pm && matteHints.playing) { // not prepared: real-time engine while playing
-          void loadSegmenter();
           const f = personMask(id, w.base, t);
           if (f) { if (m.cleanup !== false) dropIslands(f.arr, f.w, f.h); pm = { arr: f.arr, w: f.w, h: f.h, u8: false, id: f }; }
         }

@@ -67,7 +67,7 @@ export function AdjustPanel() {
         <Segmented fill size="sm" value={tab} onChange={setTab} options={[{ value: 'basic', label: 'Basic' }, { value: 'hsl', label: 'HSL' }, { value: 'curves', label: 'Curves' }, { value: 'wheels', label: 'Colour wheel' }]} />
       </div>
       <TargetBar pick={(l) => ({ filters: l.filters, fkf: l.fkf, presetId: l.presetId, effects: l.effects })} label="adjustments" />
-      {tab === 'basic' && <Section title="Adjust" right={<Button variant="ghost" size="xs" onClick={() => set((l) => ({ ...l, presetId: 'none', presetStrength: 100, filters: NEUTRAL_FILTERS }))}>Reset</Button>}>
+      {tab === 'basic' && <Section title="Adjust" right={<Button variant="ghost" size="xs" onClick={() => set((l) => ({ ...l, presetId: 'none', presetStrength: 100, filters: NEUTRAL_FILTERS, fkf: undefined }))}>Reset</Button>}>
         {FIELDS.map((f) => (
           <Row key={f.k} label={f.label} kf={kfOf(f.k)}>
             <Slider value={live[f.k]} min={f.min} max={f.max} format={(v) => `${v}${f.unit}`}

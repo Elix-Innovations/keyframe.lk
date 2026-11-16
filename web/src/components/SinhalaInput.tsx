@@ -1,7 +1,7 @@
 import { forwardRef, useRef, useSyncExternalStore, type KeyboardEvent, type ClipboardEvent, type TextareaHTMLAttributes } from 'react';
 import { Keyboard } from '@/components/icons';
 import { wijesekaraKey } from '@/lib/wijesekara';
-import { fmToUnicode, hasSinhala } from '@/lib/fm';
+import { fmToUnicode } from '@/lib/fm';
 import { cn } from '@/lib/utils';
 import { Textarea } from '@/components/ui/textarea';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
@@ -26,11 +26,6 @@ export function setInputMode(m: InputMode) {
 }
 export function useInputMode(): InputMode {
   return useSyncExternalStore((f) => { subs.add(f); return () => { subs.delete(f); }; }, readMode, readMode);
-}
-
-/** Heuristic: pasted text with no Sinhala code points but FM-looking ASCII should be converted. */
-function looksLikeFM(text: string) {
-  return !hasSinhala(text) && /[a-zA-Z;,.\[\]{}|<>]{3,}/.test(text) && /[fl;kqsdaj]/.test(text);
 }
 
 export function InputModeToggle({ className }: { className?: string }) {
@@ -77,17 +72,20 @@ export const SinhalaInput = forwardRef<HTMLTextAreaElement, Props>(function Sinh
     if (e.defaultPrevented || mode !== 'wijesekara' || e.nativeEvent.isComposing) return;
     if (e.key.length !== 1 || e.metaKey || e.ctrlKey || e.altKey) return;
     const el = e.currentTarget;
-    const r = wijesekaraKey(value.slice(0, el.selectionStart), e.key);
+    // The typed key replaces a selection, so the text before it is no context and nothing before it may be deleted.
+    const hasSel = el.selectionStart !== el.selectionEnd;
+    const r = wijesekaraKey(hasSel ? '' : value.slice(0, el.selectionStart), e.key);
     if (!r) return;
     e.preventDefault();
-    replaceSelection(el, r.deleteBack, r.insert);
+    replaceSelection(el, hasSel ? 0 : r.deleteBack, r.insert);
   };
 
   const handlePaste = (e: ClipboardEvent<HTMLTextAreaElement>) => {
     onPaste?.(e);
-    if (e.defaultPrevented || mode === 'unicode') return;
+    // Only the explicit FM mode converts: ordinary English text can't be told apart from FM ASCII.
+    if (e.defaultPrevented || mode !== 'fm') return;
     const text = e.clipboardData.getData('text/plain');
-    if (!text || !(mode === 'fm' || looksLikeFM(text))) return;
+    if (!text) return;
     e.preventDefault();
     replaceSelection(e.currentTarget, 0, fmToUnicode(text));
   };
