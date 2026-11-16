@@ -1,5 +1,5 @@
 import { useBlockThumb } from '@/lib/blockThumb';
-import { deleteSelection, beginGroup, dragGroup, endGroup, pressBlock, type Group } from '@/lib/multiSelect';
+import { deleteSelection, beginGroup, dragGroup, endGroup, isPrimaryPress, pressBlock, type Group } from '@/lib/multiSelect';
 import { copySelection, cutSelection, hasClipboard, pasteAtPlayhead, pasteAttributes } from '@/lib/clipboard';
 import { memo, useRef, useState } from 'react';
 import type { OverlayItem, Project } from '@/types';
@@ -81,7 +81,7 @@ export const OverlayBlock = memo(function OverlayBlock({ item, pps, pad, top, he
   const thumb = useBlockThumb(item.kind === 'image' ? item.assetId : undefined, 'image');
 
   const down = (e: React.PointerEvent, kind: 'move' | 'l' | 'r') => {
-    if (e.button !== 0) return;
+    if (!isPrimaryPress(e)) return;
     e.stopPropagation();
     const st = useEditor.getState();
     const press = kind === 'move' ? pressBlock(e, item.id) : 'single';

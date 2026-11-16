@@ -45,6 +45,10 @@ export function withGroupMates(p: Project, ids: string[]): string[] {
 
 export interface Group { id: string; ids: string[]; x0: number; proj: Project; moved: boolean }
 
+/** A left-button press that should select / drag. On macOS Ctrl+click is a right-click, so it is left to the context menu. */
+export const isPrimaryPress = (e: { button: number; ctrlKey: boolean }) =>
+  e.button === 0 && !(e.ctrlKey && typeof navigator !== 'undefined' && /Mac/i.test(navigator.platform));
+
 /**
  * Pointer press on a block. Shift / ⌘ / Ctrl toggles it in the selection and starts no drag ('toggled').
  * A plain press on a block that is already part of a multi-selection keeps the selection and drags it as a group ('group').
