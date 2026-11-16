@@ -53,6 +53,9 @@ export interface ClaudeStatus {
 let cache: { at: number; value: ClaudeStatus } | null = null;
 
 /** Is the CLI installed and signed in? Cached for 30 s; cheap (no model call). */
+/** The account email goes to the browser, so only show enough to recognise it: n***@gmail.com. */
+const maskEmail = (e?: string) => (e ? e.replace(/^(.)[^@]*/, '$1***') : e);
+
 export async function claudeStatus(force = false): Promise<ClaudeStatus> {
   if (!force && cache && Date.now() - cache.at < 30_000) return cache.value;
   let value: ClaudeStatus;
@@ -65,7 +68,7 @@ export async function claudeStatus(force = false): Promise<ClaudeStatus> {
     let info: { loggedIn?: boolean; email?: string; subscriptionType?: string; authMethod?: string } = {};
     try { info = JSON.parse(a.stdout); } catch { /* older CLI: fall through */ }
     value = info.loggedIn
-      ? { found: true, version, loggedIn: true, account: { email: info.email, plan: info.subscriptionType, method: info.authMethod } }
+      ? { found: true, version, loggedIn: true, account: { email: maskEmail(info.email), plan: info.subscriptionType, method: info.authMethod } }
       : { found: true, version, loggedIn: false, error: 'Claude Code is installed but not signed in. Run `claude` once in a terminal and sign in.' };
   }
   cache = { at: Date.now(), value };

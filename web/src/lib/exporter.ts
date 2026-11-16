@@ -66,10 +66,11 @@ export async function exportVideo(project: Project, opts: ExportOptions): Promis
   if (!first) throw new Error('This project has no video.');
   const file = await getBlob(first.assetId);
   if (!file) throw new Error('The video file is missing from local storage. Re-import it.');
-  if (typeof VideoEncoder === 'undefined') throw new Error('This browser has no WebCodecs support. Use Chrome, Edge or Safari 17+.');
 
   await ensureFonts(projectFontIds(project));
+  // ProRes frames are encoded by the local ffmpeg, so it works without WebCodecs.
   if (opts.screen === 'transparent' && (opts.alphaFormat ?? 'mov') === 'mov') return exportProRes(project, file, opts);
+  if (typeof VideoEncoder === 'undefined') throw new Error('This browser has no WebCodecs support. Use Chrome, Edge or Safari 17+.');
   // Anything edited (cuts, speed, several clips) goes through the frame-by-frame timeline renderer.
   if (!isSimple(project)) return exportClips(project, opts);
   const screen = opts.screen ? SCREEN_COLORS[opts.screen] : null;

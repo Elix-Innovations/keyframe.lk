@@ -119,7 +119,15 @@ export async function sfxFile(c: Context) {
   } catch (err) {
     throw new HttpError(502, `Could not download the sound: ${(err as Error)?.message ?? String(err)}`);
   }
+  // A redirect must still land on an allowed host.
+  if (upstream.url) { try { allowed(upstream.url); } catch (e) { void upstream.body?.cancel(); throw e; } }
   if (!upstream.ok || !upstream.body) throw new HttpError(upstream.status === 404 ? 404 : 502, `Sound download failed (HTTP ${upstream.status}).`);
-  const headers = new Headers({ 'Content-Type': upstream.headers.get('content-type') ?? 'audio/mpeg', 'Cache-Control': 'private, max-age=3600' });
+  // Served same-origin, so never pass through a non-audio type (an HTML reply would run as the app).
+  const type = upstream.headers.get('content-type') ?? '';
+  const headers = new Headers({
+    'Content-Type': /^audio\/[\w.+-]+$/i.test(type.split(';')[0].trim()) ? type : 'audio/mpeg',
+    'X-Content-Type-Options': 'nosniff',
+    'Cache-Control': 'private, max-age=3600',
+  });
   return new Response(upstream.body, { status: 200, headers });
 }

@@ -18,6 +18,7 @@ import { currentTime, playRange, seek } from '@/lib/player';
 import { isSimple } from '@/lib/clips';
 import { renderVoiceWav } from '@/audio/voice';
 import { cn } from '@/lib/utils';
+import { kbd } from '@/lib/shortcuts';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -535,7 +536,7 @@ const CaptionRow = memo(function CaptionRow({ c, index, active, selected, onChan
         onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); (e.target as HTMLTextAreaElement).blur(); } }} />
       <div className="mt-2 flex flex-wrap items-end gap-1">
         {c.words.map((w, i) => (
-          <button key={w.id} title="Click to select · Shift-click for a range · ⌘-click to add"
+          <button key={w.id} title={kbd("Click to select · Shift-click for a range · ⌘-click to add")}
             onClick={(e) => clickChip(e, i)}
             className={cn('sinhala rounded-md border px-1.5 py-0.5 text-xs transition-colors',
               sel.has(w.id) ? 'border-primary bg-primary text-primary-foreground'
@@ -671,7 +672,7 @@ export function CaptionsPanel() {
               <AlertDialogContent>
                 <AlertDialogHeader>
                   <AlertDialogTitle>Remove all captions?</AlertDialogTitle>
-                  <AlertDialogDescription>You can undo this with ⌘Z.</AlertDialogDescription>
+                  <AlertDialogDescription>You can undo this with {kbd("⌘Z")}.</AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
                   <AlertDialogCancel>Cancel</AlertDialogCancel>

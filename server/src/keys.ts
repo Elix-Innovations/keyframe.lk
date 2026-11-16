@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs';
-import { readFile, writeFile } from 'node:fs/promises';
+import { chmod, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Context } from 'hono';
@@ -40,6 +40,7 @@ async function writeEnv(changes: Partial<Record<KeyName, string | null>>) {
     }
   }
   await writeFile(ENV_FILE, lines.join('\n').replace(/\n*$/, '\n'), { mode: 0o600 });
+  await chmod(ENV_FILE, 0o600).catch(() => {}); // `mode` only applies when the file is created
 }
 
 const body = z.object(

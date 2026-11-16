@@ -27,7 +27,7 @@ const rgb = (hex: string): [number, number, number] => {
 // ---------- AI person segmentation (MediaPipe selfie segmenter, loaded on first use) ----------
 
 const VISION = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.18';
-const MODEL = 'https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/latest/selfie_segmenter.tflite';
+const MODEL = 'https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_segmenter/float16/1/selfie_segmenter.tflite';
 
 interface MpMask { width: number; height: number; getAsFloat32Array(): Float32Array; close(): void }
 interface Segmenter { segmentForVideo(img: CanvasImageSource, ts: number): { confidenceMasks?: MpMask[]; close?: () => void } }
@@ -70,7 +70,7 @@ export function loadSegmenter(): Promise<void> {
 // ---------- precise person matting (MODNet via onnxruntime-web, loaded on first use) ----------
 
 const ORT = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.20.1/dist';
-const MODNET = 'https://huggingface.co/Xenova/modnet/resolve/main/onnx/model.onnx';
+const MODNET = 'https://huggingface.co/Xenova/modnet/resolve/fa2fa546052fba4c08921230a26cc69a333fca12/onnx/model.onnx';
 
 let worker: Worker | null = null;
 let preciseState: SegmenterState = 'idle';

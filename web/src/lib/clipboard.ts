@@ -1,5 +1,6 @@
 import { nanoid } from 'nanoid';
 import { useEditor } from '../store';
+import { kbd } from './shortcuts';
 import { merge } from './style';
 import type { AdjClip, Caption, CaptionStyle, Clip, MusicTrack, OverlayItem, Project, VideoLayer, Word } from '../types';
 import { currentTime } from './player';
@@ -28,7 +29,7 @@ export const onClipboardChange = (fn: () => void) => { listeners.add(fn); return
 export const clipboardKind = () => held?.kind ?? null;
 export const hasClipboard = () => !!held;
 
-const note = (m: string, kind: 'info' | 'success' | 'error' = 'success') => useEditor.getState().notify(m, kind);
+const note = (m: string, kind: 'info' | 'success' | 'error' = 'success') => useEditor.getState().notify(kbd(m), kind);
 
 /** What is selected on the timeline, in the order Copy looks: overlays, clips, filter / effect blocks, sound layers. */
 function selection(): Clipboard | null {

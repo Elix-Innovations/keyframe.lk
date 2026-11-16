@@ -8,6 +8,10 @@ import { Toaster } from '@/components/ui/sonner';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { lastProjectId, newProject, rememberLastProject, useEditor } from './store';
 import * as db from './lib/db';
+import { isElectron, isMac } from './lib/shortcuts';
+
+// The Mac app has a hidden title bar: page headers become the drag area and leave room for the window buttons (globals.css).
+if (isElectron && isMac) document.documentElement.dataset.shell = 'mac';
 import { fontFileLooksFM, loadBundledFMFonts, registerCustomFont } from './lib/fonts';
 
 /** `#/new` (e.g. a link from the separately hosted landing site): make a blank project and go straight into the workspace. */
@@ -95,8 +99,8 @@ export function App() {
         <div role="alert" className="fixed inset-x-0 top-0 z-50 flex items-center gap-3 border-b border-warn/40 bg-[color-mix(in_oklch,var(--warn)_22%,var(--background))] px-4 py-2 text-sm text-foreground">
           <TriangleAlert className="size-4 shrink-0 text-warn" />
           <div className="flex-1">
-            <b>Chrome didn't accept the last save.</b> Your work is safe in this tab and Keyframe.lk is retrying automatically.
-            <span className="text-muted-foreground"> If this keeps showing, free some disk space or clear this site's data in chrome://settings/content/all (search “localhost”).</span>
+            <b>{isElectron ? "The app couldn't save" : "Chrome didn't accept the last save"}.</b> Your work is safe in this tab and Keyframe.lk is retrying automatically.
+            <span className="text-muted-foreground"> If this keeps showing, free some disk space{isElectron ? '.' : <> or clear this site's data in chrome://settings/content/all (search “localhost”).</>}</span>
           </div>
           <button className="rounded-md border border-warn/40 px-2 py-0.5 text-xs hover:bg-warn/15" onClick={async () => {
             const ok = await db.retryStorage();

@@ -17,6 +17,7 @@ from typing import Literal
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
@@ -90,6 +91,13 @@ app.add_middleware(
         # JSON bodies hold up to 5M characters (3-4 bytes each in UTF-8)
         "/api/sinhala/srt": SRT_MAX_BYTES * 4 + 64 * 1024,
     },
+)
+app.add_middleware(
+    TrustedHostMiddleware,
+    # Blocks DNS-rebinding: a web page can only reach this service under a local host name. "testserver" is the
+    # host FastAPI's TestClient sends. KEYFRAME_ALLOWED_HOSTS adds LAN addresses (same variable as the Node server).
+    allowed_hosts=["localhost", "127.0.0.1", "testserver",
+                   *[h.strip() for h in os.environ.get("KEYFRAME_ALLOWED_HOSTS", "").split(",") if h.strip()]],
 )
 app.add_middleware(
     CORSMiddleware,

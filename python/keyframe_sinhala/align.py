@@ -27,6 +27,9 @@ import numpy as np
 os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
 
 MODEL_ID = os.environ.get("ALIGN_MODEL", "MahmoudAshraf/mms-300m-1130-forced-aligner")
+# Pinned commit of the default model, so every install gets the same, reviewed weights. A custom ALIGN_MODEL uses its main branch.
+MODEL_REVISION = os.environ.get("ALIGN_MODEL_REVISION") or (
+    "49402e9577b1158620820667c218cd494cc44486" if MODEL_ID == "MahmoudAshraf/mms-300m-1130-forced-aligner" else None)
 MODEL_FILES = ["*.json", "model.safetensors"]
 SR = 16_000
 WINDOW_S = 30  # emissions are computed in 30 s windows ...
@@ -73,7 +76,7 @@ def _deps():
 def _local_path() -> str | None:
     from huggingface_hub import snapshot_download
     try:
-        return snapshot_download(MODEL_ID, allow_patterns=MODEL_FILES, local_files_only=True)
+        return snapshot_download(MODEL_ID, revision=MODEL_REVISION, allow_patterns=MODEL_FILES, local_files_only=True)
     except Exception:  # noqa: BLE001 - any cache miss means "not downloaded"
         return None
 
@@ -82,7 +85,7 @@ def fetch() -> str:
     """Download the model into the Hugging Face cache (blocking). Returns its path."""
     _deps()
     from huggingface_hub import snapshot_download
-    return snapshot_download(MODEL_ID, allow_patterns=MODEL_FILES)
+    return snapshot_download(MODEL_ID, revision=MODEL_REVISION, allow_patterns=MODEL_FILES)
 
 
 def status() -> str:

@@ -188,3 +188,7 @@
 /* Editor shell: floating rounded panes on a darker backdrop, like Concat. */
 .pane { @apply overflow-clip rounded-xl border bg-sidebar; }
 .keyframe-diamond { clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%); }
+
+/* Mac desktop app (hiddenInset title bar): headers drag the window and clear the traffic lights. */
+html[data-shell="mac"] header { -webkit-app-region: drag; padding-left: 80px; }
+html[data-shell="mac"] header :is(button, a, input, select, textarea, label, [role="button"], [role="tab"], [role="combobox"], [contenteditable]) { -webkit-app-region: no-drag; }

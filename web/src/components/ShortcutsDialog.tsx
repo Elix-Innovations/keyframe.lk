@@ -1,10 +1,10 @@
 import { useEditor } from '@/store';
-import { SHORTCUTS } from '@/lib/shortcuts';
+import { SHORTCUTS, kbd } from '@/lib/shortcuts';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Kbd, KbdGroup } from '@/components/ui/kbd';
 
 export function Keys({ keys }: { keys: readonly string[] }) {
-  return <KbdGroup>{keys.map((k) => <Kbd key={k}>{k}</Kbd>)}</KbdGroup>;
+  return <KbdGroup>{keys.map((k) => <Kbd key={k}>{kbd(k).replace(/\+$/, '')}</Kbd>)}</KbdGroup>;
 }
 
 export function ShortcutsDialog() {
@@ -20,7 +20,7 @@ export function ShortcutsDialog() {
         <div className="flex flex-col divide-y">
           {Object.values(SHORTCUTS).map((s) => (
             <div key={s.label} className="flex items-center justify-between py-2">
-              <span className="text-muted-foreground">{s.label}</span>
+              <span className="text-muted-foreground">{kbd(s.label)}</span>
               <Keys keys={s.keys} />
             </div>
           ))}

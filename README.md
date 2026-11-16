@@ -222,7 +222,7 @@ Stop everything with `Ctrl+C`.
 
 ```bash
 npm run build
-npm start              # editor + API on http://localhost:8787
+npm start              # editor on http://127.0.0.1:5180 (API on :8787, aligner on :8788)
 ```
 
 ### The landing page
@@ -426,8 +426,8 @@ Run from the repo root:
 |---|---|
 | `npm run setup` | Install everything and create `server/.env` |
 | `npm run dev` | Start editor + API + Python service |
-| `npm run build` | Build the editor into `web/dist` |
-| `npm start` | Serve the built editor + API on :8787 |
+| `npm run build` | Build the editor (Next production build) |
+| `npm start` | Serve the built editor on :5180, plus the API and aligner |
 | `npm run typecheck` | TypeScript check for web and server |
 | `npm run fonts:fetch` | Download the legacy FM / Tharu fonts |
 | `npm run fm:table` | Regenerate `fm-table.json` from the Python table |

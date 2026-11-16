@@ -11,6 +11,7 @@ import { beginGroup, deleteSelection, dragGroup, endGroup, groupSelection, isPri
 import { seek, currentTime, playRange } from '@/lib/player';
 import { mergeCaptions, normalizeCaptions, shiftCaptions, splitCaptionAt } from '@/lib/segment';
 import { cn } from '@/lib/utils';
+import { kbd } from '@/lib/shortcuts';
 import { laneOf, migrateVideo } from '@/lib/videoFx';
 import { audioRows, clipEnd, copyClipTo, foldedIntoVideo, trackOf, videoClips } from '@/lib/clips';
 import { trackCount } from '@/lib/adj';
@@ -624,16 +625,16 @@ export function Timeline() {
         <Tool label="Redo" disabled={!canRedo} onClick={() => useEditor.getState().redo()}><Redo2 /></Tool>
         <span className="mx-1 h-5 w-px bg-border" />
         <Tool label="Split at playhead (S)" onClick={splitHere}><Scissors /></Tool>
-        <Tool label="Copy selected (⌘C)" disabled={!sel && !selectedClip && !selOverlay && !selTrack && !selAdj && nMulti < 2} onClick={() => copySelection()}><Copy /></Tool>
-        <Tool label="Paste at playhead (⌘V)" disabled={!hasClip} onClick={() => pasteAtPlayhead(false)}><ClipboardPaste /></Tool>
-        <Tool label="Paste a copied video clip as an overlay window (⌥⌘V)" disabled={clipKind !== 'clip'} onClick={() => pasteAtPlayhead(true)}><PictureInPicture /></Tool>
-        <Tool label="Paste only the look: filters, cut-out, blur, effects, style (⇧⌘V)" disabled={!hasClip} onClick={() => pasteAttributes()}><WandSparkles /></Tool>
-        <Tool label="Copy all edits of the selected clip (⌥⌘C)" disabled={!selectedClip} onClick={() => copyEdits()}><Copy /></Tool>
-        <Tool label="Paste copied edits onto the selected clip (⌥⇧⌘V)" disabled={!selectedClip || !hasEdits()} onClick={() => pasteEdits()}><ClipboardPaste /></Tool>
+        <Tool label={kbd("Copy selected (⌘C)")} disabled={!sel && !selectedClip && !selOverlay && !selTrack && !selAdj && nMulti < 2} onClick={() => copySelection()}><Copy /></Tool>
+        <Tool label={kbd("Paste at playhead (⌘V)")} disabled={!hasClip} onClick={() => pasteAtPlayhead(false)}><ClipboardPaste /></Tool>
+        <Tool label={kbd("Paste a copied video clip as an overlay window (⌥⌘V)")} disabled={clipKind !== 'clip'} onClick={() => pasteAtPlayhead(true)}><PictureInPicture /></Tool>
+        <Tool label={kbd("Paste only the look: filters, cut-out, blur, effects, style (⇧⌘V)")} disabled={!hasClip} onClick={() => pasteAttributes()}><WandSparkles /></Tool>
+        <Tool label={kbd("Copy all edits of the selected clip (⌥⌘C)")} disabled={!selectedClip} onClick={() => copyEdits()}><Copy /></Tool>
+        <Tool label={kbd("Paste copied edits onto the selected clip (⌥⇧⌘V)")} disabled={!selectedClip || !hasEdits()} onClick={() => pasteEdits()}><ClipboardPaste /></Tool>
         <Tool label="Delete selected (Del)" disabled={!sel && !selectedClip && !selOverlay && !selTrack && !selAdj && nMulti < 2} onClick={() => { if (deleteSelection()) return; if (selTrack) trackOps.remove(selTrack); else if (selOverlay) overlayOps.remove(selOverlay); else if (selAdj) adjOps.remove(selAdj); else if (selectedClip) clipOps.remove(selectedClip.id); else if (sel) { setCaptions(project.captions.filter((c) => c.id !== sel.id)); select(null); } }}><Trash2 /></Tool>
         <Tool label={selectedClip?.linkId ? 'Unlink video and audio' : 'Link selected clip with its audio / video'} disabled={!selectedClip}
           active={!!selectedClip?.linkId} onClick={() => { if (selectedClip) { if (selectedClip.linkId) clipOps.unlink(selectedClip.id); else clipOps.link(selectedClip.id); } }}><Link /></Tool>
-        <Tool label={selectionGrouped() ? 'Ungroup (⇧⌘G)' : 'Group the selected items (⌘G)'} disabled={nMulti < 2} active={selectionGrouped()} onClick={() => groupSelection()}><Layers /></Tool>
+        <Tool label={kbd(selectionGrouped() ? 'Ungroup (⇧⌘G)' : 'Group the selected items (⌘G)')} disabled={nMulti < 2} active={selectionGrouped()} onClick={() => groupSelection()}><Layers /></Tool>
         <Tool label="Ripple delete: closing the gap when a clip is deleted" active={rippleDelete} onClick={() => useEditor.getState().setRippleDelete(!rippleDelete)}><Ripple /></Tool>
         <span className="mx-1 h-5 w-px bg-border" />
         <Tool label="Snap to beats" active={project.audio.snapToBeats} onClick={() => useEditor.getState().update((p) => ({ ...p, audio: { ...p.audio, snapToBeats: !p.audio.snapToBeats } }))}><Magnet /></Tool>
@@ -739,7 +740,7 @@ export function Timeline() {
                 style={{ left: (markIn ?? 0) * pps + PAD, width: Math.max(0, (markOut ?? dur) - (markIn ?? 0)) * pps }} />
             )}
             {([['in', markIn], ['out', markOut]] as const).map(([which, v]) => v !== null && (
-              <div key={which} title={`${which === 'in' ? 'In' : 'Out'} point (drag to move, ⌥${which === 'in' ? 'I' : 'O'} to clear)`}
+              <div key={which} title={kbd(`${which === 'in' ? 'In' : 'Out'} point (drag to move, ⌥${which === 'in' ? 'I' : 'O'} to clear)`)}
                 className={cn('absolute inset-y-0 z-10 w-2 cursor-ew-resize bg-primary/80 hover:bg-primary', which === 'in' ? 'rounded-l-sm' : '-translate-x-full rounded-r-sm')}
                 style={{ left: v * pps + PAD }}
                 onPointerDown={(e) => { e.stopPropagation(); (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); }}
