@@ -147,7 +147,7 @@ function AlignerCard() {
         </button>
       )}
       <div className="mb-2 pr-8 text-[15px] font-medium">Accurate caption timing</div>
-      <AlignerSetup state={setup} className="max-w-xl" />
+      <AlignerSetup state={setup} className="w-full" />
     </div>
   );
 }
