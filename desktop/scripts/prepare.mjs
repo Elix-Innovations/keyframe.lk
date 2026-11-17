@@ -115,7 +115,7 @@ await bundleUv(isWin ? 'win32' : 'darwin');
 // so a clean machine without Homebrew still transcribes and exports.
 {
   const plat = isWin ? 'win32' : 'darwin', arch = isWin ? 'x64' : 'arm64', exe = isWin ? '.exe' : '';
-  console.log(`> bundling ffmpeg + ffprobe (${plat}-${arch})`);
+  console.log(`> bundling ffmpeg${isWin ? ' + ffprobe' : ''} (${plat}-${arch})`);
   const require = createRequire(import.meta.url);
   const ffmpegDir = path.dirname(require.resolve('ffmpeg-static/package.json'));
   const ffprobeDir = path.dirname(require.resolve('ffprobe-static/package.json'));
@@ -123,7 +123,10 @@ await bundleUv(isWin ? 'win32' : 'darwin');
     [`ffmpeg${exe}`]: path.join(ffmpegDir, `ffmpeg${exe}`),
     [`ffmpeg${exe}.LICENSE`]: path.join(ffmpegDir, `ffmpeg${exe}.LICENSE`),
     [`ffmpeg${exe}.README`]: path.join(ffmpegDir, `ffmpeg${exe}.README`),
-    [`ffprobe${exe}`]: path.join(ffprobeDir, 'bin', plat, arch, `ffprobe${exe}`),
+    // macOS: ffprobe-static's "darwin/arm64" binary is really x86_64 (Intel-only → Rosetta warning, and it stops
+    // working on macOS 28). ffprobe is optional: server/src/transcribe.ts falls back to reading the duration from
+    // the native arm64 ffmpeg, so the Mac build ships without it.
+    ...(isWin ? { [`ffprobe${exe}`]: path.join(ffprobeDir, 'bin', plat, arch, `ffprobe${exe}`) } : {}),
   };
   mkdirSync(path.join(out, 'bin'), { recursive: true });
   for (const [name, src] of Object.entries(sources)) {
