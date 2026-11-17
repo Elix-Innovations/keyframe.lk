@@ -7,7 +7,24 @@ const fs = require('node:fs');
 const path = require('node:path');
 const ResEdit = require('resedit');
 
+// electron-builder 26 always drops a top-level `node_modules` folder from extraResources (app-builder-lib
+// util/filter.js), which leaves the bundled Next.js server (build/web) unable to `require('next')`. Copy those
+// folders in after packing so the app gets exactly what scripts/prepare.mjs staged.
+function copyResourceNodeModules(context) {
+  const resources = context.electronPlatformName === 'darwin'
+    ? path.join(context.appOutDir, `${context.packager.appInfo.productFilename}.app`, 'Contents', 'Resources')
+    : path.join(context.appOutDir, 'resources');
+  for (const { from, to } of context.packager.config.extraResources || []) {
+    const src = path.join(context.packager.projectDir, from, 'node_modules');
+    if (!fs.existsSync(src)) continue;
+    const dest = path.join(resources, to, 'node_modules');
+    fs.cpSync(src, dest, { recursive: true, force: true, verbatimSymlinks: true });
+    console.log(`  • after-pack: copied ${from}/node_modules -> ${to}/node_modules`);
+  }
+}
+
 exports.default = async function afterPack(context) {
+  copyResourceNodeModules(context);
   if (context.electronPlatformName !== 'win32') return;
   const { productName, version } = context.packager.appInfo;
   const exe = path.join(context.appOutDir, `${context.packager.appInfo.productFilename}.exe`);
