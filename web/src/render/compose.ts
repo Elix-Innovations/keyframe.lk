@@ -1,4 +1,4 @@
-import type { AdjClip, AspectRatio, Clip, FitMode, Project } from '../types';
+import type { AdjClip, AspectRatio, Clip, FitMode, OverlayItem, Project } from '../types';
 import { FILTER_PRESETS, blendFilters, cssFilter, hasCrop, isNeutral, laneOf, liveFilters, migrateVideo, needsGrade, transformAt, transitionAt } from '../lib/videoFx';
 import { drawLight } from './transitionFx';
 import { drawGraded } from './grade';
@@ -53,6 +53,8 @@ export interface ComposeOptions {
   hideBroll?: boolean;
   /** Skip text / sticker / image overlays (effect and filter tile previews). */
   hideOverlays?: boolean;
+  /** Skip full-frame background scenes (solid / gradient motion backgrounds): transparent and green-screen exports keep only what sits on top. */
+  skipBackgrounds?: boolean;
   /** Filled with where each overlay was painted, so the preview can select and drag them. Images come from `brollImages`. */
   overlayHits?: OverlayHit[];
   /** Pixel size of the source frame being drawn (clips can differ). Defaults to the project's video size. */
@@ -238,7 +240,8 @@ export function composeFrame(
     if (layers.length === 0 && clips.length === 0 && fallback && !laneOf(project, 'video').hidden) drawLayer(c, W, H, project, t, null, fallback, true, fxOn);
     // One stack of rows: every overlay on a lower row than a video layer is painted before that layer.
     const placed = new Set<string>();
-    const below = (row: number) => { if (!opts.hideOverlays) drawOverlays(c, W, H, project, t, opts.brollImages, opts.overlayHits, (o) => o.track < row && !placed.has(o.id), placed); };
+    const shown = (o: OverlayItem) => !placed.has(o.id) && !(opts.skipBackgrounds && o.kind === 'motion' && o.scene?.role === 'background');
+    const below = (row: number) => { if (!opts.hideOverlays) drawOverlays(c, W, H, project, t, opts.brollImages, opts.overlayHits, (o) => o.track < row && shown(o), placed); };
     layers.forEach((clip, i) => {
       if (laneOf(project, trackLane(clip.track ?? 0)).hidden) return;
       below(clip.track ?? 0);
@@ -272,7 +275,7 @@ export function composeFrame(
       }
       c.restore();
     }
-    if (!opts.hideOverlays) drawOverlays(c, W, H, project, t, opts.brollImages, opts.overlayHits, (o) => !placed.has(o.id), placed);
+    if (!opts.hideOverlays) drawOverlays(c, W, H, project, t, opts.brollImages, opts.overlayHits, shown, placed);
   };
 
   if (!adj.length) scene(ctx);
