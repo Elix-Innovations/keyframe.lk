@@ -110,10 +110,9 @@ A Usage tab logs every paid API request with tokens and estimated cost in USD an
 | Layer | Built with |
 |---|---|
 | Editor (`web/`) | Next.js, React, Zustand, shadcn/ui + Radix, Tailwind CSS, Hugeicons, Mediabunny (WebCodecs) |
-| Landing page (`web/src/landing/`) | Archivo font, Lenis smooth scrolling, CSS intro and scroll animations |
 | API (`server/`) | Hono on Node, Anthropic SDK, Gemini / ElevenLabs / OpenAI, ffmpeg |
 | Sinhala service (`python/`) | FastAPI, uv, fontTools, Pillow |
-| Desktop (`desktop/`) | Electron + electron-builder (macOS dmg) |
+| Desktop (`desktop/`) | Electron + electron-builder (macOS dmg, Windows NSIS installer) |
 
 ## 🚀 Quick start
 
@@ -227,14 +226,7 @@ npm start              # editor on http://127.0.0.1:5180 (API on :8787, aligner 
 
 ### The landing page
 
-`http://localhost:5180/` is the public landing page (`web/src/landing/`). It is a download page for the desktop app and does not link into the web editor.
-
-- **Download buttons** for macOS and Windows point to the latest GitHub release.
-- **Hero**: the timeline and graph lines in the background draw themselves, then the headline and editor mockup come in.
-- **Sections** (features, benefits, steps, reels, install, FAQ) animate in as you scroll, with Lenis smooth scrolling.
-- **FM sample**: the FM fonts card draws in FM Ganganee after `npm run fonts:fetch`, and falls back to Unicode Sinhala without it.
-- **Branding**: one rose theme colour, `#eb104e`. The logo source is `web/public/logo.svg`; the PNG icons and favicon are rendered from it.
-- Visitors with "reduce motion" turned on get the page without animations.
+The public download page (keyframe.lk) lives in its own repository, `keyframe.lk-landing`. `http://localhost:5180/` redirects to the editor.
 
 ## 5. Your first video, step by step
 
@@ -406,8 +398,7 @@ keyframe/
 │   │                         english-words.ts (free Sinhala-script → English list)
 │   ├── src/audio/            mix graph, loudness, sound effects, audio render
 │   ├── src/components/       UI on shadcn/ui + Hugeicons (panels, preview, timeline, converter)
-│   └── src/landing/          landing page (hero, editor mockup, scroll animations, download buttons)
-├── desktop/                  Electron wrapper (macOS app)
+├── desktop/                  Electron wrapper (macOS + Windows app)
 ├── server/                   Hono API on Node
 │   ├── src/transcribe.ts     ffmpeg → Gemini / ElevenLabs / Whisper
 │   ├── src/ai.ts             AI features (Claude or Gemini)
@@ -465,15 +456,20 @@ Run from the repo root:
 
 Get **`Keyframe-<version>-arm64.dmg`** from the [latest release](https://github.com/Elix-Innovations/keyframe.lk/releases/latest), open it and drag **Keyframe** into Applications.
 
-The app is not signed yet, so macOS blocks the first launch. Right-click **Keyframe** in Applications → **Open** → **Open**, or run:
+The app is not yet signed with an Apple Developer ID (see [docs/SIGNING.md](docs/SIGNING.md)), so macOS asks before the first launch:
+
+- **1.0.3 and later** (ad-hoc signed): open Keyframe once, then go to **System Settings → Privacy & Security**, scroll down and click **Open Anyway**.
+- **1.0.2 and earlier** say *"Keyframe.app is damaged"*. That means the download is quarantined, not broken. Run:
 
 ```bash
 xattr -dr com.apple.quarantine /Applications/Keyframe.app
 ```
 
+A step-by-step guide in Sinhala and English is at [keyframe.lk/install](https://keyframe.lk/install).
+
 ### Windows
 
-`npm run dist:win` builds `desktop/dist/Keyframe Setup <version>.exe` (x64). ffmpeg and ffprobe are bundled, so nothing else needs installing. The installer is not signed, so Windows SmartScreen shows "Windows protected your PC": choose **More info → Run anyway**. Before the first build, fetch the Windows ffmpeg once:
+`npm run dist:win` builds `desktop/dist/Keyframe-Setup-<version>-x64.exe`. ffmpeg and ffprobe are bundled, so nothing else needs installing. Until the installer is code-signed, Windows SmartScreen shows "Windows protected your PC": choose **More info → Run anyway**. If Microsoft Defender quarantines it, open **Windows Security → Protection history** and choose **Allow**. Before the first build, fetch the Windows ffmpeg once:
 
 ```bash
 cd desktop
