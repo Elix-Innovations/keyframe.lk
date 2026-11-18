@@ -29,6 +29,7 @@ import { randomUUID } from 'node:crypto';
 import type { Context } from 'hono';
 import { HttpError } from './errors.js';
 import { ffmpegPath, makeTempDir, removeTempDir } from './transcribe.js';
+import { ensureAlphaDepth } from './movAlpha.js';
 
 interface Box { x: number; y: number; w: number; h: number }
 
@@ -206,6 +207,9 @@ export async function finishProRes(c: Context) {
     throw err;
   }
   sessions.delete(id);
+  // Some ffmpeg builds (the desktop app's 6.0 with prores_videotoolbox) mark the file as having no alpha.
+  const fixed = await ensureAlphaDepth(s.out).catch((e) => { console.warn('alpha depth check failed:', e); return 0; });
+  if (fixed) console.log(`prores: marked ${fixed} video track(s) as having alpha`);
   const { size } = await stat(s.out);
   const file = createReadStream(s.out);
   file.on('close', () => void removeTempDir(s.dir).catch((e) => console.warn('temp cleanup failed:', e)));

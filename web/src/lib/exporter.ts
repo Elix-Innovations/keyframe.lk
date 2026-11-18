@@ -76,7 +76,7 @@ export async function exportVideo(project: Project, opts: ExportOptions): Promis
   const screen = opts.screen ? SCREEN_COLORS[opts.screen] : null;
   const alpha = opts.screen === 'transparent';
   const withAudio = !screen || opts.screenAudio !== false;
-  const broll = screen ? new Map<string, ImageBitmap>() : await loadBrollImages(project);
+  const broll = await loadBrollImages(project); // screen exports still draw image and sticker overlays
   const mix = withAudio && needsMix(project);
   let output!: Output<WebMOutputFormat | Mp4OutputFormat, BufferTarget>;
   try {
@@ -107,7 +107,7 @@ export async function exportVideo(project: Project, opts: ExportOptions): Promis
         // Screen exports still walk the source frames, so frame rate, length and caption timing match a normal export exactly.
         process: async (sample) => {
           await warmMattes(project.clips ?? [], sample.timestamp + first.start, (id) => (first.id === id ? { draw: (x, dx, dy, dw, dh) => sample.draw(x, dx, dy, dw, dh), w: sample.displayWidth || width, h: sample.displayHeight || height } : null));
-          if (screen) composeFrame(ctx, width, height, project, sample.timestamp, null, { background: screen, hideBroll: true });
+          if (screen) composeFrame(ctx, width, height, project, sample.timestamp, null, { background: screen, hideBroll: true, skipBackgrounds: true, brollImages: broll });
           else composeFrame(ctx, width, height, project, sample.timestamp, (c, dx, dy, dw, dh) => sample.draw(c, dx, dy, dw, dh), { brollImages: broll });
           return canvas;
         },
@@ -184,8 +184,11 @@ const STANDARD_RATES = [[24000, 1001], [24, 1], [25, 1], [30000, 1001], [30, 1],
 
 function snapFrameRate(rate: number): { num: number; den: number } {
   if (!(rate > 0)) return { num: 30, den: 1 };
+  rate = Math.min(rate, 60); // a 120/240 fps phone clip would make a huge file that editors play back sluggishly
   const [num, den] = STANDARD_RATES.reduce((a, b) => (Math.abs(b[0] / b[1] - rate) < Math.abs(a[0] / a[1] - rate) ? b : a));
-  return Math.abs(num / den - rate) / rate < 0.01 ? { num, den } : { num: Math.round(rate * 1000), den: 1000 };
+  // Phone clips are often variable-rate, so the measured average drifts a few percent (29.56, 24.7 ...). An odd
+  // rate like 29560/1000 judders in CapCut and Premiere, so snap within 5% and otherwise use whole frames per second.
+  return Math.abs(num / den - rate) / rate < 0.05 ? { num, den } : { num: Math.max(1, Math.round(rate)), den: 1 };
 }
 
 /** Float channels → interleaved little-endian signed 16-bit PCM. */
@@ -270,8 +273,10 @@ async function exportProRes(project: Project, file: Blob, opts: ExportOptions): 
     method: 'POST', body: soundtrack ? toPcm16(soundtrack, channels) : undefined, headers: BINARY, signal,
   })).json()) as { id: string };
   const base = `/api/export/prores/${id}`;
+  const overlayImages = new Map<string, ImageBitmap>();
 
   try {
+    for (const [k, v] of await loadBrollImages(project)) overlayImages.set(k, v); // image and sticker overlays
     const canvas = new OffscreenCanvas(width, height);
     const ctx = canvas.getContext('2d', { alpha: true }); // GPU canvas: willReadFrequently forces CPU raster, ~10x slower here
     if (!ctx) throw new Error('Could not create a 2D canvas.');
@@ -293,7 +298,7 @@ async function exportProRes(project: Project, file: Blob, opts: ExportOptions): 
     let prevBox: Box | null = null, prevData: Uint32Array<ArrayBuffer> | null = null;
     for (let i = 0; i < frameCount; i++) {
       signal?.throwIfAborted();
-      composeFrame(ctx, width, height, project, (i * fps.den) / fps.num, null, { background: 'transparent', hideBroll: true });
+      composeFrame(ctx, width, height, project, (i * fps.den) / fps.num, null, { background: 'transparent', hideBroll: true, skipBackgrounds: true, brollImages: overlayImages });
       const px = new Uint32Array(ctx.getImageData(0, 0, width, height).data.buffer);
       const box = opaqueBox(px, width, height);
       let data: Uint32Array<ArrayBuffer> | null = null;
@@ -326,6 +331,8 @@ async function exportProRes(project: Project, file: Blob, opts: ExportOptions): 
   } catch (e) {
     void fetch(base, { method: 'DELETE' }).catch(() => {});
     throw e;
+  } finally {
+    overlayImages.forEach((b) => b.close());
   }
 }
 
@@ -371,7 +378,7 @@ async function exportClips(project: Project, opts: ExportOptions): Promise<Blob>
   const canvas = new OffscreenCanvas(width, height);
   const ctx = canvas.getContext('2d', { alpha });
   if (!ctx) throw new Error('Could not create a 2D canvas.');
-  const broll = screen ? new Map<string, ImageBitmap>() : await loadBrollImages(project);
+  const broll = await loadBrollImages(project); // screen exports still draw image and sticker overlays
   const output = new Output({ format: alpha ? new WebMOutputFormat() : new Mp4OutputFormat({ fastStart: 'in-memory' }), target: new BufferTarget() });
   type Run = { gen: AsyncGenerator<{ canvas: HTMLCanvasElement | OffscreenCanvas } | null>; i0: number; i1: number };
   const runs = new Map<string, Run>();
@@ -408,7 +415,7 @@ async function exportClips(project: Project, opts: ExportOptions): Promise<Blob>
         frames.set(id, got?.canvas ?? null);
       }
       await warmMattes(project.clips ?? [], t, (id) => { const src = frames.get(id); return src ? { draw: (x, dx, dy, dw, dh) => x.drawImage(src, dx, dy, dw, dh), w: src.width, h: src.height } : null; });
-      if (screen) composeFrame(ctx, width, height, project, t, null, { background: screen, hideBroll: true });
+      if (screen) composeFrame(ctx, width, height, project, t, null, { background: screen, hideBroll: true, skipBackgrounds: true, brollImages: broll });
       else {
         composeFrame(ctx, width, height, project, t, null, {
           brollImages: broll,

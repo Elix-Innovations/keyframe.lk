@@ -164,10 +164,10 @@ export function ExportPanel() {
           <Toggle checked={screenAudio} onChange={setScreenAudio} label="Include audio" />
         </Row>
         <div className="text-xs text-muted-foreground">
-          Output {size.width}×{size.height} {prores ? 'MOV (ProRes 4444 + alpha)' : transparent ? 'WebM (VP9 + alpha)' : 'MP4'}, captions only on {transparent ? 'a transparent background' : `${background} screen`}{screenAudio ? (prores ? ', with PCM audio' : ', with audio') : ', silent'}. Same length and timing as your video; B-roll is left out.
+          Output {size.width}×{size.height} {prores ? 'MOV (ProRes 4444 + alpha)' : transparent ? 'WebM (VP9 + alpha)' : 'MP4'}, captions and overlays on {transparent ? 'a transparent background' : `${background} screen`}{screenAudio ? (prores ? ', with PCM audio' : ', with audio') : ', silent'}. Same length and timing as your video; B-roll and background overlays are left out.
         </div>
         {progress === null || mode !== 'captions' ? (
-          <Button size="sm" className="h-8" disabled={!canEncode || !project.videoAssetId || progress !== null || !project.captions.length} onClick={() => run(true)}><Clapperboard />Export captions only {{ mov: 'MOV', webm: 'WebM', mp4: 'MP4' }[capExt]}</Button>
+          <Button size="sm" className="h-8" disabled={(!prores && !canEncode) || !project.videoAssetId || progress !== null || !project.captions.length} onClick={() => run(true)}><Clapperboard />Export captions only {{ mov: 'MOV', webm: 'WebM', mp4: 'MP4' }[capExt]}</Button>
         ) : renderBar()}
         {!project.captions.length && <p className="text-xs text-muted-foreground">Add captions first.</p>}
         <p className="text-xs text-muted-foreground">{prores
