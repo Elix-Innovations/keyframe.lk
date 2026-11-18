@@ -1,0 +1,310 @@
+name: Release
+
+# Builds the macOS dmg and the Windows installer, signs them when the signing secrets exist (see docs/SIGNING.md),
+# and attaches them plus SHA256SUMS.txt to a DRAFT GitHub release. Without the secrets the builds are unsigned
+# (macOS: ad-hoc), exactly like a local `npm run dist`.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  RELEASE_REPO: Elix-Innovations/keyframe.lk
+
+jobs:
+  meta:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      tag: ${{ steps.v.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v5
+      - id: v
+        name: Version
+        run: |
+          version="$(node -p "require('./desktop/package.json').version")"
+          if [[ "$GITHUB_REF_TYPE" == "tag" && "$GITHUB_REF_NAME" != "v$version" ]]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match desktop/package.json version $version"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+
+  mac:
+    needs: meta
+    runs-on: macos-14 # Apple silicon
+    timeout-minutes: 60
+    outputs:
+      signed: ${{ steps.signing.outputs.signed }}
+      notarized: ${{ steps.signing.outputs.notarized }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: |
+            web/package-lock.json
+            server/package-lock.json
+            desktop/package-lock.json
+      - uses: astral-sh/setup-uv@v7
+      - name: Install
+        run: |
+          npm --prefix web ci
+          npm --prefix server ci
+          npm --prefix desktop ci
+      - name: Fetch FM fonts
+        # Same script as `npm run fonts:fetch`, without syncing the whole Python project (PyTorch).
+        run: uv run --no-project --python 3.12 --with fonttools --with pillow python python/scripts/fetch_fonts.py
+
+      - id: signing
+        name: Configure signing
+        working-directory: desktop
+        env:
+          MAC_CSC_LINK: ${{ secrets.CSC_LINK }}
+          MAC_CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          API_KEY: ${{ secrets.APPLE_API_KEY }}
+          API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+        run: |
+          signed=false; notarized=false
+          if [[ -n "$MAC_CSC_LINK" ]]; then
+            signed=true
+            # package.json pins the ad-hoc identity "-" for local builds; drop it so electron-builder picks the
+            # Developer ID Application certificate out of CSC_LINK.
+            npm pkg delete build.mac.identity
+            {
+              echo "CSC_LINK<<__CSC_EOF__"; echo "$MAC_CSC_LINK"; echo "__CSC_EOF__"
+              echo "CSC_KEY_PASSWORD=$MAC_CSC_KEY_PASSWORD"
+            } >> "$GITHUB_ENV"
+            if [[ -n "$API_KEY" && -n "$API_KEY_ID" && -n "$API_ISSUER" ]]; then
+              notarized=true
+              key_file="$RUNNER_TEMP/AuthKey_${API_KEY_ID}.p8"
+              printf '%s\n' "$API_KEY" > "$key_file"
+              {
+                echo "APPLE_API_KEY=$key_file"
+                echo "APPLE_API_KEY_ID=$API_KEY_ID"
+                echo "APPLE_API_ISSUER=$API_ISSUER"
+              } >> "$GITHUB_ENV"
+            else
+              echo "::warning::APPLE_API_KEY / APPLE_API_KEY_ID / APPLE_API_ISSUER are not all set: the app will be signed but NOT notarized."
+            fi
+          else
+            echo "::warning::CSC_LINK is not set: building an unsigned (ad-hoc) macOS app."
+          fi
+          echo "signed=$signed" >> "$GITHUB_OUTPUT"
+          echo "notarized=$notarized" >> "$GITHUB_OUTPUT"
+
+      - name: Build dmg
+        working-directory: desktop
+        run: npm run dist
+
+      - name: Verify signature
+        if: steps.signing.outputs.signed == 'true'
+        working-directory: desktop
+        run: |
+          app="dist/mac-arm64/Keyframe.app"
+          codesign --verify --deep --strict --verbose=2 "$app"
+          codesign -dvv "$app" 2>&1 | grep -E 'Authority|TeamIdentifier|flags'
+          if [[ "${{ steps.signing.outputs.notarized }}" == "true" ]]; then
+            xcrun stapler validate "$app"
+            spctl -a -vv "$app"
+          fi
+
+      - name: Remove API key
+        if: always()
+        run: rm -f "$RUNNER_TEMP"/AuthKey_*.p8
+
+      - uses: actions/upload-artifact@v5
+        with:
+          name: mac
+          path: desktop/dist/Keyframe-${{ needs.meta.outputs.version }}-arm64.dmg
+          if-no-files-found: error
+          retention-days: 7
+
+  win:
+    needs: meta
+    runs-on: windows-latest
+    timeout-minutes: 60
+    outputs:
+      signed: ${{ steps.signing.outputs.signed }}
+    defaults:
+      run:
+        # pwsh, not bash: scripts/prepare.mjs unpacks uv's .zip with Windows' own tar (bsdtar); Git Bash's GNU tar cannot.
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: |
+            web/package-lock.json
+            server/package-lock.json
+            desktop/package-lock.json
+      - uses: astral-sh/setup-uv@v7
+      - name: Install
+        run: |
+          npm --prefix web ci
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          npm --prefix server ci
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          npm --prefix desktop ci
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - name: Fetch FM fonts
+        run: uv run --no-project --python 3.12 --with fonttools --with pillow python python/scripts/fetch_fonts.py
+
+      - id: signing
+        name: Configure signing
+        working-directory: desktop
+        env:
+          TENANT: ${{ secrets.AZURE_TENANT_ID }}
+          CLIENT: ${{ secrets.AZURE_CLIENT_ID }}
+          SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          ENDPOINT: ${{ vars.AZURE_SIGN_ENDPOINT }}
+          PROFILE: ${{ vars.AZURE_CERT_PROFILE }}
+          ACCOUNT: ${{ vars.AZURE_SIGN_ACCOUNT }}
+          PUBLISHER: ${{ vars.AZURE_PUBLISHER_NAME }}
+        run: |
+          $signed = 'false'
+          if ($env:TENANT -and $env:CLIENT -and $env:SECRET -and $env:ENDPOINT -and $env:PROFILE -and $env:ACCOUNT -and $env:PUBLISHER) {
+            $signed = 'true'
+            # Local builds keep signAndEditExecutable off; with it on, electron-builder signs Keyframe.exe, the bundled
+            # exes, the installer and the uninstaller with Azure Trusted Signing.
+            # The JavaScript uses backtick strings only, so no quotes have to survive PowerShell's argument passing.
+            $js = '
+              const fs = require(`fs`);
+              const pkg = JSON.parse(fs.readFileSync(`package.json`, `utf8`));
+              pkg.build.win.signAndEditExecutable = true;
+              pkg.build.win.azureSignOptions = {
+                publisherName: process.env.PUBLISHER,
+                endpoint: process.env.ENDPOINT,
+                certificateProfileName: process.env.PROFILE,
+                codeSigningAccountName: process.env.ACCOUNT,
+              };
+              fs.writeFileSync(`package.json`, JSON.stringify(pkg, null, 2));
+            '
+            node -e $js
+            if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          } else {
+            Write-Output "::warning::Azure Trusted Signing secrets/variables are not all set: building an unsigned Windows installer."
+          }
+          "signed=$signed" >> $env:GITHUB_OUTPUT
+
+      - name: Build installer
+        working-directory: desktop
+        env:
+          # Read by the TrustedSigning PowerShell module (Azure EnvironmentCredential). Empty when unsigned.
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+        run: npm run dist:win
+
+      - name: Verify signature
+        if: steps.signing.outputs.signed == 'true'
+        working-directory: desktop
+        run: |
+          $files = @(
+            "dist/Keyframe-Setup-${{ needs.meta.outputs.version }}-x64.exe",
+            "dist/win-unpacked/Keyframe.exe",
+            "dist/win-unpacked/resources/bin/uv.exe",
+            "dist/win-unpacked/resources/bin/ffmpeg.exe"
+          )
+          foreach ($f in $files) {
+            $sig = Get-AuthenticodeSignature $f
+            "{0}: {1} ({2})" -f $f, $sig.Status, $sig.SignerCertificate.Subject
+            # electron-builder only warns when a file fails to sign, so fail the release here.
+            if ($sig.Status -ne 'Valid') { Write-Output "::error::$f is not validly signed"; exit 1 }
+          }
+
+      - uses: actions/upload-artifact@v5
+        with:
+          name: win
+          path: desktop/dist/Keyframe-Setup-${{ needs.meta.outputs.version }}-x64.exe
+          if-no-files-found: error
+          retention-days: 7
+
+  release:
+    needs: [meta, mac, win]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write # lets the built-in token publish when this workflow runs inside RELEASE_REPO
+    env:
+      # RELEASE_TOKEN (a PAT with Contents: read/write on RELEASE_REPO) is required when this workflow runs in any
+      # other repository; inside RELEASE_REPO the built-in token is enough.
+      GH_TOKEN: ${{ secrets.RELEASE_TOKEN || github.token }}
+      VERSION: ${{ needs.meta.outputs.version }}
+      TAG: ${{ needs.meta.outputs.tag }}
+      MAC_SIGNED: ${{ needs.mac.outputs.signed }}
+      MAC_NOTARIZED: ${{ needs.mac.outputs.notarized }}
+      WIN_SIGNED: ${{ needs.win.outputs.signed }}
+    steps:
+      - uses: actions/download-artifact@v5
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Checksums
+        working-directory: dist
+        run: |
+          sha256sum "Keyframe-${VERSION}-arm64.dmg" "Keyframe-Setup-${VERSION}-x64.exe" > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+      - name: Publish draft release
+        working-directory: dist
+        run: |
+          assets=("Keyframe-${VERSION}-arm64.dmg" "Keyframe-Setup-${VERSION}-x64.exe" SHA256SUMS.txt)
+          if draft="$(gh release view "$TAG" --repo "$RELEASE_REPO" --json isDraft -q .isDraft 2>/dev/null)"; then
+            if [[ "$draft" == "true" ]]; then
+              # Re-run for a release that is still a draft: replace the files, keep its notes.
+              gh release upload "$TAG" "${assets[@]}" --repo "$RELEASE_REPO" --clobber
+              echo "Updated the files on draft release $TAG in $RELEASE_REPO." >> "$GITHUB_STEP_SUMMARY"
+            else
+              # Never swap files under a published release (for example one that make.sh already published).
+              echo "::warning::Release $TAG is already published in $RELEASE_REPO; nothing was uploaded. The builds are attached to this run as artifacts."
+              echo "Release $TAG is already published; nothing was uploaded. Download the \`mac\` / \`win\` artifacts from this run if you need them." >> "$GITHUB_STEP_SUMMARY"
+            fi
+            exit 0
+          fi
+          {
+            echo "## What's new"
+            echo "- "
+            echo
+            echo "## Download"
+            echo "| Platform | File |"
+            echo "|---|---|"
+            echo "| macOS (Apple silicon) | \`Keyframe-${VERSION}-arm64.dmg\` |"
+            echo "| Windows (x64) | \`Keyframe-Setup-${VERSION}-x64.exe\` |"
+            echo
+            echo "FFmpeg is bundled (plus ffprobe on Windows). Check a download with \`shasum -a 256 -c SHA256SUMS.txt\`."
+            if [[ "$MAC_NOTARIZED" != "true" || "$WIN_SIGNED" != "true" ]]; then
+              echo
+              echo "## First launch"
+              if [[ "$MAC_NOTARIZED" != "true" ]]; then
+                echo "- **macOS:** this build is not notarized. Drag **Keyframe** into Applications, open it once, then go to **System Settings → Privacy & Security → Open Anyway**. If it says \"damaged\", run \`xattr -dr com.apple.quarantine /Applications/Keyframe.app\`."
+              fi
+              if [[ "$WIN_SIGNED" != "true" ]]; then
+                echo "- **Windows:** this build is not signed. SmartScreen shows \"Windows protected your PC\". Choose **More info** → **Run anyway**."
+              fi
+            fi
+          } > "$RUNNER_TEMP/notes.md"
+          # Draft: review the notes on GitHub, then press Publish.
+          target=()
+          if [[ "$GITHUB_REPOSITORY" == "$RELEASE_REPO" ]]; then target=(--target "$GITHUB_SHA"); fi
+          gh release create "$TAG" "${assets[@]}" --repo "$RELEASE_REPO" --draft \
+            "${target[@]}" --title "Keyframe ${VERSION}" --notes-file "$RUNNER_TEMP/notes.md"
+          {
+            echo "### Draft release $TAG created in $RELEASE_REPO"
+            echo "- macOS signed: $MAC_SIGNED, notarized: $MAC_NOTARIZED"
+            echo "- Windows signed: $WIN_SIGNED"
+            echo
+            echo "Review it at https://github.com/$RELEASE_REPO/releases and press **Publish**."
+          } >> "$GITHUB_STEP_SUMMARY"

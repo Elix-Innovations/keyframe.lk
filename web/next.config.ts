@@ -8,7 +8,9 @@ const nextConfig: NextConfig = {
   // Images are not optimized in the desktop app, so the platform-specific sharp binary is never needed.
   ...(process.env.KEYFRAME_DESKTOP ? { output: 'standalone' as const, images: { unoptimized: true } } : {}),
   // Uploads through the /api rewrite (ProRes caption frames, soundtracks) are far larger than the 10 MB default, and a render can run for minutes.
-  experimental: { proxyClientMaxBodySize: '1gb', proxyTimeout: 30 * 60_000 },
+  // Desktop: never write the ISR route cache to disk. The server runs from inside the signed app bundle, and writing
+  // .next/server/route-cache there breaks the macOS code signature (and fails outright for non-admin users).
+  experimental: { proxyClientMaxBodySize: '1gb', proxyTimeout: 30 * 60_000, ...(process.env.KEYFRAME_DESKTOP ? { isrFlushToDisk: false } : {}) },
   async rewrites() {
     // The desktop servers listen on 127.0.0.1 only; "localhost" can resolve to ::1 first on Windows, which costs a failed
     // connect (or a dropped request) on every proxied call.

@@ -364,6 +364,11 @@ if (!app.requestSingleInstanceLock()) {
     // The editor needs the clipboard, fullscreen, file pickers and (for voice-over) the mic; nothing else.
     const allowed = new Set(['clipboard-read', 'clipboard-sanitized-write', 'fullscreen', 'media', 'fileSystem', 'pointerLock']);
     session.defaultSession.setPermissionRequestHandler((_wc, perm, cb) => cb(allowed.has(perm)));
+    // Without a check handler, Chromium forgets File System Access grants on every launch, so queryPermission()
+    // returns "prompt" and the editor asks "Allow Keyframe.lk to read <video> again" for each remembered video.
+    // The app only ever loads its own local editor, so answer "granted" for that origin.
+    const isLocal = (origin) => /^http:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/.test(String(origin || '').replace(/\/$/, ''));
+    session.defaultSession.setPermissionCheckHandler((_wc, perm, origin) => allowed.has(perm) && isLocal(origin));
     Menu.setApplicationMenu(appMenu());
     registerAlignerIpc();
     return createWindow(booting);

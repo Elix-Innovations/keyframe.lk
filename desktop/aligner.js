@@ -112,6 +112,8 @@ function createAligner({ userData, base, port: PORT = 8788, track, env: extraEnv
     UV_NO_PROGRESS: '1',
     HF_HOME: p.hf,
     PYTHONUNBUFFERED: '1',
+    // The sources sit inside the signed app bundle: a __pycache__ written there breaks the code signature's seal.
+    PYTHONDONTWRITEBYTECODE: '1',
   });
 
   let current = null; // the running setup child, so Cancel can stop it
@@ -279,7 +281,7 @@ function createAligner({ userData, base, port: PORT = 8788, track, env: extraEnv
     const child = spawn(p.py, ['-m', 'uvicorn', 'app:app', '--app-dir', p.pyDir, '--host', '127.0.0.1', '--port', String(PORT)], {
       cwd: p.pyDir,
       // Offline: the model is already in HF_HOME, so never go to the network at runtime.
-      env: { ...process.env, ...extraEnv, HF_HOME: p.hf, HF_HUB_OFFLINE: '1', PYTHONUNBUFFERED: '1' },
+      env: { ...process.env, ...extraEnv, HF_HOME: p.hf, HF_HUB_OFFLINE: '1', PYTHONUNBUFFERED: '1', PYTHONDONTWRITEBYTECODE: '1' },
       stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true,
     });
