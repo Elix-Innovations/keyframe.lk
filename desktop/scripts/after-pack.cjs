@@ -1,8 +1,15 @@
 // electron-builder afterPack hook: give Keyframe.exe its own icon and version info.
 //
-// `win.signAndEditExecutable` is off (the stock editing step needs Wine when building on macOS/Linux), so the packaged
+// `win.signAndEditExecutable` is off for local builds (its editing step used to need Wine on macOS/Linux; in
+// electron-builder 26 it is resedit as well, and switching it on is what the signed CI build does), so the packaged
 // exe would otherwise keep Electron's default icon, and Task Manager / the taskbar / shortcuts would show "Electron".
 // `resedit` is pure JavaScript (already installed as an electron-builder dependency), so it works on any host.
+//
+// Signing order: electron-builder runs this hook first and signs afterwards (platformPackager: emitAfterPack ->
+// doSignAfterPack), so these edits never invalidate a signature. Signed release builds (.github/workflows/release.yml)
+// switch `signAndEditExecutable` on, because that is the only way electron-builder signs Keyframe.exe and the bundled
+// uv / ffmpeg / ffprobe exes; it then re-applies its own version strings before signing (CompanyName = package.json
+// `author`, LegalCopyright = `build.copyright`).
 const fs = require('node:fs');
 const path = require('node:path');
 const ResEdit = require('resedit');

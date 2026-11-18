@@ -9,12 +9,13 @@
   "scripts": {
     "prepare:app": "node scripts/prepare.mjs",
     "start": "electron .",
-    "dist": "npm run prepare:app && electron-builder --mac dmg",
-    "dist:win": "node scripts/prepare.mjs --win && electron-builder --win nsis --x64"
+    "dist": "npm run prepare:app && electron-builder --mac dmg --publish never",
+    "dist:win": "node scripts/prepare.mjs --win && electron-builder --win nsis --x64 --publish never"
   },
   "build": {
     "appId": "lk.keyframe.desktop",
     "productName": "Keyframe",
+    "copyright": "Copyright © Elix Innovations",
     "directories": {
       "output": "dist"
     },
@@ -56,7 +57,13 @@
           ]
         }
       ],
-      "identity": null
+      "identity": "-",
+      "artifactName": "Keyframe-${version}-${arch}.${ext}",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "entitlements.mac.plist",
+      "entitlementsInherit": "entitlements.mac.plist",
+      "notarize": true
     },
     "dmg": {
       "title": "Install Keyframe"
@@ -81,7 +88,8 @@
       "shortcutName": "Keyframe",
       "installerIcon": "icon.ico",
       "uninstallerIcon": "icon.ico",
-      "installerHeaderIcon": "icon.ico"
+      "installerHeaderIcon": "icon.ico",
+      "artifactName": "Keyframe-Setup-${version}-x64.${ext}"
     }
   },
   "devDependencies": {

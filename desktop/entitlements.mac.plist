@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Hardened-runtime entitlements for Keyframe.app. Used for the app itself and (as entitlementsInherit) for every
+  nested binary electron-builder signs: the Electron helpers, Resources/bin/uv, Resources/bin/ffmpeg and the native
+  .node / .dylib files under Resources/web/node_modules.
+
+  This file lives here, not in desktop/build/, because scripts/prepare.mjs wipes that folder and git ignores it.
+-->
+<plist version="1.0">
+  <dict>
+    <!-- V8 (Electron, and the Node servers run with ELECTRON_RUN_AS_NODE) compiles JavaScript at runtime. -->
+    <key>com.apple.security.cs.allow-jit</key>
+    <true/>
+    <!-- Needed by V8 / WebAssembly on the code paths that do not use MAP_JIT. -->
+    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+    <true/>
+    <!-- Lets the app load code not signed by our Team ID: native Node addons (sharp / libvips), and keeps the
+         ad-hoc signed local build launchable (ad-hoc + hardened runtime fails library validation otherwise). -->
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
+  </dict>
+</plist>

@@ -147,8 +147,8 @@ Order chosen by value versus effort:
 - [ ] **More engines**: local Whisper (see sidecar below) and a provider-agnostic transcription interface so contributors can add engines without touching the UI. `[sinhala]`
 
 ### Desktop app
-- [ ] **Windows and Linux builds.** The Electron config targets macOS arm64 DMG only, with `identity: null` (unsigned), so users hit Gatekeeper warnings. Add x64 mac, Windows (NSIS) and Linux (AppImage) targets. `[desktop]`
-- [ ] **Code signing and notarization** once there is a certificate; document the unsigned install in the meantime. `[desktop]`
+- [ ] **More platforms.** macOS arm64 (dmg) and Windows x64 (NSIS) ship today. Add Intel mac and Linux (AppImage) targets. `[desktop]`
+- [ ] **Code signing and notarization.** The mac build is ad-hoc signed for now. The Developer ID, notarization and Azure Trusted Signing setup is wired up in the release workflow; it activates once the secrets are added (see `docs/SIGNING.md`). `[desktop]`
 - [ ] **Auto-update** through GitHub Releases. `[desktop]`
 
 ### Optional local engine (from the roadmap)
