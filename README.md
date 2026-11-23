@@ -450,11 +450,11 @@ Run from the repo root:
 
 ## 19. Desktop app
 
-`desktop/` wraps the built editor and API in an Electron app for macOS (Apple silicon) and Windows (x64).
+`desktop/` wraps the built editor and API in an Electron app for macOS (Apple silicon and Intel) and Windows (x64).
 
 ### Download
 
-Get **`Keyframe-<version>-arm64.dmg`** from the [latest release](https://github.com/Elix-Innovations/keyframe.lk/releases/latest), open it and drag **Keyframe** into Applications.
+Get **`Keyframe-<version>-arm64.dmg`** (Apple silicon) or **`Keyframe-<version>-x64.dmg`** (Intel Mac) from the [latest release](https://github.com/Elix-Innovations/keyframe.lk/releases/latest), open it and drag **Keyframe** into Applications.
 
 The app is not yet signed with an Apple Developer ID (see [docs/SIGNING.md](docs/SIGNING.md)), so macOS asks before the first launch:
 
@@ -466,6 +466,10 @@ xattr -dr com.apple.quarantine /Applications/Keyframe.app
 ```
 
 A step-by-step guide in Sinhala and English is at [keyframe.lk/install](https://keyframe.lk/install).
+
+Accurate caption timing (the on-device aligner) needs Apple silicon; the Intel build runs everything else.
+
+To build the Intel dmg locally: `cd desktop && npm_config_platform=darwin npm_config_arch=x64 node node_modules/ffmpeg-static/install.js && npm run dist:mac-x64`.
 
 ### Windows
 

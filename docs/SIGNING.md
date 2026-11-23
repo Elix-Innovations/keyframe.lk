@@ -112,7 +112,7 @@ the tag instead of letting `make.sh` build and publish.
 macOS (only the app is notarized and stapled, not the `.dmg` wrapper, so check the app inside it):
 
 ```sh
-hdiutil attach Keyframe-1.0.3-arm64.dmg
+hdiutil attach Keyframe-1.0.4-arm64.dmg   # or Keyframe-1.0.4-x64.dmg for Intel
 APP="/Volumes/Install Keyframe/Keyframe.app"   # adjust if the volume is named differently
 codesign --verify --deep --strict --verbose=2 "$APP"
 codesign -dvv "$APP" 2>&1 | grep -E 'Authority|TeamIdentifier|flags'   # Developer ID Application, flags=...(runtime)
