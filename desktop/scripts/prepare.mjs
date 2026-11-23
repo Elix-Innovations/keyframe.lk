@@ -57,9 +57,11 @@ await build({
 // first run (see desktop/main.js), so only the source and a pinned `uv` binary are bundled here.
 // ---------------------------------------------------------------------------
 const isWin = process.argv.includes('--win');
+const isX64Mac = !isWin && process.argv.includes('--x64'); // Intel Mac build; default mac build is Apple silicon
 const UV_VERSION = '0.11.16';
 const UV_ASSETS = {
   win32: { file: 'uv-x86_64-pc-windows-msvc.zip', sha256: 'dd9d6d6554bfab265bfa98aa8e8a406c5c3a7b97582f93de1f4d48d9154a0395', bin: 'uv.exe' },
+  'darwin-x64': { file: 'uv-x86_64-apple-darwin.tar.gz', sha256: '6b91ae3de155f51bd1f5b74814821c79f016a176561f252cd9ddfb976939af2e', bin: 'uv' },
   darwin: { file: 'uv-aarch64-apple-darwin.tar.gz', sha256: '2b25be1af546be330b340b0a76b99f989daa6d92678fdffb87438e661e9d88fb', bin: 'uv' },
 };
 
@@ -109,12 +111,12 @@ cpSync(path.join(root, 'python', 'keyframe_sinhala'), path.join(pyroot, 'python'
 });
 mkdirSync(path.join(pyroot, 'web', 'src', 'lib'), { recursive: true });
 cpSync(path.join(root, 'web', 'src', 'lib', 'fm-table.json'), path.join(pyroot, 'web', 'src', 'lib', 'fm-table.json'));
-await bundleUv(isWin ? 'win32' : 'darwin');
+await bundleUv(isWin ? 'win32' : isX64Mac ? 'darwin-x64' : 'darwin');
 
 // Both installers ship their own ffmpeg + ffprobe (main.js sets FFMPEG_PATH / FFPROBE_PATH and puts bin/ on PATH),
 // so a clean machine without Homebrew still transcribes and exports.
 {
-  const plat = isWin ? 'win32' : 'darwin', arch = isWin ? 'x64' : 'arm64', exe = isWin ? '.exe' : '';
+  const plat = isWin ? 'win32' : 'darwin', arch = isWin || isX64Mac ? 'x64' : 'arm64', exe = isWin ? '.exe' : '';
   console.log(`> bundling ffmpeg${isWin ? ' + ffprobe' : ''} (${plat}-${arch})`);
   const require = createRequire(import.meta.url);
   const ffmpegDir = path.dirname(require.resolve('ffmpeg-static/package.json'));

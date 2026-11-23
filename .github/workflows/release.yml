@@ -1,6 +1,6 @@
 name: Release
 
-# Builds the macOS dmg and the Windows installer, signs them when the signing secrets exist (see docs/SIGNING.md),
+# Builds the macOS dmgs (Apple silicon + Intel) and the Windows installer, signs them when the signing secrets exist (see docs/SIGNING.md),
 # and attaches them plus SHA256SUMS.txt to a DRAFT GitHub release. Without the secrets the builds are unsigned
 # (macOS: ad-hoc), exactly like a local `npm run dist`.
 
@@ -41,8 +41,15 @@ jobs:
 
   mac:
     needs: meta
-    runs-on: macos-14 # Apple silicon
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { arch: arm64, runner: macos-14, script: dist }
+          - { arch: x64, runner: macos-15-intel, script: 'dist:mac-x64' }
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 60
+    # Both legs compute the same values, so the matrix-merged outputs are unambiguous.
     outputs:
       signed: ${{ steps.signing.outputs.signed }}
       notarized: ${{ steps.signing.outputs.notarized }}
@@ -106,13 +113,14 @@ jobs:
 
       - name: Build dmg
         working-directory: desktop
-        run: npm run dist
+        run: npm run ${{ matrix.script }}
 
       - name: Verify signature
         if: steps.signing.outputs.signed == 'true'
         working-directory: desktop
         run: |
-          app="dist/mac-arm64/Keyframe.app"
+          # electron-builder names the output folder `mac` for x64 and `mac-arm64` for arm64.
+          app="dist/mac${{ matrix.arch == 'arm64' && '-arm64' || '' }}/Keyframe.app"
           codesign --verify --deep --strict --verbose=2 "$app"
           codesign -dvv "$app" 2>&1 | grep -E 'Authority|TeamIdentifier|flags'
           if [[ "${{ steps.signing.outputs.notarized }}" == "true" ]]; then
@@ -126,8 +134,8 @@ jobs:
 
       - uses: actions/upload-artifact@v5
         with:
-          name: mac
-          path: desktop/dist/Keyframe-${{ needs.meta.outputs.version }}-arm64.dmg
+          name: mac-${{ matrix.arch }}
+          path: desktop/dist/Keyframe-${{ needs.meta.outputs.version }}-${{ matrix.arch }}.dmg
           if-no-files-found: error
           retention-days: 7
 
@@ -256,12 +264,12 @@ jobs:
       - name: Checksums
         working-directory: dist
         run: |
-          sha256sum "Keyframe-${VERSION}-arm64.dmg" "Keyframe-Setup-${VERSION}-x64.exe" > SHA256SUMS.txt
+          sha256sum "Keyframe-${VERSION}-arm64.dmg" "Keyframe-${VERSION}-x64.dmg" "Keyframe-Setup-${VERSION}-x64.exe" > SHA256SUMS.txt
           cat SHA256SUMS.txt
       - name: Publish draft release
         working-directory: dist
         run: |
-          assets=("Keyframe-${VERSION}-arm64.dmg" "Keyframe-Setup-${VERSION}-x64.exe" SHA256SUMS.txt)
+          assets=("Keyframe-${VERSION}-arm64.dmg" "Keyframe-${VERSION}-x64.dmg" "Keyframe-Setup-${VERSION}-x64.exe" SHA256SUMS.txt)
           if draft="$(gh release view "$TAG" --repo "$RELEASE_REPO" --json isDraft -q .isDraft 2>/dev/null)"; then
             if [[ "$draft" == "true" ]]; then
               # Re-run for a release that is still a draft: replace the files, keep its notes.
@@ -270,7 +278,7 @@ jobs:
             else
               # Never swap files under a published release (for example one that make.sh already published).
               echo "::warning::Release $TAG is already published in $RELEASE_REPO; nothing was uploaded. The builds are attached to this run as artifacts."
-              echo "Release $TAG is already published; nothing was uploaded. Download the \`mac\` / \`win\` artifacts from this run if you need them." >> "$GITHUB_STEP_SUMMARY"
+              echo "Release $TAG is already published; nothing was uploaded. Download the \`mac-arm64\` / \`mac-x64\` / \`win\` artifacts from this run if you need them." >> "$GITHUB_STEP_SUMMARY"
             fi
             exit 0
           fi
@@ -282,6 +290,7 @@ jobs:
             echo "| Platform | File |"
             echo "|---|---|"
             echo "| macOS (Apple silicon) | \`Keyframe-${VERSION}-arm64.dmg\` |"
+            echo "| macOS (Intel) | \`Keyframe-${VERSION}-x64.dmg\` |"
             echo "| Windows (x64) | \`Keyframe-Setup-${VERSION}-x64.exe\` |"
             echo
             echo "FFmpeg is bundled (plus ffprobe on Windows). Check a download with \`shasum -a 256 -c SHA256SUMS.txt\`."
