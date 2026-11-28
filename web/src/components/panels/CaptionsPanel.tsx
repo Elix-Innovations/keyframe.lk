@@ -129,10 +129,12 @@ function Generate() {
         </Row>
       )}
       {alignSetup ? (
-        alignSetup.phase !== 'ready' && alignSetup.phase !== 'unsupported' && anyProvider && (
+        // Shown whenever it is not installed, with or without an API key: the Home card can be dismissed for good.
+        alignSetup.phase !== 'ready' && alignSetup.phase !== 'unsupported' && (
           <div className="space-y-2 rounded-md border p-2.5">
-            {alignSetup.phase === 'missing' && <p className="text-xs text-warn">Word timings come from the engine and may drift from the voice.</p>}
-            <AlignerSetup state={alignSetup} compact />
+            <div className="text-xs font-medium">Accurate caption timing</div>
+            {alignSetup.phase === 'missing' && anyProvider && <p className="text-xs text-warn">Word timings come from the engine and may drift from the voice.</p>}
+            <AlignerSetup state={alignSetup} />
           </div>
         )
       ) : h && anyProvider && h.align && h.align !== 'ready' && (
