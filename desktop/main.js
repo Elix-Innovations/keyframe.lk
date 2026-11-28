@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, shell, dialog, session, ipcMain } = require('electron');
+const { app, BrowserWindow, Menu, shell, dialog, session, ipcMain, net: electronNet } = require('electron');
 const { spawn, execFile } = require('node:child_process');
 const path = require('node:path');
 const fs = require('node:fs');
@@ -252,13 +252,56 @@ function splashStatus(text) {
   win.webContents.executeJavaScript(`window.setStatus && window.setStatus(${JSON.stringify(text)})`).catch(() => {});
 }
 
+const RELEASES_API = 'https://api.github.com/repos/Elix-Innovations/keyframe.lk/releases/latest';
+const newer = (a, b) => { // is dotted version a > b
+  const x = a.split('.').map(Number), y = b.split('.').map(Number);
+  for (let i = 0; i < 3; i++) if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) > (y[i] || 0);
+  return false;
+};
+
+/** Asks GitHub for the latest published release and offers the download page when it is newer. Manual checks (the
+ * menu item) also report "up to date" and failures; the silent startup check says nothing unless there is an update.
+ * shortcut: no in-app install (macOS builds may be ad-hoc signed, which blocks auto-update); upgrade once signed. */
+let checking = false;
+async function checkForUpdates(manual) {
+  if (checking) return; // a second click (or the startup check still running) must not stack dialogs
+  checking = true;
+  const parent = win && !win.isDestroyed() ? win : undefined;
+  try {
+    const res = await electronNet.fetch(RELEASES_API, { headers: { Accept: 'application/vnd.github+json' }, signal: AbortSignal.timeout(10_000) });
+    if (!res.ok) throw new Error(`GitHub answered ${res.status}`);
+    const rel = await res.json();
+    const latest = String(rel.tag_name || '').replace(/^v/, '');
+    if (!/^\d+(\.\d+){0,2}$/.test(latest)) throw new Error('Unreadable version in the latest release');
+    if (!newer(latest, app.getVersion())) {
+      if (manual) await dialog.showMessageBox(parent, { type: 'info', message: 'Keyframe is up to date', detail: `You have the latest version (${app.getVersion()}).` });
+      return;
+    }
+    const { response } = await dialog.showMessageBox(parent, {
+      type: 'info', message: `Keyframe ${latest} is available`,
+      detail: `You have ${app.getVersion()}. Download the new version and install it over the current one.`,
+      buttons: ['Download', 'Later'], defaultId: 0, cancelId: 1,
+    });
+    if (response === 0 && String(rel.html_url).startsWith('https://github.com/')) shell.openExternal(rel.html_url);
+  } catch (e) {
+    if (manual) await dialog.showMessageBox(parent, { type: 'warning', message: 'Could not check for updates', detail: String(e && e.message || e) });
+  } finally {
+    checking = false;
+  }
+}
+
 /** macOS: the usual app / Edit / View / Window menus (Edit makes ⌘C/⌘V work in text fields). Windows: no menu bar,
  * so Alt is free for the editor's Alt shortcuts. Reload and DevTools only in development. */
 function appMenu() {
   if (process.platform !== 'darwin') return null;
   const dev = !app.isPackaged ? [{ role: 'reload' }, { role: 'toggleDevTools' }, { type: 'separator' }] : [];
   return Menu.buildFromTemplate([
-    { role: 'appMenu' },
+    { label: app.name, submenu: [
+      { role: 'about' },
+      { label: 'Check for Updates…', click: () => checkForUpdates(true) },
+      { type: 'separator' }, { role: 'services' }, { type: 'separator' },
+      { role: 'hide' }, { role: 'hideOthers' }, { role: 'unhide' }, { type: 'separator' }, { role: 'quit' },
+    ] },
     { role: 'editMenu' },
     { label: 'View', submenu: [...dev, { role: 'togglefullscreen' }] },
     { role: 'windowMenu' },
@@ -371,7 +414,9 @@ if (!app.requestSingleInstanceLock()) {
     session.defaultSession.setPermissionCheckHandler((_wc, perm, origin) => allowed.has(perm) && isLocal(origin));
     Menu.setApplicationMenu(appMenu());
     registerAlignerIpc();
-    return createWindow(booting);
+    const created = createWindow(booting);
+    if (app.isPackaged) created.then(() => checkForUpdates(false), () => {});
+    return created;
   });
 }
 app.on('window-all-closed', () => app.quit());
